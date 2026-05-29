@@ -147,20 +147,22 @@ class _DefaultImageFrame(Gtk.Frame):
         self._image = image
 
     def _on_change(self, _btn: Gtk.Button) -> None:
-        dialog = Gtk.FileChooserNative(title="Choose Image", accept_label="Open", cancel_label="Cancel")
+        fd = Gtk.FileDialog.new()
+        fd.set_title("Choose Image")
         filt = Gtk.FileFilter()
         filt.set_name("Image files")
         filt.add_mime_type("image/jpeg")
         filt.add_mime_type("image/png")
         filt.add_mime_type("image/gif")
-        dialog.add_filter(filt)
+        fd.set_default_filter(filt)
+        fd.open(None, self._on_file_selected, None)
 
-        if dialog.run() == Gtk.ResponseType.ACCEPT:
-            file = dialog.get_file()
-            if file:
-                try:
-                    pixbuf = GdkPixbuf.Pixbuf.new_from_file_at_size(file.get_path(), self._size[0], self._size[1])
-                    self._image.set_pixbuf(pixbuf)
-                except Exception:
-                    pass
-        dialog.destroy()
+    def _on_file_selected(self, fd: Gtk.FileDialog, result, _ud) -> None:
+        try:
+            file = fd.open_finish(result)
+            if not file:
+                return
+            pixbuf = GdkPixbuf.Pixbuf.new_from_file_at_size(file.get_path(), self._size[0], self._size[1])
+            self._image.set_pixbuf(pixbuf)
+        except Exception:
+            pass

@@ -191,14 +191,17 @@ class DangerousSettingsTab(Gtk.ScrolledWindow):
         config["avoidList"] = "Edgeware>AppData"
 
     def _on_select_path(self, _btn: Gtk.Button) -> None:
-        dialog = Gtk.FileChooserNative(
-            title="Select Parent Folder", action=Gtk.FileChooserAction.SELECT_FOLDER,
-            accept_label="Select", cancel_label="Cancel",
-        )
-        if dialog.run() == Gtk.ResponseType.ACCEPT:
-            file = dialog.get_file()
-            if file:
-                path = file.get_path()
-                config["drivePath"] = path
-                self._path_entry.set_text(path)
-        dialog.destroy()
+        fd = Gtk.FileDialog.new()
+        fd.set_title("Select Parent Folder")
+        fd.select_folder(None, self._on_folder_selected, None)
+
+    def _on_folder_selected(self, fd: Gtk.FileDialog, result, _ud) -> None:
+        try:
+            file = fd.select_folder_finish(result)
+            if not file:
+                return
+            path = file.get_path()
+            config["drivePath"] = path
+            self._path_entry.set_text(path)
+        except Exception:
+            pass

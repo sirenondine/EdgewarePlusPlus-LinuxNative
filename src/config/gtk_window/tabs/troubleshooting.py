@@ -140,12 +140,14 @@ class TroubleshootingTab(Gtk.ScrolledWindow):
         return len(os.listdir(Data.LOGS)) if os.path.exists(Data.LOGS) else 0
 
     def _on_delete_logs(self) -> None:
-        dialog = Gtk.MessageDialog(
-            text="Confirm Delete",
-            secondary_text=f"Are you sure you want to delete all logs? There are currently {self._get_log_number()}.",
-            buttons=Gtk.ButtonsType.YES_NO,
-            message_type=Gtk.MessageType.WARNING,
-        )
+        dialog = Gtk.Dialog(title="Confirm Delete")
+        dialog.add_button("Yes", Gtk.ResponseType.YES)
+        dialog.add_button("No", Gtk.ResponseType.NO)
+        dialog.get_content_area().append(Gtk.Label(
+            label=f"Are you sure you want to delete all logs? There are currently {self._get_log_number()}.",
+            wrap=True, margin=12,
+        ))
+        dialog.present()
         if dialog.run() != Gtk.ResponseType.YES:
             dialog.destroy()
             return

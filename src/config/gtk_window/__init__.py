@@ -162,12 +162,15 @@ class ConfigWindow(Gtk.Window):
         if live_version and local_version.split("_")[0] != live_version.split("_")[0] and not (
             local_version.endswith("DEV") or config["toggleInternet"]
         ):
-            dialog = Gtk.MessageDialog(
-                transient_for=self,
-                text="Update Available",
-                secondary_text='Main local version and web version are not the same.\nPlease visit the Github and download the newer files,\nor use the direct download link on the "Start" tab.',
-            )
-            dialog.show()
+            dialog = Gtk.Dialog(title="Update Available")
+            dialog.add_button("OK", Gtk.ResponseType.OK)
+            dialog.get_content_area().append(Gtk.Label(
+                label="Main local version and web version are not the same.\nPlease visit the Github and download the newer files,\nor use the direct download link on the \"Start\" tab.",
+                wrap=True, margin=12,
+            ))
+            dialog.present()
+            dialog.run()
+            dialog.destroy()
 
         self.present()
 

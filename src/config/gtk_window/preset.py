@@ -94,10 +94,12 @@ def apply_preset(preset: dict, vars: Vars, select: list[str] | None = None) -> N
     if danger:
         vars.safe_mode.set(True)
 
-    dialog = Gtk.MessageDialog(
-        text="Done",
-        secondary_text="Config has been loaded successfully.\n\nChanges have not been automatically saved.",
-        buttons=Gtk.ButtonsType.OK,
-    )
+    dialog = Gtk.Dialog(title="Done")
+    dialog.add_button("OK", Gtk.ResponseType.OK)
+    dialog.get_content_area().append(Gtk.Label(
+        label="Config has been loaded successfully.\n\nChanges have not been automatically saved.",
+        wrap=True, margin=12,
+    ))
+    dialog.present()
     dialog.run()
     dialog.destroy()

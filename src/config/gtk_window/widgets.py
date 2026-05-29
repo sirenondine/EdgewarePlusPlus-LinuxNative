@@ -32,13 +32,19 @@ class ConfigSection(Gtk.Frame):
         vbox.set_margin_bottom(PAD)
         self.set_child(vbox)
 
+        title_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+
         title_label = Gtk.Label(label=title, css_classes=["config-section-title"], wrap=True)
         title_label.set_xalign(0)
-        vbox.append(title_label)
+        title_label.set_hexpand(True)
+        title_row.append(title_label)
 
         if message:
-            msg = ConfigMessage(message)
-            vbox.append(msg)
+            icon = Gtk.Image.new_from_icon_name("help-info-symbolic")
+            icon.set_tooltip_text(message)
+            title_row.append(icon)
+
+        vbox.append(title_row)
 
         self._content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
         vbox.append(self._content)

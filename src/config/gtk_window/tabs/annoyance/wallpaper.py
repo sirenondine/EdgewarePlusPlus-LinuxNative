@@ -35,15 +35,12 @@ class WallpaperTab(Gtk.ScrolledWindow):
     def __init__(self, vars: Vars, pack: Pack) -> None:
         super().__init__()
         self.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-        self.set_hexpand(True)
-        self.set_vexpand(True)
         self._vars = vars
         self._pack = pack
 
         vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         self.set_child(vbox)
 
-        # Panic
         panic_section = ConfigSection("Panic Wallpaper", PANIC_TEXT)
         vbox.append(panic_section)
 
@@ -56,10 +53,7 @@ class WallpaperTab(Gtk.ScrolledWindow):
         panic_section.append(panic_btn_row)
 
         set_btn = Gtk.Button(label="Set Panic Wallpaper")
-        set_btn.set_tooltip_text(
-            "When you use panic, the wallpaper will be set to this image.\n"
-            "It is recommended to find your preferred/original desktop wallpaper and set it to that."
-        )
+        set_btn.set_tooltip_text("Set the wallpaper shown when you panic.")
         set_btn.connect("clicked", self._on_set_panic)
         panic_btn_row.append(set_btn)
 
@@ -68,7 +62,6 @@ class WallpaperTab(Gtk.ScrolledWindow):
         auto_btn.connect("clicked", self._on_auto_import_panic)
         panic_btn_row.append(auto_btn)
 
-        # Rotating
         rot_section = ConfigSection("Rotating Wallpaper", ROTATE_TEXT)
         vbox.append(rot_section)
 
@@ -107,25 +100,28 @@ class WallpaperTab(Gtk.ScrolledWindow):
         rot_row2.append(ConfigScale("Rotate Variation (sec)", vars.wallpaper_variance, 0, 300))
 
     def _on_set_panic(self, _btn: Gtk.Button) -> None:
-        dialog = Gtk.FileChooserNative(title="Select Panic Wallpaper", accept_label="Open", cancel_label="Cancel")
+        fd = Gtk.FileDialog.new()
+        fd.set_title("Select Panic Wallpaper")
         filt = Gtk.FileFilter()
         filt.set_name("Image files")
         filt.add_mime_type("image/jpeg")
         filt.add_mime_type("image/png")
-        dialog.add_filter(filt)
+        fd.set_default_filter(filt)
+        fd.open(None, self._on_panic_file_selected, None)
 
-        if dialog.run() == Gtk.ResponseType.ACCEPT:
-            file = dialog.get_file()
-            if file:
-                try:
-                    pixbuf = GdkPixbuf.Pixbuf.new_from_file(file.get_path())
-                    pixbuf = pixbuf.scale_simple(200, 112, GdkPixbuf.InterpType.BILINEAR)
-                    self._panic_preview.set_pixbuf(pixbuf)
-                    from PIL import Image
-                    Image.open(file.get_path()).convert("RGB").save(Data.PANIC_WALLPAPER)
-                except Exception as e:
-                    logging.warning(f"Failed to set panic wallpaper: {e}")
-        dialog.destroy()
+    def _on_panic_file_selected(self, fd: Gtk.FileDialog, result, _ud) -> None:
+        from PIL import Image
+        try:
+            file = fd.open_finish(result)
+            if not file:
+                return
+            path = file.get_path()
+            pixbuf = GdkPixbuf.Pixbuf.new_from_file(path)
+            pixbuf = pixbuf.scale_simple(200, 112, GdkPixbuf.InterpType.BILINEAR)
+            self._panic_preview.set_pixbuf(pixbuf)
+            Image.open(path).convert("RGB").save(Data.PANIC_WALLPAPER)
+        except Exception as e:
+            logging.warning(f"Failed to set panic wallpaper: {e}")
 
     def _on_auto_import_panic(self, _btn: Gtk.Button) -> None:
         try:
@@ -143,36 +139,40 @@ class WallpaperTab(Gtk.ScrolledWindow):
             pass
 
     def _on_add(self, _btn: Gtk.Button) -> None:
-        dialog = Gtk.FileChooserNative(title="Select Wallpaper", accept_label="Open", cancel_label="Cancel")
+        fd = Gtk.FileDialog.new()
+        fd.set_title("Select Wallpaper")
         filt = Gtk.FileFilter()
         filt.set_name("Image files")
         filt.add_mime_type("image/jpeg")
         filt.add_mime_type("image/png")
-        dialog.add_filter(filt)
+        fd.set_default_filter(filt)
+        fd.open(None, self._on_add_file_selected, None)
 
-        if dialog.run() == Gtk.ResponseType.ACCEPT:
-            file = dialog.get_file()
-            if file:
-                name_dialog = Gtk.Dialog(title="Wallpaper Name")
-                name_dialog.set_default_size(300, 100)
-                entry = Gtk.Entry()
-                entry.set_placeholder_text("Wallpaper label")
-                name_dialog.get_content_area().append(entry)
-                name_dialog.add_button("Cancel", Gtk.ResponseType.CANCEL)
-                name_dialog.add_button("OK", Gtk.ResponseType.OK)
-
-                def on_name_response(d, r):
-                    if r == Gtk.ResponseType.OK and entry.get_text().strip():
-                        name = entry.get_text().strip()
-                        wallpaper_dat = config.get("wallpaperDat", {})
-                        wallpaper_dat[name] = os.path.basename(file.get_path())
-                        config["wallpaperDat"] = wallpaper_dat
-                        self._wallpaper_store.append(name)
-                    d.destroy()
-
-                name_dialog.connect("response", on_name_response)
-                name_dialog.present()
-        dialog.destroy()
+    def _on_add_file_selected(self, fd: Gtk.FileDialog, result, _ud) -> None:
+        try:
+            file = fd.open_finish(result)
+            if not file:
+                return
+            path = file.get_path()
+            name_dialog = Gtk.Dialog(title="Wallpaper Name")
+            name_dialog.set_default_size(300, 100)
+            entry = Gtk.Entry()
+            entry.set_placeholder_text("Wallpaper label")
+            name_dialog.get_content_area().append(entry)
+            name_dialog.add_button("Cancel", Gtk.ResponseType.CANCEL)
+            name_dialog.add_button("OK", Gtk.ResponseType.OK)
+            def on_name_response(d, r):
+                if r == Gtk.ResponseType.OK and entry.get_text().strip():
+                    name = entry.get_text().strip()
+                    wallpaper_dat = config.get("wallpaperDat", {})
+                    wallpaper_dat[name] = os.path.basename(path)
+                    config["wallpaperDat"] = wallpaper_dat
+                    self._wallpaper_store.append(name)
+                d.destroy()
+            name_dialog.connect("response", on_name_response)
+            name_dialog.present()
+        except Exception as e:
+            logging.warning(f"Failed to add wallpaper: {e}")
 
     def _on_remove(self, _btn: Gtk.Button) -> None:
         selection = self._wallpaper_list.get_model()
@@ -198,13 +198,11 @@ class WallpaperTab(Gtk.ScrolledWindow):
 
     @staticmethod
     def _on_list_item_setup(_factory, item) -> None:
-        label = Gtk.Label(wrap=True)
+        label = Gtk.Label()
         label.set_xalign(0)
         item.set_child(label)
 
     @staticmethod
     def _on_list_item_bind(_factory, item) -> None:
         label = item.get_child()
-        pos = item.get_position()
-        name = item.get_item().get_string()
-        label.set_text(name)
+        label.set_text(item.get_item().get_string())
