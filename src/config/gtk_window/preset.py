@@ -24,7 +24,7 @@ require_version("Gtk", "4.0")
 from gi.repository import Gtk
 
 from config.vars import Vars
-from config.gtk_window import toast
+from config.gtk_window.toast import toast
 from config.gtk_window.utils import confirm_overwrite
 from paths import Data
 

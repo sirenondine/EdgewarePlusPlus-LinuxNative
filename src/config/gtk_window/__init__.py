@@ -9,6 +9,8 @@ require_version("Gtk", "4.0")
 from gi.repository import GLib, Gtk
 
 from config import load_default_config
+from config.gtk_window.toast import toast, name_popover
+import config.gtk_window.toast as _toast_mod
 from config.gtk_window.import_pack import import_pack
 from config.gtk_window.tabs.annoyance.booru import BooruTab
 from config.gtk_window.tabs.annoyance.dangerous_settings import DangerousSettingsTab
@@ -44,22 +46,10 @@ if not pack.info.mood_file.is_file():
             json.dumps({"active": list(map(lambda mood: mood.name, pack.index.moods))})
         )
 
-_main_window = None
-
-
-def toast(message: str) -> None:
-    if _main_window:
-        _main_window._show_toast(message)
-
-
-def name_popover(anchor: Gtk.Widget, title: str, on_ok: callable) -> None:
-    if _main_window:
-        _main_window._show_name_popover(anchor, title, on_ok)
-
-
 class ConfigWindow(Gtk.Window):
     def __init__(self) -> None:
-        global config, vars, _main_window
+        global config, vars
+        _toast_mod._main_window = self
         super().__init__(title="Edgeware++ Config")
         self.set_default_size(740, 900)
         self.set_size_request(640, 600)

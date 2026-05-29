@@ -17,7 +17,7 @@ from gi import require_version
 require_version("Gtk", "4.0")
 from gi.repository import Gtk
 
-from config.gtk_window import name_popover
+from config.gtk_window.toast import name_popover
 from config.gtk_window.utils import config
 from config.gtk_window.widgets import ConfigRow, ConfigScale, ConfigSection, ConfigToggle
 from config.vars import Vars

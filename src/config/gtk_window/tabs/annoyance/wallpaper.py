@@ -21,7 +21,7 @@ require_version("Gtk", "4.0")
 from gi.repository import GdkPixbuf, Gtk
 
 from config.gtk_window.widgets import ConfigRow, ConfigScale, ConfigSection, ConfigToggle
-from config.gtk_window import name_popover, toast
+from config.gtk_window.toast import name_popover, toast
 from config.gtk_window.utils import config
 from config.vars import Vars
 from os_utils import get_wallpaper

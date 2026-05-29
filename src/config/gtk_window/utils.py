@@ -168,7 +168,7 @@ def write_save(vars: Vars, exit_at_end: bool = False) -> None:
         logging.info("exiting config")
         sys.exit()
     else:
-        from config.gtk_window import toast
+        from config.gtk_window.toast import toast
         toast("Settings saved")
 
 
