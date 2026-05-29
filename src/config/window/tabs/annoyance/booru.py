@@ -31,7 +31,7 @@ from config.window.utils import (
 from config.window.widgets.layout import PAD, ConfigRow, ConfigSection, ConfigToggle, set_enabled_when
 from config.window.widgets.scroll_frame import ScrollFrame
 
-BOORU_TEXT = 'Please note that the "Booru Downloader" is not currently in a great state. We managed to patch it in Edgeware++ to function properly, however it can lead to performance issues and its not guaranteed that it will work in the future.\n\nIf you encounter bugs with the Booru settings, feel free to leave a Github issue (github.com/araten10/EdgewarePlusPlus/issues) detailing the problem, but also be aware that this feature is fairly low priority for us.'
+BOORU_TEXT = 'Please note that the "Booru Downloader" is not currently in a great state. We managed to patch it in Edgeware++ to function properly, however it can lead to performance issues and its not guaranteed that it will work in the future.\n\nIf you encounter bugs with the Booru settings, feel free to leave a Github issue (github.com/sirenondine/EdgewarePlusPlus-LinuxNative/issues) detailing the problem, but also be aware that this feature is fairly low priority for us.'
 
 
 class BooruTab(ScrollFrame):

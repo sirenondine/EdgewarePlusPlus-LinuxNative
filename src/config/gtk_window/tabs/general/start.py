@@ -92,14 +92,14 @@ class StartTab(Gtk.ScrolledWindow):
         btn_box.append(col1)
 
         github_btn = Gtk.Button(label="Open Edgeware++ Github")
-        github_btn.connect("clicked", lambda _: webbrowser.open("https://github.com/araten10/EdgewarePlusPlus"))
+        github_btn.connect("clicked", lambda _: webbrowser.open("https://github.com/sirenondine/EdgewarePlusPlus-LinuxNative"))
         col1.append(github_btn)
 
         download_btn = Gtk.Button(label="Download Newest Update")
         download_btn.connect(
             "clicked",
             lambda _: webbrowser.open(
-                "https://github.com/araten10/EdgewarePlusPlus/archive/refs/heads/main.zip"
+                "https://github.com/sirenondine/EdgewarePlusPlus-LinuxNative/archive/refs/heads/main.zip"
             ),
         )
         col1.append(download_btn)

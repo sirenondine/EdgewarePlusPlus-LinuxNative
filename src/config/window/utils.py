@@ -123,7 +123,7 @@ def confirm_overwrite(path: Path) -> bool:
 
 
 def get_live_version() -> str:
-    url = "http://raw.githubusercontent.com/araten10/EdgewarePlusPlus/main/edgeware/assets/default_config.json"
+    url = "https://raw.githubusercontent.com/sirenondine/EdgewarePlusPlus-LinuxNative/main/assets/default_config.json"
 
     test = config["toggleInternet"]
     if test != 0:

@@ -77,9 +77,9 @@ class StartTab(ScrollFrame):
 
         github_frame = Frame(information_section)
         github_frame.pack(fill="both", side="left", expand=1)
-        github_url = "https://github.com/araten10/EdgewarePlusPlus"
+        github_url = "https://github.com/sirenondine/EdgewarePlusPlus-LinuxNative"
         download_url = (
-            "https://github.com/araten10/EdgewarePlusPlus/archive/refs/heads/main.zip"
+            "https://github.com/sirenondine/EdgewarePlusPlus-LinuxNative/archive/refs/heads/main.zip"
         )
         Button(
             github_frame,
