@@ -132,8 +132,8 @@ class ConfigScale(Gtk.Box):
 
         content = dialog.get_content_area()
         content.append(entry)
-        dialog.add_button("Cancel", Gtk.ResponseType.CANCEL)
-        dialog.add_button("OK", Gtk.ResponseType.OK)
+        dialog.add_button("_Cancel", Gtk.ResponseType.CANCEL)
+        dialog.add_button("_Apply", Gtk.ResponseType.OK)
 
         entry.connect("activate", lambda _: dialog.response(Gtk.ResponseType.OK))
 

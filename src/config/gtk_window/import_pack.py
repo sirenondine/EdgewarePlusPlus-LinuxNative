@@ -8,13 +8,14 @@ from gi import require_version
 require_version("Gtk", "4.0")
 from gi.repository import Gio, Gtk
 
+from config.gtk_window import toast
 from config.gtk_window.utils import confirm_overwrite, refresh
 from paths import DEFAULT_PACK_PATH, Data, PackPaths
 
 
 def _dialog(title: str, text: str) -> None:
     d = Gtk.Dialog(title=title)
-    d.add_button("OK", Gtk.ResponseType.OK)
+    d.add_button("_OK", Gtk.ResponseType.OK)
     d.get_content_area().append(Gtk.Label(label=text, wrap=True, margin=12))
     d.present()
     d.run()
@@ -49,7 +50,7 @@ def _on_import_file_selected(fd: Gtk.FileDialog, result: Gio.AsyncResult, defaul
     import_location = DEFAULT_PACK_PATH if default else Data.PACKS / pack_name
 
     if not confirm_overwrite(import_location):
-        _dialog("Cancelled", "Pack import cancelled.")
+        toast("Pack import cancelled.")
         return
 
     with zipfile.ZipFile(zip_path, "r") as z:
@@ -78,5 +79,5 @@ def _on_import_file_selected(fd: Gtk.FileDialog, result: Gio.AsyncResult, defaul
         _dialog("Error", "Pack appears to be incorrectly packaged, unable to recover.")
         return
 
-    _dialog("Done", f'Pack imported to "{import_location}". Refreshing config window.')
+    toast(f'Pack imported to "{import_location}".')
     refresh()

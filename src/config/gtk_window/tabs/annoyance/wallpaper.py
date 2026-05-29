@@ -21,6 +21,7 @@ require_version("Gtk", "4.0")
 from gi.repository import GdkPixbuf, Gtk
 
 from config.gtk_window.widgets import ConfigRow, ConfigScale, ConfigSection, ConfigToggle
+from config.gtk_window import name_popover, toast
 from config.gtk_window.utils import config
 from config.vars import Vars
 from os_utils import get_wallpaper
@@ -138,7 +139,9 @@ class WallpaperTab(Gtk.ScrolledWindow):
         except Exception:
             pass
 
-    def _on_add(self, _btn: Gtk.Button) -> None:
+    def _on_add(self, btn: Gtk.Button) -> None:
+        self._add_btn_anchor = btn
+        self._pending_path = None
         fd = Gtk.FileDialog.new()
         fd.set_title("Select Wallpaper")
         filt = Gtk.FileFilter()
@@ -153,26 +156,18 @@ class WallpaperTab(Gtk.ScrolledWindow):
             file = fd.open_finish(result)
             if not file:
                 return
-            path = file.get_path()
-            name_dialog = Gtk.Dialog(title="Wallpaper Name")
-            name_dialog.set_default_size(300, 100)
-            entry = Gtk.Entry()
-            entry.set_placeholder_text("Wallpaper label")
-            name_dialog.get_content_area().append(entry)
-            name_dialog.add_button("Cancel", Gtk.ResponseType.CANCEL)
-            name_dialog.add_button("OK", Gtk.ResponseType.OK)
-            def on_name_response(d, r):
-                if r == Gtk.ResponseType.OK and entry.get_text().strip():
-                    name = entry.get_text().strip()
-                    wallpaper_dat = config.get("wallpaperDat", {})
-                    wallpaper_dat[name] = os.path.basename(path)
-                    config["wallpaperDat"] = wallpaper_dat
-                    self._wallpaper_store.append(name)
-                d.destroy()
-            name_dialog.connect("response", on_name_response)
-            name_dialog.present()
-        except Exception as e:
-            logging.warning(f"Failed to add wallpaper: {e}")
+            self._pending_path = file.get_path()
+            name_popover(self._add_btn_anchor, "Wallpaper label", self._finish_add)
+        except Exception:
+            pass
+
+    def _finish_add(self, name: str) -> None:
+        if self._pending_path:
+            wallpaper_dat = config.get("wallpaperDat", {})
+            wallpaper_dat[name] = os.path.basename(self._pending_path)
+            config["wallpaperDat"] = wallpaper_dat
+            self._wallpaper_store.append(name)
+            self._pending_path = None
 
     def _on_remove(self, _btn: Gtk.Button) -> None:
         selection = self._wallpaper_list.get_model()

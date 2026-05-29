@@ -110,16 +110,13 @@ def confirm_overwrite(path: Path) -> bool:
     path_type = "directory" if path.is_dir() else "file"
     delete = shutil.rmtree if path.is_dir() else os.remove
 
-    dialog = Gtk.Dialog(title="Confirm")
-    dialog.add_button("Yes", Gtk.ResponseType.YES)
-    dialog.add_button("No", Gtk.ResponseType.NO)
-    content = dialog.get_content_area()
-    lbl = Gtk.Label(label=f'Path "{path}" already exists.\n\nThis {path_type} will be deleted and overwritten. Is this okay?')
-    lbl.set_margin_start(12)
-    lbl.set_margin_end(12)
-    lbl.set_margin_top(12)
-    lbl.set_margin_bottom(12)
-    content.append(lbl)
+    dialog = Gtk.Dialog(title="Confirm Overwrite")
+    dialog.add_button("Cancel", Gtk.ResponseType.NO)
+    dialog.add_button("Delete", Gtk.ResponseType.YES)
+    dialog.get_content_area().append(Gtk.Label(
+        label=f'Path "{path}" already exists.\n\nThis {path_type} will be permanently deleted. Proceed?',
+        wrap=True, margin=12,
+    ))
     dialog.present()
     response = dialog.run()
     dialog.destroy()
@@ -171,13 +168,8 @@ def write_save(vars: Vars, exit_at_end: bool = False) -> None:
         logging.info("exiting config")
         sys.exit()
     else:
-        dialog = Gtk.Dialog(title="Success!")
-        dialog.add_button("OK", Gtk.ResponseType.OK)
-        content = dialog.get_content_area()
-        content.append(Gtk.Label(label="Settings saved successfully!", margin=12))
-        dialog.present()
-        dialog.run()
-        dialog.destroy()
+        from config.gtk_window import toast
+        toast("Settings saved")
 
 
 def safe_check(vars: Vars) -> bool:
@@ -204,10 +196,12 @@ def safe_check(vars: Vars) -> bool:
         return True
 
     dialog = Gtk.Dialog(title="Dangerous Settings Detected!")
-    dialog.add_button("Yes", Gtk.ResponseType.YES)
-    dialog.add_button("No", Gtk.ResponseType.NO)
-    content = dialog.get_content_area()
-    content.append(Gtk.Label(label=f"{danger_num} potentially dangerous setting(s) detected! Do you want to save anyway?{warnings}", wrap=True, margin=12))
+    dialog.add_button("Cancel", Gtk.ResponseType.NO)
+    dialog.add_button("Save Anyway", Gtk.ResponseType.YES)
+    dialog.get_content_area().append(Gtk.Label(
+        label=f"{danger_num} potentially dangerous setting(s) detected! Save anyway?{warnings}",
+        wrap=True, margin=12,
+    ))
     dialog.present()
     response = dialog.run()
     dialog.destroy()
@@ -220,7 +214,7 @@ def clear_launches(confirmation: bool) -> None:
             os.remove(Data.CORRUPTION_LAUNCHES)
             if confirmation:
                 d = Gtk.Dialog(title="Cleaning Completed")
-                d.add_button("OK", Gtk.ResponseType.OK)
+                d.add_button("_Close", Gtk.ResponseType.OK)
                 d.get_content_area().append(Gtk.Label(label="The file that manages corruption launches has been deleted, and will be remade next time you start Edgeware with corruption on!", wrap=True, margin=12))
                 d.present()
                 d.run()
@@ -228,7 +222,7 @@ def clear_launches(confirmation: bool) -> None:
         else:
             if confirmation:
                 d = Gtk.Dialog(title="No launches file!")
-                d.add_button("OK", Gtk.ResponseType.OK)
+                d.add_button("_Close", Gtk.ResponseType.OK)
                 d.get_content_area().append(Gtk.Label(label="There is no launches file to delete!\n\nThe launches file is used for the launch transition mode, and is automatically deleted when you load a new pack.", wrap=True, margin=12))
                 d.present()
                 d.run()

@@ -6,7 +6,7 @@ import os
 from gi import require_version
 
 require_version("Gtk", "4.0")
-from gi.repository import Gtk
+from gi.repository import GLib, Gtk
 
 from config import load_default_config
 from config.gtk_window.import_pack import import_pack
@@ -44,13 +44,26 @@ if not pack.info.mood_file.is_file():
             json.dumps({"active": list(map(lambda mood: mood.name, pack.index.moods))})
         )
 
+_main_window = None
+
+
+def toast(message: str) -> None:
+    if _main_window:
+        _main_window._show_toast(message)
+
+
+def name_popover(anchor: Gtk.Widget, title: str, on_ok: callable) -> None:
+    if _main_window:
+        _main_window._show_name_popover(anchor, title, on_ok)
+
 
 class ConfigWindow(Gtk.Window):
     def __init__(self) -> None:
-        global config, vars
+        global config, vars, _main_window
         super().__init__(title="Edgeware++ Config")
         self.set_default_size(740, 900)
         self.set_size_request(640, 600)
+        _main_window = self
 
         try:
             self.set_icon_from_file(str(CustomAssets.config_icon()))
@@ -66,18 +79,24 @@ class ConfigWindow(Gtk.Window):
                 padding: 4px 0; margin: 0 4px;
             }
             .config-toggle { padding: 4px; }
+            .toast-bar {
+                background: rgba(0,0,0,0.8); color: white;
+                border-radius: 8px; padding: 8px 16px;
+            }
         """)
         Gtk.StyleContext.add_provider_for_display(
             self.get_display(), css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
         )
 
         vars = Vars(config)
-
         local_version = default_config["versionplusplus"]
         live_version = get_live_version()
 
+        self._overlay = Gtk.Overlay()
+        self.set_child(self._overlay)
+
         vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
-        self.set_child(vbox)
+        self._overlay.set_child(vbox)
 
         notebook = Gtk.Notebook()
         notebook.set_hexpand(True)
@@ -162,15 +181,19 @@ class ConfigWindow(Gtk.Window):
         if live_version and local_version.split("_")[0] != live_version.split("_")[0] and not (
             local_version.endswith("DEV") or config["toggleInternet"]
         ):
-            dialog = Gtk.Dialog(title="Update Available")
-            dialog.add_button("OK", Gtk.ResponseType.OK)
+            dialog = Gtk.Dialog(title="New version available")
+            dialog.add_button("_Download", Gtk.ResponseType.YES)
+            dialog.add_button("_Later", Gtk.ResponseType.NO)
             dialog.get_content_area().append(Gtk.Label(
-                label="Main local version and web version are not the same.\nPlease visit the Github and download the newer files,\nor use the direct download link on the \"Start\" tab.",
+                label="A newer version of Edgeware++ LinuxNative is available.\nVisit the repository to download the update.",
                 wrap=True, margin=12,
             ))
             dialog.present()
-            dialog.run()
+            response = dialog.run()
             dialog.destroy()
+            if response == Gtk.ResponseType.YES:
+                import webbrowser
+                webbrowser.open("https://github.com/sirenondine/EdgewarePlusPlus-LinuxNative")
 
         self.present()
 
@@ -181,28 +204,76 @@ class ConfigWindow(Gtk.Window):
         else:
             self._last_tab = page_num
 
+    def _show_toast(self, message: str) -> None:
+        box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        box.add_css_class("toast-bar")
+        box.set_margin_start(12)
+        box.set_margin_end(12)
+        box.set_margin_bottom(48)
+        lbl = Gtk.Label(label=message)
+        box.append(lbl)
+        revealer = Gtk.Revealer()
+        revealer.set_transition_type(Gtk.RevealerTransitionType.SLIDE_UP)
+        revealer.set_child(box)
+        self._overlay.add_overlay(revealer)
+        revealer.set_reveal_child(True)
+
+        def hide():
+            revealer.set_reveal_child(False)
+            GLib.timeout_add_seconds(1, revealer.destroy)
+            return False
+        GLib.timeout_add_seconds(3, hide)
+
+    def _show_name_popover(self, anchor: Gtk.Widget, title: str, on_ok: callable) -> None:
+        entry = Gtk.Entry()
+        entry.set_placeholder_text(title)
+        entry.set_margin_start(8)
+        entry.set_margin_end(8)
+        entry.set_margin_top(8)
+        entry.set_margin_bottom(8)
+        ok_btn = Gtk.Button(label="_Save")
+        ok_btn.add_css_class("suggested-action")
+        cancel_btn = Gtk.Button(label="_Cancel")
+        popover = Gtk.Popover()
+        vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        vbox.append(entry)
+        btn_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+        btn_row.append(ok_btn)
+        btn_row.append(cancel_btn)
+        vbox.append(btn_row)
+        popover.set_child(vbox)
+        popover.set_parent(anchor)
+
+        def on_ok(_b):
+            text = entry.get_text().strip()
+            if text:
+                popover.popdown()
+                on_ok(text)
+
+        def on_cancel(_b):
+            popover.popdown()
+
+        entry.connect("activate", lambda: on_ok(None))
+        ok_btn.connect("clicked", on_ok)
+        cancel_btn.connect("clicked", on_cancel)
+        popover.popup()
+
     def _switch_window(self, vars):
         Data.PACKS.mkdir(parents=True, exist_ok=True)
         pack_list = os.listdir(Data.PACKS)
-
         dialog = Gtk.Window(title="Switch Pack")
         dialog.set_default_size(275, 340)
         dialog.set_transient_for(self)
         dialog.set_modal(True)
-
         vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         dialog.set_child(vbox)
-
         lbl = Gtk.Label(label=f"Currently loaded pack:\n{vars.pack_path.get()}", wrap=True)
         vbox.append(lbl)
-
         string_list = Gtk.StringList.new(pack_list)
         dropdown = Gtk.DropDown(model=string_list)
         vbox.append(dropdown)
-
         btn_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         vbox.append(btn_box)
-
         switch_btn = Gtk.Button(label="Switch")
         def on_switch(_b):
             idx = dropdown.get_selected()
@@ -210,15 +281,12 @@ class ConfigWindow(Gtk.Window):
                 self._switch_pack(vars, pack_list[idx])
         switch_btn.connect("clicked", on_switch)
         btn_box.append(switch_btn)
-
         default_btn = Gtk.Button(label="Default")
         default_btn.connect("clicked", lambda _: self._switch_pack(vars, "default"))
         btn_box.append(default_btn)
-
         cancel_btn = Gtk.Button(label="Cancel")
         cancel_btn.connect("clicked", lambda _: dialog.destroy())
         btn_box.append(cancel_btn)
-
         dialog.present()
 
     def _switch_pack(self, vars, pack_name):
@@ -231,10 +299,8 @@ class ConfigWindow(Gtk.Window):
         dialog.set_default_size(350, 225)
         dialog.set_transient_for(self)
         dialog.set_modal(True)
-
         vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         dialog.set_child(vbox)
-
         message = (
             "Would you like to import a new pack, or change the default pack instead?\n\n"
             "Importing a new pack saves it to /data/packs, and allows fast switching "
@@ -244,17 +310,13 @@ class ConfigWindow(Gtk.Window):
         )
         lbl = Gtk.Label(label=message, wrap=True)
         vbox.append(lbl)
-
         import_new_btn = Gtk.Button(label="Import New")
         import_new_btn.connect("clicked", lambda _: import_pack(False))
         vbox.append(import_new_btn)
-
         change_default_btn = Gtk.Button(label="Change Default")
         change_default_btn.connect("clicked", lambda _: import_pack(True))
         vbox.append(change_default_btn)
-
         cancel_btn = Gtk.Button(label="Cancel")
         cancel_btn.connect("clicked", lambda _: dialog.destroy())
         vbox.append(cancel_btn)
-
         dialog.present()

@@ -17,6 +17,7 @@ from gi import require_version
 require_version("Gtk", "4.0")
 from gi.repository import Gtk
 
+from config.gtk_window import name_popover
 from config.gtk_window.utils import config
 from config.gtk_window.widgets import ConfigRow, ConfigScale, ConfigSection, ConfigToggle
 from config.vars import Vars
@@ -153,25 +154,13 @@ class DangerousSettingsTab(Gtk.ScrolledWindow):
                 tooltip="Displays a lewd status on discord.")
         )
 
-    def _on_add_blacklist(self, _btn: Gtk.Button) -> None:
-        dialog = Gtk.Dialog(title="Folder Name")
-        dialog.set_default_size(300, 100)
-        entry = Gtk.Entry()
-        entry.set_placeholder_text("Folder name")
-        dialog.get_content_area().append(entry)
-        dialog.add_button("Cancel", Gtk.ResponseType.CANCEL)
-        dialog.add_button("Add", Gtk.ResponseType.OK)
+    def _on_add_blacklist(self, btn: Gtk.Button) -> None:
+        name_popover(btn, "Folder name to skip", self._add_blacklist_name)
 
-        def on_response(d, r):
-            if r == Gtk.ResponseType.OK and entry.get_text().strip():
-                name = entry.get_text().strip()
-                current = config.get("avoidList", "Edgeware>AppData")
-                config["avoidList"] = f"{current}>{name}"
-                self._bl_store.append(name)
-            d.destroy()
-
-        dialog.connect("response", on_response)
-        dialog.present()
+    def _add_blacklist_name(self, name: str) -> None:
+        current = config.get("avoidList", "Edgeware>AppData")
+        config["avoidList"] = f"{current}>{name}"
+        self._bl_store.append(name)
 
     def _on_remove_blacklist(self, _btn: Gtk.Button) -> None:
         selection = self._bl_list.get_model()

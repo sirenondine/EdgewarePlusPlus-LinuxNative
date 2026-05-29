@@ -24,6 +24,7 @@ require_version("Gtk", "4.0")
 from gi.repository import Gtk
 
 from config.vars import Vars
+from config.gtk_window import toast
 from config.gtk_window.utils import confirm_overwrite
 from paths import Data
 
@@ -94,12 +95,4 @@ def apply_preset(preset: dict, vars: Vars, select: list[str] | None = None) -> N
     if danger:
         vars.safe_mode.set(True)
 
-    dialog = Gtk.Dialog(title="Done")
-    dialog.add_button("OK", Gtk.ResponseType.OK)
-    dialog.get_content_area().append(Gtk.Label(
-        label="Config has been loaded successfully.\n\nChanges have not been automatically saved.",
-        wrap=True, margin=12,
-    ))
-    dialog.present()
-    dialog.run()
-    dialog.destroy()
+    toast("Config preset loaded. Review changes before saving.")

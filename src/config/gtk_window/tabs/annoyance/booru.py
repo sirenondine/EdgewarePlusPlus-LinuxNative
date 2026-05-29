@@ -17,6 +17,8 @@ from gi import require_version
 require_version("Gtk", "4.0")
 from gi.repository import Gtk
 
+from config.gtk_window import name_popover
+
 from config.gtk_window.utils import config
 from config.gtk_window.widgets import ConfigRow, ConfigSection, ConfigToggle
 from config.vars import Vars
@@ -72,24 +74,13 @@ class BooruTab(Gtk.ScrolledWindow):
         reset_btn.connect("clicked", self._on_reset)
         btn_col.append(reset_btn)
 
-    def _on_add(self, _btn: Gtk.Button) -> None:
-        dialog = Gtk.Dialog(title="New Tag")
-        dialog.set_default_size(300, 100)
-        entry = Gtk.Entry()
-        entry.set_placeholder_text("Enter Tag(s)")
-        dialog.get_content_area().append(entry)
-        dialog.add_button("Cancel", Gtk.ResponseType.CANCEL)
-        dialog.add_button("Add", Gtk.ResponseType.OK)
-        dialog.connect("response", lambda d, r: self._add_tag_response(d, r, entry))
-        dialog.present()
+    def _on_add(self, btn: Gtk.Button) -> None:
+        name_popover(btn, "Tag name (or space-separated tags)", self._add_tag)
 
-    def _add_tag_response(self, dialog: Gtk.Dialog, response: Gtk.ResponseType, entry: Gtk.Entry) -> None:
-        if response == Gtk.ResponseType.OK and entry.get_text().strip():
-            tag = entry.get_text().strip()
-            current = config.get("tagList", "")
-            config["tagList"] = f"{current}>{tag}" if current else tag
-            self._tag_store.append(tag)
-        dialog.destroy()
+    def _add_tag(self, tag: str) -> None:
+        current = config.get("tagList", "")
+        config["tagList"] = f"{current}>{tag}" if current else tag
+        self._tag_store.append(tag)
 
     def _on_remove(self, _btn: Gtk.Button) -> None:
         selection = self._tag_list.get_model()

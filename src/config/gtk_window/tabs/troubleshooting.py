@@ -141,10 +141,10 @@ class TroubleshootingTab(Gtk.ScrolledWindow):
 
     def _on_delete_logs(self) -> None:
         dialog = Gtk.Dialog(title="Confirm Delete")
-        dialog.add_button("Yes", Gtk.ResponseType.YES)
-        dialog.add_button("No", Gtk.ResponseType.NO)
+        dialog.add_button("_Cancel", Gtk.ResponseType.NO)
+        dialog.add_button("_Delete", Gtk.ResponseType.YES)
         dialog.get_content_area().append(Gtk.Label(
-            label=f"Are you sure you want to delete all logs? There are currently {self._get_log_number()}.",
+            label=f"Delete all logs? ({self._get_log_number()} total)",
             wrap=True, margin=12,
         ))
         dialog.present()
