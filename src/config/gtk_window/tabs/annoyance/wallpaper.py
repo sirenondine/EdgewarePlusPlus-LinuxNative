@@ -108,7 +108,7 @@ class WallpaperTab(Gtk.ScrolledWindow):
         filt.add_mime_type("image/jpeg")
         filt.add_mime_type("image/png")
         fd.set_default_filter(filt)
-        fd.open(None, self._on_panic_file_selected, None)
+        fd.open(None, None, self._on_panic_file_selected, None)
 
     def _on_panic_file_selected(self, fd: Gtk.FileDialog, result, _ud) -> None:
         from PIL import Image
@@ -149,7 +149,7 @@ class WallpaperTab(Gtk.ScrolledWindow):
         filt.add_mime_type("image/jpeg")
         filt.add_mime_type("image/png")
         fd.set_default_filter(filt)
-        fd.open(None, self._on_add_file_selected, None)
+        fd.open(None, None, self._on_add_file_selected, None)
 
     def _on_add_file_selected(self, fd: Gtk.FileDialog, result, _ud) -> None:
         try:

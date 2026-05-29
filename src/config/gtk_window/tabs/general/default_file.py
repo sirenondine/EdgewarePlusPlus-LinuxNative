@@ -155,7 +155,7 @@ class _DefaultImageFrame(Gtk.Frame):
         filt.add_mime_type("image/png")
         filt.add_mime_type("image/gif")
         fd.set_default_filter(filt)
-        fd.open(None, self._on_file_selected, None)
+        fd.open(None, None, self._on_file_selected, None)
 
     def _on_file_selected(self, fd: Gtk.FileDialog, result, _ud) -> None:
         try:

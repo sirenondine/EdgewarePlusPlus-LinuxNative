@@ -182,7 +182,7 @@ class DangerousSettingsTab(Gtk.ScrolledWindow):
     def _on_select_path(self, _btn: Gtk.Button) -> None:
         fd = Gtk.FileDialog.new()
         fd.set_title("Select Parent Folder")
-        fd.select_folder(None, self._on_folder_selected, None)
+        fd.select_folder(None, None, self._on_folder_selected, None)
 
     def _on_folder_selected(self, fd: Gtk.FileDialog, result, _ud) -> None:
         try:

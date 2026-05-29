@@ -29,7 +29,7 @@ def import_pack(default: bool) -> None:
     filt.set_name("Zip files")
     filt.add_mime_type("application/zip")
     file_dialog.set_default_filter(filt)
-    file_dialog.open(None, _on_import_file_selected, default)
+    file_dialog.open(None, None, _on_import_file_selected, default)
 
 
 def _on_import_file_selected(fd: Gtk.FileDialog, result: Gio.AsyncResult, default: bool) -> None:
