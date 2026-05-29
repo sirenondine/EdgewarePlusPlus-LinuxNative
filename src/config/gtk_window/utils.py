@@ -19,7 +19,7 @@ import os
 import shutil
 import subprocess
 import sys
-import urllib
+import urllib.request
 from multiprocessing.connection import Connection
 from pathlib import Path
 from threading import Thread
@@ -126,17 +126,17 @@ def confirm_overwrite(path: Path) -> bool:
 
 def get_live_version() -> str:
     url = "https://raw.githubusercontent.com/sirenondine/EdgewarePlusPlus-LinuxNative/main/assets/default_config.json"
-    test = config["toggleInternet"]
+    test = config.get("toggleInternet", 0)
     if test != 0:
         logging.info("GitHub connection is disabled, version will not be checked.")
-        return "Version check disabled!"
+        return ""
 
     try:
-        with open(urllib.request.urlretrieve(url)[0], "r") as live_config:
-            return json.loads(live_config.read())["versionplusplus"]
+        with urllib.request.urlopen(url, timeout=5) as response:
+            return json.loads(response.read())["versionplusplus"]
     except Exception as e:
         logging.warning(f"Failed to fetch version on GitHub.\n\tReason: {e}")
-        return "Could not check version."
+        return ""
 
 
 def write_save(vars: Vars, exit_at_end: bool = False) -> None:

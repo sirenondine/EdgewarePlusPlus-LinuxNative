@@ -159,7 +159,7 @@ class ConfigWindow(Gtk.Window):
         save_btn.connect("clicked", lambda _: write_save(vars, True))
         vbox.append(save_btn)
 
-        if local_version.split("_")[0] != live_version.split("_")[0] and not (
+        if live_version and local_version.split("_")[0] != live_version.split("_")[0] and not (
             local_version.endswith("DEV") or config["toggleInternet"]
         ):
             dialog = Gtk.MessageDialog(

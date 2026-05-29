@@ -51,17 +51,12 @@ class ConfigSection(Gtk.Frame):
         self._content.append(widget)
 
 
-class ConfigMessage(Gtk.Expander):
+class ConfigMessage(Gtk.Box):
     def __init__(self, text: str) -> None:
-        super().__init__(label="\u2139 Info")
-        label = Gtk.Label(label=text, wrap=True, css_classes=["config-message"])
-        label.set_xalign(0)
-        label.set_margin_start(PAD)
-        label.set_margin_end(PAD)
-        label.set_margin_top(PAD)
-        label.set_margin_bottom(PAD)
-        self.set_child(label)
-        self.set_expanded(False)
+        super().__init__(orientation=Gtk.Orientation.HORIZONTAL, spacing=PAD)
+        icon = Gtk.Image.new_from_icon_name("help-info-symbolic")
+        icon.set_tooltip_text(text)
+        self.append(icon)
 
 
 class ConfigRow(Gtk.Box):
