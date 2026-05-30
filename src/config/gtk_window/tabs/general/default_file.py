@@ -20,7 +20,7 @@ from gi import require_version
 
 require_version("Gtk", "4.0")
 require_version("Adw", "1")
-from gi.repository import Adw, GdkPixbuf, Gtk
+from gi.repository import Adw, Gtk
 
 from pack import Pack
 from paths import CustomAssets, Data
@@ -88,6 +88,7 @@ class _FileRow(Adw.ActionRow):
         self._image = Gtk.Picture()
         self._image.set_size_request(64, 48)
         self._image.set_content_fit(Gtk.ContentFit.CONTAIN)
+        self._image.set_can_shrink(True)
         self._load_preview(current)
 
         frame = Gtk.Frame()
@@ -103,8 +104,13 @@ class _FileRow(Adw.ActionRow):
         self.set_activatable_widget(button)
 
     def _load_preview(self, path: Path) -> None:
+        # Feed the Picture the full-resolution file so it scales crisply to the
+        # preview size, rather than a pre-shrunk pixbuf that upscales blurry.
         try:
-            self._image.set_pixbuf(GdkPixbuf.Pixbuf.new_from_file_at_size(str(path), 64, 48))
+            if path and path.is_file():
+                self._image.set_filename(str(path))
+            else:
+                self._image.set_paintable(None)
         except Exception:
             self._image.set_paintable(None)
 
