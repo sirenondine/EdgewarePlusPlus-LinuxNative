@@ -247,6 +247,14 @@ class StartTab(Adw.PreferencesPage):
             subtitle="Asks you to confirm before saving if certain settings are enabled."))
         general.add(AdwSwitchRow("Disable Config Help Messages", vars.message_off))
 
+        pause_apps_row = Adw.EntryRow(title="Pause for Focused Apps")
+        pause_apps_row.set_text(str(vars.pause_apps.get()))
+        pause_apps_row.set_tooltip_text(
+            "Comma-separated app IDs (e.g. zoom, obs). Popups pause while one of "
+            "these is focused. niri only. Tip: niri msg focused-window shows the app ID.")
+        pause_apps_row.connect("changed", lambda r: vars.pause_apps.set(r.get_text()))
+        general.add(pause_apps_row)
+
         # ---- Config presets ----------------------------------------------
         preset_group = Adw.PreferencesGroup(title="Config Presets", description=PRESET_TEXT)
         self.add(preset_group)

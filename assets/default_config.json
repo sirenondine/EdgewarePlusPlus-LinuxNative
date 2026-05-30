@@ -98,5 +98,6 @@
   "pauseOnLock": 1,
   "pauseOnScreenshare": 1,
   "spawnOnActiveMonitor": 0,
-  "pauseOnBattery": 0
+  "pauseOnBattery": 0,
+  "pauseApps": ""
 }
