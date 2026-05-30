@@ -29,7 +29,6 @@ if __name__ == "__main__":
         if not lib:
             appdir = os.environ.get("APPDIR", "")
             candidates = (glob.glob(f"{appdir}/usr/lib*/libgtk4-layer-shell.so*") if appdir else []) \
-                + glob.glob("/app/lib*/libgtk4-layer-shell.so*") \
                 + glob.glob("/usr/lib*/libgtk4-layer-shell.so*") \
                 + glob.glob("/usr/lib/*/libgtk4-layer-shell.so*")
             lib = candidates[0] if candidates else None
