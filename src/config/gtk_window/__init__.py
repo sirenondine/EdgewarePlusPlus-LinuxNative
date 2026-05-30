@@ -177,16 +177,6 @@ class ConfigWindow(Adw.ApplicationWindow):
 
         css = Gtk.CssProvider()
         css.load_from_string("""
-            .config-section { border: 1px solid @borders; border-radius: 6px; }
-            .config-section-title {
-                font-weight: bold; font-size: 1.1em;
-                padding: 4px 0; margin: 0 4px;
-            }
-            .config-toggle { padding: 4px; }
-            .toast-bar {
-                background: rgba(0,0,0,0.8); color: white;
-                border-radius: 8px; padding: 8px 16px;
-            }
             .version-mismatch { color: @warning_color; font-weight: bold; }
             .loading-overlay {
                 background: alpha(@window_bg_color, 0.85);
@@ -342,8 +332,11 @@ class ConfigWindow(Adw.ApplicationWindow):
         sidebar_nav = Adw.NavigationPage.new(sidebar_box, "Settings")
         split.set_sidebar(sidebar_nav)
 
+        # ToastOverlay wraps the stack so Adw.Toasts appear over content.
+        self._toast_overlay = Adw.ToastOverlay()
+        self._toast_overlay.set_child(self._stack)
         self._overlay = Gtk.Overlay()
-        self._overlay.set_child(self._stack)
+        self._overlay.set_child(self._toast_overlay)
         self._content_nav = Adw.NavigationPage.new(self._overlay, all_page_names[0])
         split.set_content(self._content_nav)
         self._split = split
@@ -564,24 +557,46 @@ class ConfigWindow(Adw.ApplicationWindow):
                 break
 
     def _show_toast(self, message: str) -> None:
-        box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        box.add_css_class("toast-bar")
-        box.set_margin_start(12)
-        box.set_margin_end(12)
-        box.set_margin_bottom(48)
-        lbl = Gtk.Label(label=message)
-        box.append(lbl)
-        revealer = Gtk.Revealer()
-        revealer.set_transition_type(Gtk.RevealerTransitionType.SLIDE_UP)
-        revealer.set_halign(Gtk.Align.CENTER)
-        revealer.set_valign(Gtk.Align.END)
-        revealer.set_can_target(False)
-        revealer.set_child(box)
-        self._overlay.add_overlay(revealer)
-        revealer.set_reveal_child(True)
+        # HIG-standard Adw.Toast via the toast overlay.
+        toast = Adw.Toast.new(message)
+        toast.set_timeout(3)
+        self._toast_overlay.add_toast(toast)
 
-        def hide():
-            revealer.set_reveal_child(False)
-            GLib.timeout_add_seconds(1, revealer.unparent)
-            return False
-        GLib.timeout_add_seconds(3, hide)
+    def _show_name_popover(self, anchor: Gtk.Widget, title: str, on_ok) -> None:
+        """A small popover with an entry + Save/Cancel, anchored to a widget.
+        Used by name_popover() for tag/wallpaper/blacklist/preset naming."""
+        popover = Gtk.Popover()
+        popover.set_parent(anchor)
+
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        box.set_margin_start(8)
+        box.set_margin_end(8)
+        box.set_margin_top(8)
+        box.set_margin_bottom(8)
+
+        entry = Gtk.Entry()
+        entry.set_placeholder_text(title)
+        box.append(entry)
+
+        btn_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        btn_row.set_halign(Gtk.Align.END)
+        cancel_btn = Gtk.Button(label="Cancel")
+        ok_btn = Gtk.Button(label="Save")
+        ok_btn.add_css_class("suggested-action")
+        btn_row.append(cancel_btn)
+        btn_row.append(ok_btn)
+        box.append(btn_row)
+
+        popover.set_child(box)
+
+        def commit(*_):
+            text = entry.get_text().strip()
+            if text:
+                popover.popdown()
+                on_ok(text)
+
+        entry.connect("activate", commit)
+        ok_btn.connect("clicked", commit)
+        cancel_btn.connect("clicked", lambda _: popover.popdown())
+        popover.popup()
+        entry.grab_focus()
