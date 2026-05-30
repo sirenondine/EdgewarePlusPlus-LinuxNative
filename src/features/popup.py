@@ -338,6 +338,10 @@ class Popup(Gtk.Window):
         notify(self.pack.info.name, f"{filename} has been successfully sent to blacklist", icon=self.pack.icon)
 
     def close(self) -> None:
+        # Engagement escalation: closing a popup counts as interaction.
+        if self.settings.escalation:
+            from features import escalation
+            escalation.record_interaction()
         # Fire the timed close pulse first (suppressed on continuous devices
         # while the contribution is still held), then drop the contribution.
         if self.vibration_close_event:

@@ -96,7 +96,12 @@ def main(settings: Settings, pack: Pack, state: State, targets: list[RollTarget]
     roll_targets(settings, targets)  # self-gates on pause
     if not is_paused():
         Thread(target=lambda: fill_drive(settings, pack, state), daemon=True).start()  # Thread for performance reasons
-    utils.after(settings.delay, lambda: main(settings, pack, state, targets))
+    if settings.escalation:
+        from features import escalation
+        delay = escalation.effective_delay(settings.delay)
+    else:
+        delay = settings.delay
+    utils.after(delay, lambda: main(settings, pack, state, targets))
 
 
 if __name__ == "__main__":

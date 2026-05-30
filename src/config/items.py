@@ -207,6 +207,7 @@ CONFIG_ITEMS = {
     "spawn_on_active_monitor": Item("spawnOnActiveMonitor", BOOLEAN, VAR, bool, block=True),
     "pause_on_battery": Item("pauseOnBattery", BOOLEAN, VAR, bool, block=True),
     "pause_apps": Item("pauseApps", STRING, VAR, str, block=True),
+    "escalation": Item("escalation", BOOLEAN, VAR, bool),
 
     # Sex toys (Intiface/Buttplug). "sextoys" maps a device-index string to a
     # dict of per-event vibration settings; stored verbatim as JSON. The inner

@@ -46,6 +46,9 @@ class PopupTypesTab(Adw.PreferencesPage):
         self.add(freq)
         freq.add(AdwSliderRow("Popup Timer Delay (ms)", vars.delay, 10, 60000))
         freq.add(AdwSwitchRow("Single Popup Per Roll", vars.single_mode, subtitle=SINGLE_TEXT))
+        freq.add(AdwSwitchRow(
+            "Escalation Mode", vars.escalation,
+            subtitle="Popups speed up the more you close them, and ease off when you stop."))
 
         image = Adw.PreferencesGroup(title="Image Popups", description=IMAGE_TEXT)
         self.add(image)
