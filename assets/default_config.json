@@ -92,5 +92,7 @@
   "audioVolume": 100,
   "clickthroughPopups": 0,
   "fadeInDuration": 0,
-  "fadeOutDuration": 0
+  "fadeOutDuration": 0,
+  "sextoys": {},
+  "intifaceAddress": "ws://127.0.0.1:12345"
 }

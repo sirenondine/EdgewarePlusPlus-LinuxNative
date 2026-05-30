@@ -66,7 +66,7 @@ class Sextoy:
         return "connected" if self.connected else "disconnected"
 
     def _address(self) -> str:
-        raw = self._settings.initface_address
+        raw = self._settings.intiface_address
         return raw.get() if hasattr(raw, "get") else raw
 
     # ------------------------------------------------------------------
