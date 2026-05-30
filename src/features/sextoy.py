@@ -97,6 +97,10 @@ class Sextoy:
         # Per-device pattern (name, period seconds) and running modulation task.
         self._patterns: dict[int, tuple[str, float]] = {}
         self._modulation: dict[int, object] = {}
+        # Transient one-shot "boost" riding the continuous loop: device -> (end_time, force).
+        # Lets a timed pulse (e.g. image open) bump above the continuous baseline
+        # for its duration, then settle back, instead of being suppressed.
+        self._boost: dict[int, tuple[float, float]] = {}
         self._active_vibrations: dict[int, dict[int, StoredActuator]] = {}
         self._active_rotations: dict[int, dict[int, StoredActuator]] = {}
         self.vibration_index = 0
@@ -259,7 +263,11 @@ class Sextoy:
 
     async def _vibrate_once(self, device_index: int, speed: float, duration: float) -> None:
         if self._contributions.get(device_index):
-            return  # a continuous vibration is holding this device
+            # Continuous holds this device: instead of dropping the pulse, ride a
+            # transient boost on top of the continuous baseline (e.g. a strong
+            # bump on image open that then settles into a light continuous hum).
+            self._boost[device_index] = (time.monotonic() + duration, speed)
+            return
         dev = self._client.devices.get(device_index)
         if not dev:
             logging.warning(f"vibrate_once: device {device_index} not found")
@@ -309,13 +317,24 @@ class Sextoy:
         t0 = time.monotonic()
         try:
             while self._contributions.get(device_index):
-                total = min(1.0, sum(self._contributions[device_index].values()))
-                name, period = self._patterns.get(device_index, ("constant", 2.0))
-                factor = PATTERNS.get(name, _p_constant)(time.monotonic() - t0, period)
-                await self._send(device_index, round(total * factor, 3))
+                now = time.monotonic()
+                boost = self._boost.get(device_index)
+                if boost and now < boost[0]:
+                    # Hold the boost force flat (ignore the pattern) so the bump
+                    # reads crisp, then fall back to the continuous baseline.
+                    level = boost[1]
+                else:
+                    if boost:
+                        self._boost.pop(device_index, None)
+                    total = min(1.0, sum(self._contributions[device_index].values()))
+                    name, period = self._patterns.get(device_index, ("constant", 2.0))
+                    factor = PATTERNS.get(name, _p_constant)(now - t0, period)
+                    level = total * factor
+                await self._send(device_index, round(level, 3))
                 await asyncio.sleep(self._TICK)
         finally:
             await self._send(device_index, 0.0)
+            self._boost.pop(device_index, None)
             self._modulation.pop(device_index, None)
 
     def add_contribution(self, device_index: int, token: str, force: float) -> None:
