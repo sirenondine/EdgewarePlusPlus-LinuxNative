@@ -130,22 +130,26 @@ class CompanionTab(Adw.PreferencesPage):
         return box
 
     def _on_test(self, _btn: Gtk.Button) -> None:
+        from features.companion.engine import _DEFAULT_SYSTEM
         backend = self._vars.companion_backend.get() or "scripted"
         url = self._vars.companion_base_url.get() or ""
         model = self._vars.companion_model.get() or ""
         key = self._vars.companion_api_key.get() or ""
+        # Use the configured persona prompt so Test previews the real companion;
+        # fall back to the built-in default when left blank.
+        prompt = (self._vars.companion_system_prompt.get() or "").strip() or _DEFAULT_SYSTEM
         self._reply.set_text("")
         self._test_btn.set_sensitive(False)
         self._spinner.start()
-        threading.Thread(target=self._test_worker, args=(backend, url, model, key), daemon=True).start()
+        threading.Thread(target=self._test_worker, args=(backend, url, model, key, prompt), daemon=True).start()
 
-    def _test_worker(self, backend: str, url: str, model: str, key: str) -> None:
+    def _test_worker(self, backend: str, url: str, model: str, key: str, prompt: str) -> None:
         client = llm.make_backend(
             backend, base_url=url, model=model, api_key=(key or None),
             scripted_corpus=["Hello! (scripted mode — no AI backend in use.)"])
         messages = [
-            {"role": "system", "content": "You are a brief, friendly companion. Reply in one short sentence."},
-            {"role": "user", "content": "Say hello."},
+            {"role": "system", "content": prompt},
+            {"role": "user", "content": "(greeting) Greet your pet in one short line."},
         ]
         acc = {"text": ""}
 
