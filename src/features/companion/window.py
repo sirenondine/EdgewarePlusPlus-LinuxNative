@@ -77,6 +77,9 @@ class CompanionWindow(Gtk.Window):
         self.persona = persona
         self._buf = ""
         self._hide_id: int | None = None
+        self._thinking_id: int | None = None
+        self._thinking = False
+        self._input_handler = None  # set_input_handler() -> called with typed chat text
 
         self.set_decorated(False)
         self.set_resizable(False)
@@ -106,12 +109,26 @@ class CompanionWindow(Gtk.Window):
         self._bubble = Gtk.Label(label="", wrap=True, halign=Gtk.Align.START, xalign=0.0)
         self._bubble.set_max_width_chars(34)
         self._bubble.add_css_class("companion-bubble")
+        # Click-to-chat input, hidden until the companion is clicked.
+        self._entry = Gtk.Entry()
+        self._entry.set_placeholder_text("Say something…")
+        self._entry.set_visible(False)
+        self._entry.connect("activate", self._on_input_activate)
+        key = Gtk.EventControllerKey()
+        key.connect("key-pressed", self._on_entry_key)
+        self._entry.add_controller(key)
         self._text_col.append(name)
         self._text_col.append(self._bubble)
+        self._text_col.append(self._entry)
         self._text_col.set_visible(False)  # shown only while speaking
         box.append(self._text_col)
 
         self.set_child(box)
+
+        # Click the companion to talk to it.
+        click = Gtk.GestureClick.new()
+        click.connect("released", self._on_clicked)
+        box.add_controller(click)
 
         if LayerShell.is_supported():
             LayerShell.init_for_window(self)
@@ -121,6 +138,8 @@ class CompanionWindow(Gtk.Window):
             LayerShell.set_anchor(self, LayerShell.Edge.RIGHT, True)
             LayerShell.set_margin(self, LayerShell.Edge.BOTTOM, 28)
             LayerShell.set_margin(self, LayerShell.Edge.RIGHT, 28)
+            # Allow keyboard focus on demand so the chat entry can be typed in.
+            LayerShell.set_keyboard_mode(self, LayerShell.KeyboardMode.ON_DEMAND)
 
         # A pet (sprite) is persistent and idles on screen; an avatar-only
         # companion stays hidden until it speaks.
@@ -160,6 +179,60 @@ class CompanionWindow(Gtk.Window):
         except Exception:
             return None
 
+    def set_input_handler(self, handler) -> None:
+        """handler(text) is called with what the user types into the chat box."""
+        self._input_handler = handler
+
+    # ------------------------------------------------------------------
+    # Click-to-chat.
+    def _on_clicked(self, _gesture, _n, _x, _y) -> None:
+        if self._input_handler is None:
+            return
+        self._cancel_hide()
+        self._text_col.set_visible(True)
+        self.set_visible(True)
+        self.present()
+        self._entry.set_visible(True)
+        self._entry.grab_focus()
+
+    def _on_entry_key(self, _ctrl, keyval, _code, _mods) -> bool:
+        from gi.repository import Gdk
+        if keyval == Gdk.KEY_Escape:
+            self._entry.set_visible(False)
+            return True
+        return False
+
+    def _on_input_activate(self, entry: Gtk.Entry) -> None:
+        text = entry.get_text().strip()
+        entry.set_text("")
+        if text and self._input_handler:
+            self._input_handler(text)  # reply streams back via begin/append/finish
+
+    # ------------------------------------------------------------------
+    # Thinking indicator (pulsing dots while waiting for the first token).
+    def _start_thinking(self) -> None:
+        self._thinking = True
+        state = {"n": 0}
+
+        def tick() -> bool:
+            state["n"] = (state["n"] % 3) + 1
+            self._bubble.set_text("." * state["n"])
+            return True
+
+        tick()
+        self._thinking_id = GLib.timeout_add(400, tick)
+
+    def _stop_thinking(self) -> None:
+        if self._thinking_id is not None:
+            GLib.source_remove(self._thinking_id)
+            self._thinking_id = None
+        self._thinking = False
+
+    def _cancel_hide(self) -> None:
+        if self._hide_id is not None:
+            GLib.source_remove(self._hide_id)
+            self._hide_id = None
+
     # ------------------------------------------------------------------
     # Engine-facing, thread-safe API.
     def begin(self) -> None:
@@ -173,24 +246,26 @@ class CompanionWindow(Gtk.Window):
 
     # ------------------------------------------------------------------
     def _begin_impl(self) -> bool:
-        if self._hide_id is not None:
-            GLib.source_remove(self._hide_id)
-            self._hide_id = None
+        self._cancel_hide()
         self._buf = ""
-        self._bubble.set_text("")
         self._text_col.set_visible(True)
         if self._sprite:
             self._sprite.set_state(sprite.TALK_STATE)
         self.set_visible(True)
         self.present()
+        self._start_thinking()  # pulse dots until the first token arrives
         return False
 
     def _append_impl(self, token: str) -> bool:
+        if self._thinking:
+            self._stop_thinking()
+            self._buf = ""
         self._buf += token
         self._bubble.set_text(self._buf)
         return False
 
     def _finish_impl(self, full_text: str) -> bool:
+        self._stop_thinking()
         if full_text:
             self._bubble.set_text(full_text)
         # Auto-hide after a dwell time that scales with reading length.

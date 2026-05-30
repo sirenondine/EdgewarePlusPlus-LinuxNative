@@ -107,6 +107,7 @@ def handle_companion(settings: Settings, pack: Pack, state: State) -> None:
         )
         state.companion = companion
         state.companion_window = window
+        window.set_input_handler(companion.say)  # click-to-chat
         if getattr(settings, "companion_greet_on_start", False):
             companion.greet()
 
