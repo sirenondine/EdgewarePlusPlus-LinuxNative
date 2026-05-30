@@ -20,6 +20,7 @@
 # while paused. Spawning is staggered on the main loop so it doesn't hitch.
 
 import logging
+import time
 
 from gi.repository import GLib
 
@@ -27,18 +28,31 @@ from config.settings import Settings
 from pack import Pack
 from state import State
 
-_BURST_POPUPS = 5
-_BURST_INTERVAL_MS = 150
+_BURST_POPUPS = 3
+_BURST_INTERVAL_MS = 200
 _REWARD_FORCE = 1.0
 _REWARD_DURATION = 2.0
+# Minimum gap between reward bursts. Several milestones can fire from a single
+# event (a quest completing AND an achievement unlocking), and dismissing the
+# burst can complete further quests; without this the bursts stack into a
+# runaway flood. The cooldown collapses all of that into one burst.
+_COOLDOWN = 20.0
+_last_burst = 0.0
 
 
 def reward_burst(settings: Settings, pack: Pack, state: State, popups: int = _BURST_POPUPS) -> None:
     """Celebrate a milestone: stagger a few popups and pulse any connected toy.
-    No-op while paused."""
+    No-op while paused, and rate-limited so simultaneous/cascading milestones
+    cannot flood the screen."""
+    global _last_burst
     import roll
     if roll.is_paused():
         return
+
+    now = time.monotonic()
+    if now - _last_burst < _COOLDOWN:
+        return
+    _last_burst = now
 
     from features.image_popup import ImagePopup
 
