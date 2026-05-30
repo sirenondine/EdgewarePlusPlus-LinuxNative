@@ -119,7 +119,8 @@ def _niri_keybind_row(key_var) -> Adw.ActionRow:
     vbox.append(hint)
 
     # Copy button
-    copy_btn = Gtk.Button(label="Copy to Clipboard")
+    copy_btn = Gtk.Button(icon_name="edit-copy-symbolic")
+    copy_btn.set_tooltip_text("Copy niri keybind to clipboard")
     copy_btn.set_halign(Gtk.Align.END)
 
     def on_copy(_b):
@@ -151,7 +152,8 @@ class StartTab(Adw.PreferencesPage):
             title="Edgeware++ LinuxNative",
             subtitle="Open the project page on GitHub.",
         )
-        github_btn = Gtk.Button(label="Open GitHub")
+        github_btn = Gtk.Button()
+        github_btn.set_child(Adw.ButtonContent(label="Open GitHub", icon_name="web-browser-symbolic"))
         github_btn.set_valign(Gtk.Align.CENTER)
         github_btn.connect("clicked", lambda _: webbrowser.open(
             "https://github.com/sirenondine/EdgewarePlusPlus-LinuxNative"))
@@ -163,7 +165,8 @@ class StartTab(Adw.PreferencesPage):
             title="Newest Update",
             subtitle="Download the latest source archive.",
         )
-        download_btn = Gtk.Button(label="Download")
+        download_btn = Gtk.Button()
+        download_btn.set_child(Adw.ButtonContent(label="Download", icon_name="folder-download-symbolic"))
         download_btn.set_valign(Gtk.Align.CENTER)
         download_btn.connect("clicked", lambda _: webbrowser.open(
             "https://github.com/sirenondine/EdgewarePlusPlus-LinuxNative/archive/refs/heads/main.zip"))

@@ -69,9 +69,11 @@ class MoodsTab(Adw.PreferencesPage):
 
         if has_moods:
             btn_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-            select_all = Gtk.Button(label="Select All")
+            select_all = Gtk.Button(icon_name="object-select-symbolic")
+            select_all.set_tooltip_text("Select all moods")
             select_all.connect("clicked", lambda _: self._set_all(True))
-            deselect_all = Gtk.Button(label="Deselect All")
+            deselect_all = Gtk.Button(icon_name="edit-clear-all-symbolic")
+            deselect_all.set_tooltip_text("Deselect all moods")
             deselect_all.connect("clicked", lambda _: self._set_all(False))
             btn_row.append(select_all)
             btn_row.append(deselect_all)

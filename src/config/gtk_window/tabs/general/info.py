@@ -54,7 +54,8 @@ class InfoTab(Adw.PreferencesPage):
             title="Import New Pack",
             subtitle="Extract a .zip into data/packs/ for easy switching.",
         )
-        import_btn = Gtk.Button(label="Import…")
+        import_btn = Gtk.Button()
+        import_btn.set_child(Adw.ButtonContent(label="Import…", icon_name="folder-download-symbolic"))
         import_btn.set_valign(Gtk.Align.CENTER)
         import_btn.connect("clicked", lambda _: self._on_import_new())
         import_row.add_suffix(import_btn)
@@ -112,9 +113,8 @@ class InfoTab(Adw.PreferencesPage):
                     sw_btn.connect("clicked", lambda _b, n=name: self._on_switch(n))
                     btn_box.append(sw_btn)
 
-                set_def_btn = Gtk.Button(label="Set Default")
-                set_def_btn.set_tooltip_text(
-                    "Copy this pack to resource/ so it's the built-in default.")
+                set_def_btn = Gtk.Button(icon_name="starred-symbolic")
+                set_def_btn.set_tooltip_text("Set as default pack (copies to resource/)")
                 set_def_btn.connect("clicked", lambda _b, d=pack_dir: self._on_set_default(d))
                 btn_box.append(set_def_btn)
 
