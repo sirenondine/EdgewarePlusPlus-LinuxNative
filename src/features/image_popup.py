@@ -69,6 +69,13 @@ class ImagePopup(Popup):
             video, self._media_file = video_widget(self.media, self.width, self.height, loop=True, muted=True, blur=self.denial, hardware_acceleration=self.settings.video_hardware_acceleration)
             self.set_media_widget(video)
         else:
+            # Fast-path the decode: draft() lets the JPEG loader decode at a
+            # reduced scale close to the target (big win for multi-megapixel
+            # sources); it's a harmless no-op for formats without it (PNG/GIF).
+            try:
+                image.draft(None, (self.width, self.height))
+            except Exception:
+                pass
             resized = image.resize((self.width, self.height), Image.LANCZOS).convert("RGBA")
             filter = self.try_denial_filter()
             if filter == "resizeblur":

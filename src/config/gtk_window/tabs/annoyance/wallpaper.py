@@ -139,10 +139,13 @@ class WallpaperTab(Adw.PreferencesPage):
             logging.warning(f"Failed to auto import panic wallpaper: {e}")
 
     def _load_panic_preview(self) -> None:
-        # Hand the Picture the full-resolution file so it scales crisply to the
-        # display size, instead of a pre-shrunk pixbuf that upscales blurry.
+        # Downscale to a sensible preview size rather than decoding the full
+        # wallpaper (often multi-megapixel) for a ~240px preview.
         try:
-            self._panic_preview.set_filename(str(CustomAssets.panic_wallpaper()))
+            from gi.repository import GdkPixbuf
+            pb = GdkPixbuf.Pixbuf.new_from_file_at_scale(
+                str(CustomAssets.panic_wallpaper()), 640, 360, True)
+            self._panic_preview.set_pixbuf(pb)
         except Exception:
             pass
 
@@ -263,9 +266,19 @@ class WallpaperTab(Adw.PreferencesPage):
         filename = config.get("wallpaperDat", {}).get(name)
         path = self._pack.paths.root / filename if filename else None
         if path and path.is_file():
-            thumb.set_filename(str(path))
-            missing_icon.set_visible(False)
-            box.set_tooltip_text(None)
+            # Load a downscaled pixbuf, not the full image: wallpapers are often
+            # multi-megapixel and set_filename would decode each at full size
+            # (hundreds of MB across the list). 128x72 covers the 96x54 cell.
+            try:
+                from gi.repository import GdkPixbuf
+                pb = GdkPixbuf.Pixbuf.new_from_file_at_scale(str(path), 128, 72, True)
+                thumb.set_pixbuf(pb)
+                missing_icon.set_visible(False)
+                box.set_tooltip_text(None)
+            except Exception:
+                thumb.set_paintable(None)
+                missing_icon.set_visible(True)
+                box.set_tooltip_text(f"Could not load {filename}")
         else:
             thumb.set_paintable(None)
             missing_icon.set_visible(True)

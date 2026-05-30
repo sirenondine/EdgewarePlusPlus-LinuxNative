@@ -52,10 +52,18 @@ def panic(settings: Settings, state: State, condition: bool = True, disable: boo
             if password != settings.panic_lockout_password:
                 return
 
-        set_wallpaper(CustomAssets.panic_wallpaper())
+        # Each cleanup step is isolated so a failure (e.g. wallpaper revert
+        # erroring on some compositors) can never stop the app from quitting.
+        try:
+            set_wallpaper(CustomAssets.panic_wallpaper())
+        except Exception as e:
+            logging.warning(f"panic: failed to revert wallpaper: {e}")
 
-        if state.keyboard_process:
-            state.keyboard_process.terminate()
+        try:
+            if state.keyboard_process:
+                state.keyboard_process.terminate()
+        except Exception:
+            pass
 
         if getattr(state, "sextoy", None):
             try:
@@ -63,8 +71,11 @@ def panic(settings: Settings, state: State, condition: bool = True, disable: boo
             except Exception:
                 pass
 
-        if state.tray and hasattr(state.tray, "stop"):
-            state.tray.stop()
+        try:
+            if state.tray and hasattr(state.tray, "stop"):
+                state.tray.stop()
+        except Exception:
+            pass
 
         for player in state.audio_players.copy():
             try:
@@ -76,6 +87,9 @@ def panic(settings: Settings, state: State, condition: bool = True, disable: boo
         app = Gio.Application.get_default()
         if app:
             app.quit()
+        else:
+            import os
+            os._exit(0)
 
     from gi.repository import GLib
     GLib.idle_add(do_panic)
