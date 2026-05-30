@@ -117,7 +117,17 @@ def handle_gamification(settings: Settings, pack: Pack, state: State) -> None:
     gamification.set_level_up_callback(on_level_up)
     gamification.set_achievement_callback(on_achievement)
     gamification.set_quest_callback(on_quest_complete)
-    gamification.progress()  # load now so the first event is fast
+    prog = gamification.progress()  # load now so the first event is fast
+
+    # Live on-screen progress HUD (encourages staying running).
+    if getattr(settings, "gamification_hud", False):
+        try:
+            from features.hud import ProgressHUD
+            into, span = prog.xp_into_level()
+            state.hud = ProgressHUD(prog.level, into, span)
+            gamification.set_progress_callback(state.hud.update)
+        except Exception as e:
+            logging.warning(f"Failed to create gamification HUD: {e}")
 
     def tick() -> bool:
         import roll

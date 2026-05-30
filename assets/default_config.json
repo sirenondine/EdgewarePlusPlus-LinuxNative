@@ -103,5 +103,6 @@
   "pauseApps": "",
   "escalation": 0,
   "gamification": 0,
-  "gamificationRewards": 1
+  "gamificationRewards": 1,
+  "gamificationHud": 1
 }

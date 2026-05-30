@@ -222,6 +222,7 @@ CONFIG_ITEMS = {
     # leaderboard or telemetry; progress lives in a plain JSON state file.
     "gamification": Item("gamification", BOOLEAN, VAR, bool, block=True),
     "gamification_rewards": Item("gamificationRewards", BOOLEAN, VAR, bool, block=True),
+    "gamification_hud": Item("gamificationHud", BOOLEAN, VAR, bool, block=True),
 }
 # fmt: on
 

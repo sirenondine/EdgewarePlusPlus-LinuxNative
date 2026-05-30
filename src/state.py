@@ -66,6 +66,7 @@ class State:
     alt_held = False
 
     sextoy: object | None = None  # features.sextoy.Sextoy when toy support is active
+    hud: object | None = None  # features.hud.ProgressHUD when the gamification HUD is on
 
     @property
     def popup_number(self) -> int:

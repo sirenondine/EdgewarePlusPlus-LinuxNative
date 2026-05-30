@@ -53,6 +53,9 @@ class ProgressTab(Adw.PreferencesPage):
         general.add(AdwSwitchRow(
             "Milestone Rewards", vars.gamification_rewards,
             subtitle="A burst of popups and a strong toy buzz on each achievement or quest."))
+        general.add(AdwSwitchRow(
+            "On-screen Progress HUD", vars.gamification_hud,
+            subtitle="Show a live level and XP bar in the corner while running."))
 
         reset_row = Adw.ActionRow(title="Reset Progress", subtitle="Erase all XP, levels and achievements.")
         reset_btn = Gtk.Button(label="Reset")

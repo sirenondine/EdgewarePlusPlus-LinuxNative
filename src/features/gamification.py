@@ -176,6 +176,7 @@ class Progress:
         self.on_level_up = None  # callback(new_level) injected by the UI layer
         self.on_achievement = None  # callback(Achievement) injected by the UI layer
         self.on_quest_complete = None  # callback(Quest) injected by the UI layer
+        self.on_progress_change = None  # callback(level, xp_into, xp_span) for the live HUD
         self._last_save = 0.0
         self._dirty = False
 
@@ -246,6 +247,12 @@ class Progress:
                     self.on_level_up(new_level)
                 except Exception as e:
                     logging.warning(f"gamification level-up callback error: {e}")
+        if self.on_progress_change:
+            try:
+                into, span = self.xp_into_level()
+                self.on_progress_change(self.level, into, span)
+            except Exception as e:
+                logging.warning(f"gamification progress callback error: {e}")
 
     def xp_into_level(self) -> tuple[int, int]:
         """(xp earned into the current level, xp the current level spans) — for a
@@ -344,6 +351,10 @@ def set_achievement_callback(callback) -> None:
 
 def set_quest_callback(callback) -> None:
     progress().on_quest_complete = callback
+
+
+def set_progress_callback(callback) -> None:
+    progress().on_progress_change = callback
 
 
 def active_quests() -> list[Quest]:
