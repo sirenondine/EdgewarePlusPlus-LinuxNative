@@ -89,6 +89,12 @@ class ConfigScale(Gtk.Box):
         self._variable = variable
         self._enabled = enabled
 
+        self._label_widget = Gtk.Label(label=label, css_classes=["config-scale-label"])
+        self._label_widget.set_xalign(0)
+        self._label_widget.set_margin_start(PAD)
+        self._label_widget.set_margin_end(PAD)
+        self.append(self._label_widget)
+
         inner = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=PAD)
         inner.set_margin_start(PAD)
         inner.set_margin_end(PAD)
@@ -110,12 +116,6 @@ class ConfigScale(Gtk.Box):
         inner.append(manual_btn)
 
         self.append(inner)
-
-        self._label_widget = Gtk.Label(label=label, css_classes=["config-scale-label"])
-        self._label_widget.set_xalign(0)
-        self._label_widget.set_margin_start(PAD)
-        self._label_widget.set_margin_end(PAD)
-        self.append(self._label_widget)
 
     def _on_value_changed(self, scale: Gtk.Scale) -> None:
         self._variable.set(int(scale.get_value()))
@@ -167,6 +167,8 @@ class ConfigToggle(Gtk.Box):
         super().__init__(orientation=Gtk.Orientation.HORIZONTAL, spacing=PAD)
         self._variable = variable
         self._enabled = enabled
+        self.set_hexpand(False)
+        self.set_valign(Gtk.Align.CENTER)
 
         self.set_margin_start(PAD)
         self.set_margin_end(PAD)
@@ -181,7 +183,6 @@ class ConfigToggle(Gtk.Box):
 
         label = Gtk.Label(label=text, css_classes=["config-toggle-label"])
         label.set_xalign(0)
-        label.set_hexpand(True)
         self.append(label)
 
         if tooltip:
@@ -210,6 +211,7 @@ class ConfigDropdown(Gtk.Box):
         self.set_margin_end(PAD)
         self.set_margin_top(PAD)
         self.set_margin_bottom(PAD)
+        self.set_valign(Gtk.Align.CENTER)
 
         keys = list(items.keys())
         string_list = Gtk.StringList.new(keys)
@@ -225,7 +227,6 @@ class ConfigDropdown(Gtk.Box):
         self._desc = Gtk.Label(label=items.get(str(current), ""), wrap=True, css_classes=["config-dropdown-desc"])
         self._desc.set_xalign(0)
         self._desc.set_hexpand(True)
-        self._desc.set_vexpand(True)
         self.append(self._desc)
 
     def _on_selected(self, dropdown: Gtk.DropDown, _param) -> None:

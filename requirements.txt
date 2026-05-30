@@ -14,7 +14,4 @@ pywin32; platform_system == 'Windows'
 requests
 screeninfo
 sounddevice
-tkinter-tooltip
-tkinterweb
-ttkwidgets
 voluptuous

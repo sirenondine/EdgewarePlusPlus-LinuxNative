@@ -45,7 +45,7 @@
   "lkToggle": 0,
   "videoVolume": 25,
   "denialChance": 0,
-  "drivePath": "C:/Users/",
+  "drivePath": "~/",
   "wallpaperDat": "{'default': 'wallpaper.png'}",
   "maxAudio": 1,
   "maxVideos": 10,

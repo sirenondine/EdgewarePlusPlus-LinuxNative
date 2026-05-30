@@ -12,7 +12,13 @@
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 # GNU General Public License for more details.
 
+import os
+import platform
+
 from gi import require_version
+
+require_version("Gtk", "4.0")
+from gi.repository import Gtk
 
 require_version("Gtk", "4.0")
 from gi.repository import Gtk
@@ -131,7 +137,10 @@ class DangerousSettingsTab(Gtk.ScrolledWindow):
         drive_section.append(path_frame)
         path_frame.append(Gtk.Label(label="Fill/Replace Start Folder"))
         self._path_entry = Gtk.Entry()
-        self._path_entry.set_text(config.get("drivePath", ""))
+        drive_path = config.get("drivePath", "")
+        if platform.system() == "Linux" and drive_path in ("C:/Users/", "C:\\Users\\"):
+            drive_path = os.path.expanduser("~")
+        self._path_entry.set_text(drive_path)
         self._path_entry.set_editable(False)
         path_frame.append(self._path_entry)
         select_btn = Gtk.Button(label="Select")

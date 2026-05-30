@@ -1,17 +1,3 @@
-# Copyright (C) 2025 Araten & Marigold
-#
-# This file is part of Edgeware++.
-#
-# Edgeware++ is free software: you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
-# the Free Software Foundation, either version 3 of the License, or
-# (at your option) any later version.
-#
-# Edgeware++ is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-
 from pathlib import Path
 
 from gi import require_version
@@ -20,18 +6,24 @@ require_version("Gtk", "4.0")
 require_version("WebKit", "6.0")
 from gi.repository import Gtk, WebKit
 
-from config.gtk_window.utils import config
 from paths import Assets
 
+_tutorial_popover: Gtk.Popover | None = None
 
-def open_tutorial(parent: Gtk.Window) -> None:
-    window = Gtk.Window(title="Edgeware++ Tutorial")
-    window.set_default_size(740, 900)
-    window.set_transient_for(parent)
-    window.set_modal(True)
+
+def open_tutorial(anchor: Gtk.Widget, parent: Gtk.Window) -> None:
+    global _tutorial_popover
+    if _tutorial_popover is not None:
+        _tutorial_popover.popdown()
+        _tutorial_popover = None
+
+    popover = Gtk.Popover()
+    popover.set_position(Gtk.PositionType.RIGHT)
+    popover.set_default_size(700, 850)
+    popover.set_transient_for(parent)
 
     notebook = Gtk.Notebook()
-    window.set_child(notebook)
+    popover.set_child(notebook)
 
     pages = [
         ("Intro/About", Assets.TUTORIAL_INTRO),
@@ -45,7 +37,6 @@ def open_tutorial(parent: Gtk.Window) -> None:
         webview.load_html(_read_html(html_file), None)
         notebook.append_page(webview, Gtk.Label(label=title))
 
-    # Hibernate types tab (plain text)
     hib_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
     scrolled = Gtk.ScrolledWindow()
     scrolled.set_child(hib_box)
@@ -66,7 +57,13 @@ def open_tutorial(parent: Gtk.Window) -> None:
     hib_label.set_margin_bottom(10)
     scrolled.set_child(hib_label)
 
-    window.present()
+    def _on_closed(_p):
+        global _tutorial_popover
+        _tutorial_popover = None
+    popover.connect("closed", _on_closed)
+    popover.set_parent(anchor)
+    popover.popup()
+    _tutorial_popover = popover
 
 
 def _read_html(path: Path) -> str:

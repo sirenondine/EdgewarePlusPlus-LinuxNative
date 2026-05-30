@@ -153,12 +153,12 @@ class ConfigWindow(Gtk.Window):
 
         import_btn = Gtk.Button(label="Import New Pack")
         import_btn.set_hexpand(True)
-        import_btn.connect("clicked", lambda _: self._import_window())
+        import_btn.connect("clicked", lambda _: self._import_popover(import_btn))
         pack_frame.append(import_btn)
 
         switch_btn = Gtk.Button(label="Switch Pack")
         switch_btn.set_hexpand(True)
-        switch_btn.connect("clicked", lambda _: self._switch_window(vars))
+        switch_btn.connect("clicked", lambda _: self._switch_popover(vars, switch_btn))
         pack_frame.append(switch_btn)
 
         save_btn = Gtk.Button(label="Save & Exit")
@@ -189,7 +189,7 @@ class ConfigWindow(Gtk.Window):
 
     def _on_tab_switch(self, notebook, page, page_num):
         if page_num == self._tutorial_tab_index:
-            open_tutorial(self)
+            open_tutorial(notebook, self)
             notebook.set_current_page(self._last_tab)
         else:
             self._last_tab = page_num
@@ -248,65 +248,91 @@ class ConfigWindow(Gtk.Window):
         cancel_btn.connect("clicked", on_cancel)
         popover.popup()
 
-    def _switch_window(self, vars):
+    def _switch_popover(self, vars, anchor: Gtk.Button) -> None:
         Data.PACKS.mkdir(parents=True, exist_ok=True)
         pack_list = os.listdir(Data.PACKS)
-        dialog = Gtk.Window(title="Switch Pack")
-        dialog.set_default_size(275, 340)
-        dialog.set_transient_for(self)
-        dialog.set_modal(True)
+
+        popover = Gtk.Popover()
+        popover.set_position(Gtk.PositionType.TOP)
+
         vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
-        dialog.set_child(vbox)
-        lbl = Gtk.Label(label=f"Currently loaded pack:\n{vars.pack_path.get()}", wrap=True)
+        vbox.set_margin_start(12)
+        vbox.set_margin_end(12)
+        vbox.set_margin_top(12)
+        vbox.set_margin_bottom(12)
+        popover.set_child(vbox)
+
+        lbl = Gtk.Label(label=f"Current: {vars.pack_path.get()}", wrap=True)
+        lbl.set_xalign(0)
         vbox.append(lbl)
+
         string_list = Gtk.StringList.new(pack_list)
         dropdown = Gtk.DropDown(model=string_list)
         vbox.append(dropdown)
+
         btn_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         vbox.append(btn_box)
-        switch_btn = Gtk.Button(label="Switch")
+
+        switch_btn = Gtk.Button(label="_Switch")
+        switch_btn.set_use_underline(True)
         def on_switch(_b):
             idx = dropdown.get_selected()
             if 0 <= idx < len(pack_list):
+                popover.popdown()
                 self._switch_pack(vars, pack_list[idx])
         switch_btn.connect("clicked", on_switch)
         btn_box.append(switch_btn)
-        default_btn = Gtk.Button(label="Default")
-        default_btn.connect("clicked", lambda _: self._switch_pack(vars, "default"))
+
+        default_btn = Gtk.Button(label="_Default")
+        default_btn.set_use_underline(True)
+        default_btn.connect("clicked", lambda _: (popover.popdown(), self._switch_pack(vars, "default")))
         btn_box.append(default_btn)
-        cancel_btn = Gtk.Button(label="Cancel")
-        cancel_btn.connect("clicked", lambda _: dialog.destroy())
+
+        cancel_btn = Gtk.Button(label="_Cancel")
+        cancel_btn.set_use_underline(True)
+        cancel_btn.connect("clicked", lambda _: popover.popdown())
         btn_box.append(cancel_btn)
-        dialog.present()
+
+        popover.set_parent(anchor)
+        popover.popup()
 
     def _switch_pack(self, vars, pack_name):
         vars.pack_path.set(pack_name)
         write_save(vars)
         refresh()
 
-    def _import_window(self):
-        dialog = Gtk.Window(title="Import New Pack")
-        dialog.set_default_size(350, 225)
-        dialog.set_transient_for(self)
-        dialog.set_modal(True)
+    def _import_popover(self, anchor: Gtk.Button) -> None:
+        popover = Gtk.Popover()
+        popover.set_position(Gtk.PositionType.TOP)
+
         vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
-        dialog.set_child(vbox)
+        vbox.set_margin_start(12)
+        vbox.set_margin_end(12)
+        vbox.set_margin_top(12)
+        vbox.set_margin_bottom(12)
+        popover.set_child(vbox)
+
         message = (
-            "Would you like to import a new pack, or change the default pack instead?\n\n"
-            "Importing a new pack saves it to /data/packs, and allows fast switching "
-            "between all packs saved this way.\n\n"
-            "Changing the default pack saves it to /resource, overwriting any pack "
-            "previously saved there."
+            "Import a new pack or change the default?\n\n"
+            "Importing saves to /data/packs for fast switching.\n"
+            "Changing default overwrites /resource."
         )
-        lbl = Gtk.Label(label=message, wrap=True)
-        vbox.append(lbl)
-        import_new_btn = Gtk.Button(label="Import New")
-        import_new_btn.connect("clicked", lambda _: import_pack(False))
+        vbox.append(Gtk.Label(label=message, wrap=True))
+
+        import_new_btn = Gtk.Button(label="_Import New")
+        import_new_btn.set_use_underline(True)
+        import_new_btn.connect("clicked", lambda _: (popover.popdown(), import_pack(False)))
         vbox.append(import_new_btn)
-        change_default_btn = Gtk.Button(label="Change Default")
-        change_default_btn.connect("clicked", lambda _: import_pack(True))
+
+        change_default_btn = Gtk.Button(label="_Change Default")
+        change_default_btn.set_use_underline(True)
+        change_default_btn.connect("clicked", lambda _: (popover.popdown(), import_pack(True)))
         vbox.append(change_default_btn)
-        cancel_btn = Gtk.Button(label="Cancel")
-        cancel_btn.connect("clicked", lambda _: dialog.destroy())
+
+        cancel_btn = Gtk.Button(label="_Cancel")
+        cancel_btn.set_use_underline(True)
+        cancel_btn.connect("clicked", lambda _: popover.popdown())
         vbox.append(cancel_btn)
-        dialog.present()
+
+        popover.set_parent(anchor)
+        popover.popup()
