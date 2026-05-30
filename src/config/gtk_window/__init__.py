@@ -294,6 +294,7 @@ class ConfigWindow(Adw.ApplicationWindow):
 
         sidebar_scroll = Gtk.ScrolledWindow()
         sidebar_scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        sidebar_scroll.set_vexpand(True)
         sidebar_scroll.set_child(sidebar_list)
         sidebar_box.append(sidebar_scroll)
 
@@ -320,6 +321,18 @@ class ConfigWindow(Adw.ApplicationWindow):
             split.set_show_content(True)
 
         sidebar_list.connect("row-selected", on_row_selected)
+
+        # Responsive collapse: NavigationSplitView does not auto-collapse;
+        # drive it manually from window width. Collapse below 540px.
+        _COLLAPSE_WIDTH = 540
+
+        # Drive collapse via width property notification (fires on every resize).
+        def _on_width_changed(*_):
+            w = split.get_width()
+            if w > 0:
+                split.set_collapsed(w < _COLLAPSE_WIDTH)
+
+        split.connect("notify::width", _on_width_changed)
 
         # Search logic
         def on_search_changed(entry):
