@@ -234,6 +234,8 @@ CONFIG_ITEMS = {
     "companion_name": Item("companionName", STRING, VAR, str, block=True),
     "companion_system_prompt": Item("companionSystemPrompt", STRING, VAR, str, block=True),
     "companion_memory": Item("companionMemory", STRING, VAR, str, block=True),
+    "companion_auto_memory": Item("companionAutoMemory", BOOLEAN, VAR, bool, block=True),
+    "companion_memory_model": Item("companionMemoryModel", STRING, VAR, str, block=True),
     "companion_observe_interval": Item("companionObserveInterval", NONNEGATIVE, VAR, int, block=True),
     "companion_backend": Item("companionBackend", STRING, VAR, str, danger=Danger(DangerLevel.MEDIUM, Schema("openai"), COMPANION_CLOUD_DANGER), block=True),
     "companion_base_url": Item("companionBaseUrl", STRING, VAR, str, block=True),

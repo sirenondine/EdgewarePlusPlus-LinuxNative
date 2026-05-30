@@ -88,6 +88,7 @@ class Data:
     CONFIG = _CONFIG_ROOT / "config.json"
     CORRUPTION_LAUNCHES = _DATA_ROOT / "corruption_launches.dat"
     PROGRESS = _STATE_ROOT / "progress.json"  # local gamification stats
+    COMPANION_MEMORY = _STATE_ROOT / "companion_memory.json"  # companion auto-memory facts
 
     # Changed defaults
     CONFIG_ICON = ROOT / "config_icon.ico"

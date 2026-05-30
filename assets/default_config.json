@@ -111,6 +111,8 @@
   "companionName": "",
   "companionSystemPrompt": "",
   "companionMemory": "",
+  "companionAutoMemory": 0,
+  "companionMemoryModel": "",
   "companionObserveInterval": 0,
   "companionBackend": "ollama",
   "companionBaseUrl": "http://localhost:11434",

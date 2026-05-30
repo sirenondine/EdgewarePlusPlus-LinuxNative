@@ -71,6 +71,15 @@ class CompanionTab(Adw.PreferencesPage):
         persona.add(self._text_editor("System prompt", vars.companion_system_prompt))
         persona.add(self._text_editor("Memory / about the user", vars.companion_memory))
 
+        # ---- Auto-memory (facts the companion learns) --------------------
+        mem_group = Adw.PreferencesGroup(
+            title="Learned Memory",
+            description="When on, the companion summarises each session into durable facts about you (kept locally, editable below). Uses the optional model below, else the main model.")
+        self.add(mem_group)
+        mem_group.add(AdwSwitchRow("Auto-memory", vars.companion_auto_memory))
+        mem_group.add(AdwEntryRow("Memory model (optional)", vars.companion_memory_model))
+        mem_group.add(self._memory_facts_editor())
+
         behaviour = Adw.PreferencesGroup(title="Behaviour")
         self.add(behaviour)
         behaviour.add(AdwSliderRow("Idle Chatter Chance", vars.companion_chatter_chance, 0, 100))
@@ -132,6 +141,47 @@ class CompanionTab(Adw.PreferencesPage):
         scroller = Gtk.ScrolledWindow()
         scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
         scroller.set_min_content_height(120)
+        scroller.set_child(view)
+        frame = Gtk.Frame()
+        frame.add_css_class("card")
+        frame.set_child(scroller)
+        box.append(frame)
+        return box
+
+    def _memory_facts_editor(self) -> Gtk.Widget:
+        """Editor for the learned-memory facts file (one fact per line), with a
+        Clear button. Backed directly by the companion memory store."""
+        from features.companion import memory
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+
+        header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        label = Gtk.Label(label="Learned facts (one per line)", xalign=0, hexpand=True)
+        label.add_css_class("dim-label")
+        clear_btn = Gtk.Button(label="Clear")
+        clear_btn.add_css_class("destructive-action")
+        header.append(label)
+        header.append(clear_btn)
+        box.append(header)
+
+        view = Gtk.TextView(wrap_mode=Gtk.WrapMode.WORD_CHAR, accepts_tab=False)
+        for m in ("top", "bottom", "left", "right"):
+            getattr(view, f"set_{m}_margin")(6)
+        buf = view.get_buffer()
+        buf.set_text("\n".join(memory.load_facts()))
+
+        def on_changed(b) -> None:
+            text = b.get_text(b.get_start_iter(), b.get_end_iter(), False)
+            memory.save_facts([ln for ln in text.splitlines() if ln.strip()])
+        buf.connect("changed", on_changed)
+
+        def on_clear(_b) -> None:
+            memory.clear()
+            buf.set_text("")
+        clear_btn.connect("clicked", on_clear)
+
+        scroller = Gtk.ScrolledWindow()
+        scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        scroller.set_min_content_height(100)
         scroller.set_child(view)
         frame = Gtk.Frame()
         frame.add_css_class("card")

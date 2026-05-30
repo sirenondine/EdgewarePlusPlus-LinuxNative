@@ -124,10 +124,18 @@ def emergency_stop(settings: Settings) -> None:
     os._exit(0)
 
 
-def quit_session(settings: Settings) -> None:
+def quit_session(settings: Settings, state: State) -> None:
     """A clean exit with no XP penalty (the reward for finishing daily quests).
-    Saves progress, reverts the wallpaper, then exits."""
+    On the way out: let the companion learn from the session, save progress,
+    revert the wallpaper, then exit. (Panic never does this — it must be
+    instant.)"""
     import os
+    companion = getattr(state, "companion", None)
+    if companion is not None:
+        try:
+            companion.extract_memory()  # blocking, short timeout; we're exiting
+        except Exception as e:
+            logging.warning(f"quit: companion memory extraction failed: {e}")
     if getattr(settings, "gamification", False):
         try:
             from features import gamification

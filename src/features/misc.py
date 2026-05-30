@@ -267,7 +267,7 @@ def make_tray_icon(
             on_open_config=open_config,
             on_toggle_pause=toggle_pause,
             on_reconnect_toy=on_reconnect_toy,
-            on_quit=lambda: quit_session(settings),
+            on_quit=lambda: quit_session(settings, state),
             quit_hidden=quit_hidden,
         )
         logging.info("Created StatusNotifierItem tray icon (D-Bus, with menu)")

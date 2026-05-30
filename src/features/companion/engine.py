@@ -33,6 +33,28 @@ from pack.data import Persona
 
 _HISTORY_TURNS = 6  # user+assistant pairs kept as context
 
+# Auto-memory extraction.
+_MEMORY_TIMEOUT = 15  # seconds; keep session end snappy
+_MEMORY_SYSTEM = (
+    "You extract durable facts and preferences about a user from a session log "
+    "of their adult desktop toy. Output only concrete, lasting facts worth "
+    "remembering (likes, kinks, name, habits, reactions), one short fact per "
+    "line, no preamble, no numbering. If nothing durable, output exactly 'none'."
+)
+
+
+def _parse_facts(text: str) -> list[str]:
+    """Parse the extraction model's output into clean fact lines."""
+    facts = []
+    for raw in (text or "").splitlines():
+        line = raw.strip().lstrip("-*•0123456789. ").strip()
+        if not line or line.lower() in ("none", "n/a", "no facts"):
+            continue
+        if len(line) > 140:
+            line = line[:140].rsplit(" ", 1)[0]
+        facts.append(line)
+    return facts
+
 # Used when a pack ships no companion.json but the user enables the companion.
 _DEFAULT_SYSTEM = (
     "You are a flirtatious, teasing companion living on the user's desktop. "
@@ -59,6 +81,7 @@ class Companion:
         self._on_error = on_error or (lambda e: logging.warning(f"Companion backend error: {e}"))
 
         self._history: deque = deque(maxlen=2 * _HISTORY_TURNS)
+        self._log: deque = deque(maxlen=40)  # longer session log for memory extraction
         self._lock = threading.Lock()
         self._cancel = threading.Event()
         self._busy = False
@@ -123,9 +146,17 @@ class Companion:
         except Exception:
             pass
 
-        memory = (getattr(self.settings, "companion_memory", "") or "").strip()
-        if memory:
-            lines.append(f"What you know about the user: {memory}")
+        note = (getattr(self.settings, "companion_memory", "") or "").strip()
+        if note:
+            lines.append(f"What you know about the user: {note}")
+
+        try:
+            from features.companion import memory as mem
+            learned = mem.as_context()
+            if learned:
+                lines.append("Things you've learned about the user over time:\n" + learned)
+        except Exception:
+            pass
 
         try:
             if getattr(self.settings, "gamification", False):
@@ -163,6 +194,9 @@ class Companion:
                 # Store only the text in history, never the image.
                 self._history.append({"role": "user", "content": user_text})
                 self._history.append({"role": "assistant", "content": text})
+                # Compact line for memory extraction (cue + reply, no boilerplate).
+                cue = user_text.splitlines()[0][:120]
+                self._log.append(f"{cue} => {text}")
             self._busy = False
             self._on_done(text)
 
@@ -218,6 +252,42 @@ class Companion:
     def _react_image(self, text: str, image_path: str) -> None:
         from features.companion import vision
         self._run(text, image_b64=vision.encode_image_file(image_path))
+
+    def extract_memory(self) -> None:
+        """Summarise the session log into durable facts and persist them.
+        Blocking (a single LLM call with a short timeout); meant to run at a
+        clean session end, never on panic. No-op unless auto-memory is on."""
+        if not getattr(self.settings, "companion_auto_memory", False):
+            return
+        if len(self._log) < 3:
+            return  # too little happened to learn anything
+        from features.companion import memory
+        backend = self._extraction_backend()
+        log = "\n".join(self._log)
+        messages = [
+            {"role": "system", "content": _MEMORY_SYSTEM},
+            {"role": "user", "content": f"Session log:\n{log}\n\nList durable facts about the user, one per line, or 'none'."},
+        ]
+        acc: list[str] = []
+        try:
+            backend.stream(messages, lambda t: acc.append(t), lambda f: None,
+                           lambda e: logging.warning(f"memory extraction error: {e}"))
+        except Exception as e:
+            logging.warning(f"memory extraction failed: {e}")
+            return
+        facts = _parse_facts("".join(acc))
+        if facts:
+            memory.add_facts(facts)
+            logging.info(f"Companion learned {len(facts)} fact(s).")
+
+    def _extraction_backend(self) -> llm.LLMBackend:
+        s = self.settings
+        model = (getattr(s, "companion_memory_model", "") or "").strip() or getattr(s, "companion_model", "")
+        return llm.make_backend(
+            getattr(s, "companion_backend", "scripted"),
+            base_url=getattr(s, "companion_base_url", None), model=model,
+            api_key=(getattr(s, "companion_api_key", None) or None),
+            scripted_corpus=[], timeout=_MEMORY_TIMEOUT)
 
     def cancel(self) -> None:
         self._cancel.set()

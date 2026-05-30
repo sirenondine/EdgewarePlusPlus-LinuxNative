@@ -157,6 +157,7 @@ ruffruff.bat
 # Edgeware++ LinuxNative: user data
 data/config.json
 data/progress.json
+data/companion_memory.json
 data/logs/
 data/packs/
 data/presets/
