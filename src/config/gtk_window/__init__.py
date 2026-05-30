@@ -95,24 +95,41 @@ class ConfigWindow(Adw.ApplicationWindow):
         self._header_title = header.get_title_widget()
 
         # Pack management (header start)
-        import_btn = Gtk.Button(label="Import Pack")
-        import_btn.set_tooltip_text("Import a new pack or change the default.")
-        import_btn.connect("clicked", lambda _: self._import_popover(import_btn))
+        import_btn = Gtk.Button()
+        import_btn.set_child(Adw.ButtonContent(
+            label="Import Pack", icon_name="folder-download-symbolic"))
+        import_btn.set_tooltip_text(
+            "Import New: copy a .zip pack into data/packs for easy switching.\n"
+            "Use the ⋮ menu to change the default pack instead.")
+        import_btn.connect("clicked", lambda _: import_pack(False))
         header.pack_start(import_btn)
 
-        switch_btn = Gtk.Button(label="Switch Pack")
+        import_menu_btn = Gtk.MenuButton()
+        import_menu_btn.set_icon_name("view-more-symbolic")
+        import_menu_btn.set_tooltip_text("Pack import options")
+        import_menu = Gtk.PopoverMenu.new_from_model(self._build_import_menu())
+        import_menu_btn.set_popover(import_menu)
+        header.pack_start(import_menu_btn)
+
+        switch_btn = Gtk.Button()
+        switch_btn.set_child(Adw.ButtonContent(
+            label="Switch Pack", icon_name="media-playlist-consecutive-symbolic"))
         switch_btn.set_tooltip_text("Switch to another imported pack.")
         switch_btn.connect("clicked", lambda _: self._switch_popover(vars, switch_btn))
         header.pack_start(switch_btn)
 
         # Save actions (header end)
-        save_exit_btn = Gtk.Button(label="Save & Exit")
+        save_exit_btn = Gtk.Button()
+        save_exit_btn.set_child(Adw.ButtonContent(
+            label="Save & Exit", icon_name="document-save-symbolic"))
         save_exit_btn.add_css_class("suggested-action")
         save_exit_btn.set_tooltip_text("Save settings and close the config window.")
         save_exit_btn.connect("clicked", lambda _: write_save(vars, True))
         header.pack_end(save_exit_btn)
 
-        save_btn = Gtk.Button(label="Save")
+        save_btn = Gtk.Button()
+        save_btn.set_child(Adw.ButtonContent(
+            label="Save", icon_name="document-save-symbolic"))
         save_btn.set_tooltip_text("Save without exiting (Ctrl+S).")
         save_btn.connect("clicked", lambda _: write_save(vars, False))
         header.pack_end(save_btn)
@@ -189,6 +206,12 @@ class ConfigWindow(Adw.ApplicationWindow):
         sidebar_list.connect("row-selected", on_row_selected)
 
         toolbar_view.set_content(split)
+
+        # App action for "Change Default Pack" (GMenu needs an action)
+        from gi.repository import Gio
+        change_default_action = Gio.SimpleAction.new("change-default-pack", None)
+        change_default_action.connect("activate", lambda _a, _p: import_pack(True))
+        app.add_action(change_default_action)
 
         # Ctrl+S shortcut
         key_ctrl = Gtk.EventControllerKey.new()
@@ -297,57 +320,86 @@ class ConfigWindow(Adw.ApplicationWindow):
         cancel_btn.connect("clicked", on_cancel)
         popover.popup()
 
+    @staticmethod
+    def _build_import_menu():
+        from gi.repository import Gio
+        menu = Gio.Menu()
+        menu.append("Change Default Pack", "app.change-default-pack")
+        return menu
+
     def _switch_popover(self, vars, anchor: Gtk.Button) -> None:
         Data.PACKS.mkdir(parents=True, exist_ok=True)
-        pack_list = os.listdir(Data.PACKS)
+        pack_list = sorted(os.listdir(Data.PACKS))
+        current = vars.pack_path.get() or "default"
 
         popover = Gtk.Popover()
-        popover.set_position(Gtk.PositionType.TOP)
+        popover.set_position(Gtk.PositionType.BOTTOM)
 
-        vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
-        vbox.set_margin_start(12)
-        vbox.set_margin_end(12)
-        vbox.set_margin_top(12)
-        vbox.set_margin_bottom(12)
-        popover.set_child(vbox)
+        outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        outer.set_size_request(220, -1)
 
-        lbl = Gtk.Label(label=f"Current: {vars.pack_path.get()}", wrap=True)
-        lbl.set_xalign(0)
-        vbox.append(lbl)
+        # Header
+        hdr = Gtk.Label(label="Switch Pack", xalign=0)
+        hdr.add_css_class("heading")
+        hdr.set_margin_start(12)
+        hdr.set_margin_end(12)
+        hdr.set_margin_top(10)
+        hdr.set_margin_bottom(6)
+        outer.append(hdr)
+
+        outer.append(Gtk.Separator())
 
         if not pack_list:
-            vbox.append(Gtk.Label(label="No packs found in data/packs.\nImport a pack first."))
-            popover.set_parent(anchor)
-            popover.popup()
-            return
+            msg = Gtk.Label(label="No packs in data/packs.\nImport a pack first.",
+                            wrap=True, xalign=0)
+            msg.set_margin_start(12); msg.set_margin_end(12)
+            msg.set_margin_top(10); msg.set_margin_bottom(10)
+            msg.add_css_class("dim-label")
+            outer.append(msg)
+        else:
+            lb = Gtk.ListBox()
+            lb.set_selection_mode(Gtk.SelectionMode.SINGLE)
+            lb.add_css_class("boxed-list")
 
-        string_list = Gtk.StringList.new(pack_list)
-        dropdown = Gtk.DropDown(model=string_list)
-        vbox.append(dropdown)
+            for name in pack_list:
+                row = Gtk.ListBoxRow()
+                row_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+                row_box.set_margin_start(12); row_box.set_margin_end(8)
+                row_box.set_margin_top(8); row_box.set_margin_bottom(8)
+                lbl = Gtk.Label(label=name, xalign=0, hexpand=True)
+                row_box.append(lbl)
+                if name == current:
+                    check = Gtk.Image.new_from_icon_name("object-select-symbolic")
+                    check.add_css_class("accent")
+                    row_box.append(check)
+                row.set_child(row_box)
+                lb.append(row)
 
-        btn_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        vbox.append(btn_box)
+            scroller = Gtk.ScrolledWindow()
+            scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+            scroller.set_max_content_height(280)
+            scroller.set_propagate_natural_height(True)
+            scroller.set_child(lb)
+            outer.append(scroller)
 
-        switch_btn = Gtk.Button(label="_Switch")
-        switch_btn.set_use_underline(True)
-        def on_switch(_b):
-            idx = dropdown.get_selected()
-            if 0 <= idx < len(pack_list):
+            def on_row_activated(_lb, row):
+                name = pack_list[row.get_index()]
                 popover.popdown()
-                self._switch_pack(vars, pack_list[idx])
-        switch_btn.connect("clicked", on_switch)
-        btn_box.append(switch_btn)
+                self._switch_pack(vars, name)
 
-        default_btn = Gtk.Button(label="_Default")
-        default_btn.set_use_underline(True)
-        default_btn.connect("clicked", lambda _: (popover.popdown(), self._switch_pack(vars, "default")))
-        btn_box.append(default_btn)
+            lb.connect("row-activated", on_row_activated)
 
-        cancel_btn = Gtk.Button(label="_Cancel")
-        cancel_btn.set_use_underline(True)
-        cancel_btn.connect("clicked", lambda _: popover.popdown())
-        btn_box.append(cancel_btn)
+        outer.append(Gtk.Separator())
 
+        # Default row at the bottom
+        default_row_btn = Gtk.Button(label="Switch to Default Pack")
+        default_row_btn.add_css_class("flat")
+        default_row_btn.set_margin_start(4); default_row_btn.set_margin_end(4)
+        default_row_btn.set_margin_top(4); default_row_btn.set_margin_bottom(4)
+        default_row_btn.connect("clicked", lambda _: (popover.popdown(), self._switch_pack(vars, "default")))
+        outer.append(default_row_btn)
+
+        popover.set_child(outer)
         popover.set_parent(anchor)
         popover.popup()
 
@@ -355,38 +407,6 @@ class ConfigWindow(Adw.ApplicationWindow):
         vars.pack_path.set(pack_name)
         write_save(vars)
         refresh()
-
-    def _import_popover(self, anchor: Gtk.Button) -> None:
-        popover = Gtk.Popover()
-        popover.set_position(Gtk.PositionType.TOP)
-
-        vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
-        vbox.set_margin_start(12)
-        vbox.set_margin_end(12)
-        vbox.set_margin_top(12)
-        vbox.set_margin_bottom(12)
-        popover.set_child(vbox)
-
-        message = (
-            "Import a new pack or change the default?\n\n"
-            "Importing saves to /data/packs for fast switching.\n"
-            "Changing default overwrites /resource."
-        )
-        vbox.append(Gtk.Label(label=message, wrap=True))
-
-        import_new_btn = Gtk.Button(label="_Import New")
-        import_new_btn.set_use_underline(True)
-        import_new_btn.connect("clicked", lambda _: (popover.popdown(), import_pack(False)))
-        vbox.append(import_new_btn)
-
-        change_default_btn = Gtk.Button(label="_Change Default")
-        change_default_btn.set_use_underline(True)
-        change_default_btn.connect("clicked", lambda _: (popover.popdown(), import_pack(True)))
-        vbox.append(change_default_btn)
-
-        cancel_btn = Gtk.Button(label="_Cancel")
-        cancel_btn.set_use_underline(True)
-        cancel_btn.connect("clicked", lambda _: popover.popdown())
         vbox.append(cancel_btn)
 
         popover.set_parent(anchor)
