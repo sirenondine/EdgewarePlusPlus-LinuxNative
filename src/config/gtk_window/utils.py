@@ -269,14 +269,16 @@ def safe_check(vars: Vars) -> bool:
     for key, var in vars.entries.items():
         danger = CONFIG_DANGER.get(key)
         if danger and danger.check(var.get()):
-            danger_levels[danger.level].append(f"\n\u2022 {danger.warning or key}")
+            danger_levels[danger.level].append(danger.warning or key)
 
     danger_num = 0
     warnings = ""
     for level, dangers in danger_levels.items():
         danger_num += len(dangers)
         if dangers:
-            warnings += f"\n\n<b>{level.value.capitalize()}</b>{''.join(dangers)}"
+            from gi.repository import GLib
+            escaped = "".join(f"\n• {GLib.markup_escape_text(d)}" for d in dangers)
+            warnings += f"\n\n<b>{GLib.markup_escape_text(level.value.capitalize())}</b>{escaped}"
 
     if not danger_num:
         return True
@@ -284,7 +286,7 @@ def safe_check(vars: Vars) -> bool:
     from gtk_dialog import ask_yes_no
     return ask_yes_no(
         "Dangerous Settings",
-        f"{danger_num} potentially dangerous setting(s) active:{warnings}",
+        f"<b>{danger_num}</b> potentially dangerous setting(s) are active:{warnings}",
         heading="Save anyway?",
         markup=True,
     )
