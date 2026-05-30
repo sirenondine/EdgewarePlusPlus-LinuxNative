@@ -97,13 +97,13 @@ class Companion:
         return [{"role": "system", "content": system}, *self._history, {"role": "user", "content": user_text}]
 
     # ------------------------------------------------------------------
-    def say(self, user_text: str) -> None:
+    def say(self, user_text: str, image_b64: str | None = None) -> None:
         """Stream one utterance. Dropped if an utterance is already in flight."""
         if self._busy:
             return
-        threading.Thread(target=self._run, args=(user_text,), daemon=True).start()
+        threading.Thread(target=self._run, args=(user_text, image_b64), daemon=True).start()
 
-    def _run(self, user_text: str) -> None:
+    def _run(self, user_text: str, image_b64: str | None = None) -> None:
         with self._lock:
             if self._busy:
                 return
@@ -118,6 +118,7 @@ class Companion:
         def done(full: str) -> None:
             text = (full or acc["text"]).strip()
             if text:
+                # Store only the text in history, never the image.
                 self._history.append({"role": "user", "content": user_text})
                 self._history.append({"role": "assistant", "content": text})
             self._busy = False
@@ -128,7 +129,24 @@ class Companion:
             self._on_error(e)
 
         self._on_start()
-        self.backend.stream(self._messages(user_text), tok, done, err, stop=self._cancel.is_set)
+        self.backend.stream(self._messages(user_text), tok, done, err,
+                            stop=self._cancel.is_set, image_b64=image_b64)
+
+    def observe(self) -> None:
+        """Capture the screen and react to what's on it via a vision model.
+        No-op if busy or capture is unavailable. The screenshot is sent to the
+        backend but never kept in history."""
+        if self._busy:
+            return
+        threading.Thread(target=self._run_observe, daemon=True).start()
+
+    def _run_observe(self) -> None:
+        from features.companion import vision
+        image_b64 = vision.capture_screenshot()
+        if not image_b64:
+            return
+        self._run("(screen) React in one short in-character line to what is on the user's screen right now.",
+                  image_b64=image_b64)
 
     # ------------------------------------------------------------------
     # Convenience triggers

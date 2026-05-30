@@ -55,11 +55,14 @@ class LLMBackend(Protocol):
         on_error: OnError,
         *,
         stop: Stop | None = None,
+        image_b64: str | None = None,
     ) -> None:
         """Stream a completion for `messages`. Calls on_token per chunk, then
         on_done(full_text) once, or on_error(exc) on failure. Blocking; run on a
         worker thread. If `stop` is given, it is polled between chunks and a True
-        result aborts cleanly (on_done still fires with what arrived so far)."""
+        result aborts cleanly (on_done still fires with what arrived so far).
+        If `image_b64` is given (base64 JPEG/PNG), it is attached to the last
+        user message for vision-capable models."""
         ...
 
 
@@ -71,9 +74,9 @@ class OllamaBackend:
         self.model = model
         self.timeout = timeout
 
-    def stream(self, messages, on_token, on_done, on_error, *, stop=None) -> None:
+    def stream(self, messages, on_token, on_done, on_error, *, stop=None, image_b64=None) -> None:
         url = f"{self.base_url}/api/chat"
-        payload = {"model": self.model, "messages": messages, "stream": True}
+        payload = {"model": self.model, "messages": _attach_image_ollama(messages, image_b64), "stream": True}
         acc: list[str] = []
         try:
             with requests.post(url, json=payload, stream=True, timeout=self.timeout) as r:
@@ -112,11 +115,11 @@ class OpenAIBackend:
             return f"{self.base_url}/chat/completions"
         return f"{self.base_url}/v1/chat/completions"
 
-    def stream(self, messages, on_token, on_done, on_error, *, stop=None) -> None:
+    def stream(self, messages, on_token, on_done, on_error, *, stop=None, image_b64=None) -> None:
         headers = {"Content-Type": "application/json"}
         if self.api_key:
             headers["Authorization"] = f"Bearer {self.api_key}"
-        payload = {"model": self.model, "messages": messages, "stream": True}
+        payload = {"model": self.model, "messages": _attach_image_openai(messages, image_b64), "stream": True}
         acc: list[str] = []
         try:
             with requests.post(self._endpoint(), json=payload, headers=headers, stream=True, timeout=self.timeout) as r:
@@ -158,7 +161,7 @@ class ScriptedBackend:
         lines = list(self._corpus or [])
         return random.choice(lines) if lines else ""
 
-    def stream(self, messages, on_token, on_done, on_error, *, stop=None) -> None:
+    def stream(self, messages, on_token, on_done, on_error, *, stop=None, image_b64=None) -> None:
         try:
             line = self._line()
             if line:
@@ -166,6 +169,35 @@ class ScriptedBackend:
             on_done(line)
         except Exception as e:
             on_error(e)
+
+
+def _attach_image_ollama(messages: list[Message], image_b64: str | None) -> list[Message]:
+    """Attach a base64 image to the last user message, Ollama style (an
+    `images` list of bare base64 strings)."""
+    if not image_b64:
+        return messages
+    out = [dict(m) for m in messages]
+    for m in reversed(out):
+        if m.get("role") == "user":
+            m["images"] = [image_b64]
+            break
+    return out
+
+
+def _attach_image_openai(messages: list[Message], image_b64: str | None) -> list[Message]:
+    """Attach a base64 image to the last user message, OpenAI style (a content
+    array with an image_url data URI)."""
+    if not image_b64:
+        return messages
+    out = [dict(m) for m in messages]
+    for m in reversed(out):
+        if m.get("role") == "user":
+            m["content"] = [
+                {"type": "text", "text": m.get("content", "")},
+                {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image_b64}"}},
+            ]
+            break
+    return out
 
 
 def make_backend(

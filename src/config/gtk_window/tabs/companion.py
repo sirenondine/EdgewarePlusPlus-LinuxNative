@@ -43,6 +43,11 @@ PRIVACY_TEXT = (
     "companion. With a cloud backend, that — and the companion's prompts — "
     "leave your machine. Keep it on a local backend to stay private."
 )
+SCREENSHOT_TEXT = (
+    "Screen awareness sends a screenshot of your whole screen to the backend "
+    "for richer reactions (needs a vision model). This is very sensitive — only "
+    "use it with a trusted LOCAL backend. Overrides window awareness when on."
+)
 
 
 class CompanionTab(Adw.PreferencesPage):
@@ -73,6 +78,8 @@ class CompanionTab(Adw.PreferencesPage):
         behaviour.add(AdwSwitchRow("Greet on Start", vars.companion_greet_on_start))
         behaviour.add(AdwSwitchRow(
             "Window Awareness", vars.companion_window_awareness, subtitle=PRIVACY_TEXT))
+        behaviour.add(AdwSwitchRow(
+            "Screen Awareness", vars.companion_screenshot_awareness, subtitle=SCREENSHOT_TEXT))
 
         # ---- Test --------------------------------------------------------
         test_group = Adw.PreferencesGroup(

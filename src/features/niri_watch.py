@@ -39,9 +39,10 @@ def handle_niri_watch(settings, state) -> None:
 
     want_casts = bool(getattr(settings, "pause_on_screenshare", False))
     pause_apps = _parse_apps(getattr(settings, "pause_apps", "") or "")
-    want_companion = bool(
-        getattr(settings, "companion_enabled", False)
-        and getattr(settings, "companion_window_awareness", False))
+    companion_on = getattr(settings, "companion_enabled", False)
+    want_app_react = bool(companion_on and getattr(settings, "companion_window_awareness", False))
+    want_screenshot = bool(companion_on and getattr(settings, "companion_screenshot_awareness", False))
+    want_companion = want_app_react or want_screenshot
     if not want_casts and not pause_apps and not want_companion:
         return  # nothing to watch
 
@@ -72,7 +73,10 @@ def handle_niri_watch(settings, state) -> None:
                 if "edgeware" not in app and "sirenondine" not in app:
                     companion = getattr(state, "companion", None)
                     if companion:
-                        companion.react("focused_app", f"the user just switched to the app '{app}'")
+                        if want_screenshot:
+                            companion.observe()  # vision: react to the actual screen
+                        else:
+                            companion.react("focused_app", f"the user just switched to the app '{app}'")
 
         try:
             for line in proc.stdout:

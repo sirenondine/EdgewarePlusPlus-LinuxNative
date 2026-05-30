@@ -118,6 +118,7 @@
   "companionReactChance": 15,
   "companionGreetOnStart": 1,
   "companionWindowAware": 0,
+  "companionScreenshotAware": 0,
   "gamification": 0,
   "gamificationRewards": 1,
   "gamificationHud": 1,
