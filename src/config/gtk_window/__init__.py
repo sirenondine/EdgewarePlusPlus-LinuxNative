@@ -237,7 +237,12 @@ class ConfigWindow(Adw.ApplicationWindow):
         header.pack_end(save_btn)
 
         toolbar_view.add_top_bar(header)
-        self.set_content(toolbar_view)
+
+        # Root overlay covers the entire window (header + content) for the
+        # loading screen. Toast overlay (self._overlay) stays inside the stack.
+        self._root_overlay = Gtk.Overlay()
+        self._root_overlay.set_child(toolbar_view)
+        self.set_content(self._root_overlay)
 
         # --- Responsive split view: sidebar list + page stack ---------------
         static_pages = [
@@ -470,12 +475,12 @@ class ConfigWindow(Adw.ApplicationWindow):
         lbl.add_css_class("title-3")
         box.append(lbl)
 
-        self._overlay.add_overlay(box)
+        self._root_overlay.add_overlay(box)
         self._loading_overlay = box
 
     def _hide_loading(self) -> None:
         if hasattr(self, "_loading_overlay") and self._loading_overlay:
-            self._overlay.remove_overlay(self._loading_overlay)
+            self._root_overlay.remove_overlay(self._loading_overlay)
             self._loading_overlay = None
 
     def _finish_reload(self, new_pack) -> None:
