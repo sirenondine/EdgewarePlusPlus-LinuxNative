@@ -291,7 +291,7 @@ class StartTab(Adw.PreferencesPage):
         btn_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         btn_box.set_valign(Gtk.Align.CENTER)
 
-        self.load_preset_btn = Gtk.Button(label="Preview &amp; Load…")
+        self.load_preset_btn = Gtk.Button(label="Preview & Load…")
         self.load_preset_btn.add_css_class("suggested-action")
         self.load_preset_btn.set_sensitive(self._presets_found)
         self.load_preset_btn.connect("clicked", self._on_load_preset)
