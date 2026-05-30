@@ -53,7 +53,7 @@ This fork adds Linux/Wayland-native integration on top of the upstream feature s
   / the ScreenSaver D-Bus interface (GNOME/KDE, or any locker that calls
   `loginctl lock-session`). Lockers that only use the `ext-session-lock` protocol
   (e.g. Noctalia, swaylock) don't emit those signals — point their lock/unlock hook at
-  `edgeware-ctl.sh pause` / `edgeware-ctl.sh resume` instead.
+  `edgeware.sh pause` / `edgeware.sh resume` instead.
 - **Pause during screen share** — on niri, auto-pauses while a screencast is active so
   content doesn't leak onto a shared screen or recording.
 - **Sex-toy support (Intiface/Buttplug)** — drive a toy on popup events (image/video
@@ -62,17 +62,19 @@ This fork adds Linux/Wayland-native integration on top of the upstream feature s
   vibration patterns (pulse/wave/ramp/random). Requires `buttplug-py` (installed by
   `setup.sh`) and a running Intiface Central server; configure it in the **Sex Toys** tab.
 
-### Control script
+### Control commands
 
-`edgeware-ctl.sh` sends a command to a running instance over the panic socket — handy
-for compositor keybinds and lock hooks:
+`edgeware.sh` doubles as the control entry point: with no argument it starts Edgeware,
+and with a subcommand it sends a control message to a running instance over the panic
+socket — handy for compositor keybinds and lock hooks:
 
 ```sh
-edgeware-ctl.sh panic     # stop everything and revert the wallpaper
-edgeware-ctl.sh pause     # stop spawning new popups
-edgeware-ctl.sh resume    # resume
-edgeware-ctl.sh toggle    # flip the pause state
-edgeware-ctl.sh status    # print running / paused / popup count
+edgeware.sh           # start Edgeware
+edgeware.sh panic     # stop everything and revert the wallpaper
+edgeware.sh pause     # stop spawning new popups
+edgeware.sh resume    # resume
+edgeware.sh toggle    # flip the pause state
+edgeware.sh status    # print running / paused / popup count
 ```
 
 From there you'll need an actual pack, which can be downloaded online or made yourself. Unfortunately at the time of writing there's really no congregated directory of packs everyone's made, they're all scattered to the four winds... but for a start [the original Edgeware page](https://github.com/PetitTournesol/Edgeware) has a few sample packs, and there's a few more in the "Packs" section of the readme.

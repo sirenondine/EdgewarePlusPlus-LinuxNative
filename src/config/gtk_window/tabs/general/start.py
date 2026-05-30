@@ -235,7 +235,7 @@ class StartTab(Adw.PreferencesPage):
             "Pause When Screen Locks", vars.pause_on_lock,
             subtitle="Pauses popups while locked (via logind / ScreenSaver). Lockers "
                      "that use ext-session-lock only (Noctalia, swaylock) should call "
-                     "edgeware-ctl.sh pause/resume from a lock hook instead."))
+                     "edgeware.sh pause/resume from a lock hook instead."))
         general.add(AdwSwitchRow(
             "Pause During Screen Share", vars.pause_on_screenshare,
             subtitle="Stop spawning popups while a screencast is active (niri only)."))

@@ -1,6 +1,19 @@
 #!/bin/bash
 cd ~/.local/share/edgeware || exit 1
 
+# Control subcommands talk to a running instance over the panic socket:
+#   edgeware.sh panic     stop everything and revert the wallpaper
+#   edgeware.sh pause     stop spawning new popups
+#   edgeware.sh resume    resume
+#   edgeware.sh toggle    flip the pause state
+#   edgeware.sh status    print running / paused / popup count
+# With no argument, edgeware.sh starts Edgeware.
+case "$1" in
+  panic|pause|resume|toggle|status)
+    exec .venv/bin/python3 src/panic.py "$1"
+    ;;
+esac
+
 # Preload gtk4-layer-shell before libwayland-client (it must load first).
 # Doing it here means Python starts once; the in-process re-exec fallback in
 # main_edgeware.py only kicks in when launched directly without this.
