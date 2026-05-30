@@ -231,3 +231,15 @@ def flush() -> None:
     """Force a save (e.g. before exit)."""
     if _progress is not None:
         _progress.save()
+
+
+def reset() -> None:
+    """Wipe all progress and delete the state file (user-invoked)."""
+    global _progress
+    _progress = Progress()
+    try:
+        Data.PROGRESS.unlink()
+    except FileNotFoundError:
+        pass
+    except Exception as e:
+        logging.warning(f"Gamification: failed to delete progress file: {e}")
