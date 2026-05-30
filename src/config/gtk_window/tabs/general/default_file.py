@@ -20,7 +20,7 @@ from gi import require_version
 
 require_version("Gtk", "4.0")
 require_version("Adw", "1")
-from gi.repository import Adw, Gtk
+from gi.repository import Adw, GdkPixbuf, Gtk
 
 from pack import Pack
 from paths import CustomAssets, Data
@@ -104,15 +104,24 @@ class _FileRow(Adw.ActionRow):
         self.set_activatable_widget(button)
 
     def _load_preview(self, path: Path) -> None:
-        # Feed the Picture the full-resolution file so it scales crisply to the
-        # preview size, rather than a pre-shrunk pixbuf that upscales blurry.
-        try:
-            if path and path.is_file():
-                self._image.set_filename(str(path))
-            else:
-                self._image.set_paintable(None)
-        except Exception:
+        # Gtk.Picture.set_filename relies on GDK's built-in loaders which don't
+        # handle .ico or .gif. Fall back to GdkPixbuf (which has those loaders)
+        # and hand it in as a pixbuf, scaled to fit the 64×48 preview area.
+        if not path or not path.is_file():
             self._image.set_paintable(None)
+            return
+        suffix = path.suffix.lower()
+        if suffix in (".ico", ".gif"):
+            try:
+                pb = GdkPixbuf.Pixbuf.new_from_file_at_scale(str(path), 64, 48, True)
+                self._image.set_pixbuf(pb)
+            except Exception:
+                self._image.set_paintable(None)
+        else:
+            try:
+                self._image.set_filename(str(path))
+            except Exception:
+                self._image.set_paintable(None)
 
     def _on_change(self, _btn: Gtk.Button) -> None:
         fd = Gtk.FileDialog.new()
