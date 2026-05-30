@@ -36,7 +36,7 @@ T = TypeVar("T")
 
 def try_load(path: Path, load: Callable[[str], T]) -> T | None:
     try:
-        with open(path) as f:
+        with open(path, encoding="utf-8", errors="replace") as f:
             data = load(f.read())
             logging.info(f"{path.name} loaded successfully.")
             return data

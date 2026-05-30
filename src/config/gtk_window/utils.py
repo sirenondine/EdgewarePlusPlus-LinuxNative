@@ -319,5 +319,14 @@ def clear_launches(confirmation: bool) -> None:
 
 
 def refresh() -> None:
-    subprocess.Popen([sys.executable, Process.CONFIG])
-    sys.exit()
+    # os.execv atomically replaces the current process with a fresh config
+    # instance — no spawn/exit gap, no brief window disappearance.
+    import atexit
+    args = [sys.executable, str(Process.CONFIG)]
+    from gi.repository import Gio
+    app = Gio.Application.get_default()
+    if app:
+        atexit.register(lambda: os.execv(sys.executable, args))
+        app.quit()
+    else:
+        os.execv(sys.executable, args)
