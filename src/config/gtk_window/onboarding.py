@@ -361,9 +361,12 @@ class _OnboardingDialog(Adw.Window):
             self._wallpaper_status.set_text("No panic wallpaper set yet.")
 
     def _do_save(self, launch: bool) -> None:
+        # Destroy the onboarding window first so the main window becomes
+        # visible again before write_save runs.  The destroy signal fires
+        # parent.set_visible(True), giving safe_check a valid transient parent.
+        self.destroy()
         from config.gtk_window.utils import write_save
         write_save(self._vars, launch)
-        self.close()
 
 
 # ---------------------------------------------------------------------------
