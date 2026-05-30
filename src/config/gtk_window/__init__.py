@@ -190,6 +190,17 @@ class ConfigWindow(Adw.ApplicationWindow):
             title="Edgeware++ Config", subtitle=self._pack.info.name))
         self._header_title = header.get_title_widget()
 
+        # Sidebar toggle (hamburger) — always visible so user can manually
+        # collapse the sidebar regardless of window width
+        self._sidebar_toggle = Gtk.ToggleButton()
+        self._sidebar_toggle.set_icon_name("sidebar-show-symbolic")
+        self._sidebar_toggle.set_active(True)  # sidebar visible by default
+        self._sidebar_toggle.set_tooltip_text("Toggle sidebar (Ctrl+B)")
+        self._sidebar_toggle.connect("toggled", lambda btn: (
+            self._split.set_collapsed(not btn.get_active()) if hasattr(self, "_split") else None,
+        ))
+        header.pack_start(self._sidebar_toggle)
+
         save_exit_btn = Gtk.Button()
         save_exit_btn.set_child(Adw.ButtonContent(
             label="Save & Exit", icon_name="document-save-symbolic"))
@@ -334,6 +345,12 @@ class ConfigWindow(Adw.ApplicationWindow):
 
         split.connect("notify::width", _on_width_changed)
 
+        # Sync toggle button when collapsed state changes from any source
+        def _on_collapsed_changed(s, _p):
+            self._sidebar_toggle.set_active(not s.get_collapsed())
+
+        split.connect("notify::collapsed", _on_collapsed_changed)
+
         # Search logic
         def on_search_changed(entry):
             query = entry.get_text().strip().lower()
@@ -452,6 +469,9 @@ class ConfigWindow(Adw.ApplicationWindow):
                 not self._search_bar.get_search_mode())
             if self._search_bar.get_search_mode():
                 self._search_entry.grab_focus()
+            return True
+        if keyval == Gdk.KEY_b and ctrl:
+            self._sidebar_toggle.set_active(not self._sidebar_toggle.get_active())
             return True
         return False
 

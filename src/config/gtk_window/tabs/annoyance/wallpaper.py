@@ -249,5 +249,9 @@ class WallpaperTab(Adw.PreferencesPage):
         path = self._pack.paths.root / filename if filename else None
         if path and path.is_file():
             thumb.set_filename(str(path))
+            thumb.set_tooltip_text(None)
+            thumb_frame.remove_css_class("error")
         else:
             thumb.set_paintable(None)
+            thumb.set_tooltip_text(f"File not found: {filename}\nRe-add this wallpaper to fix.")
+            thumb_frame.add_css_class("error")
