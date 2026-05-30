@@ -64,7 +64,7 @@ class RollTarget:
 
 
 def roll_targets(settings: Settings, targets: list[RollTarget]) -> None:
-    if _paused:
+    if is_paused():
         return
     if settings.single_mode:
         try:
