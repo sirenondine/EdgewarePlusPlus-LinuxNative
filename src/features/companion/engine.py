@@ -202,10 +202,22 @@ class Companion:
         self.say(f"(idle) Say a short spontaneous line, riffing on: {hint}" if hint
                  else "(idle) Say a short spontaneous teasing line.")
 
-    def react(self, event: str, detail: str = "") -> None:
-        """React to an app event (e.g. popup_open, denial, attention_miss)."""
+    def react(self, event: str, detail: str = "", image_path: str | None = None) -> None:
+        """React to an app event (e.g. popup_open, denial). If image_path is
+        given, the image (e.g. the popup itself) is encoded on a worker thread
+        and shown to the vision model."""
         ctx = f"(event:{event}) {detail}".strip()
-        self.say(f"{ctx}\nRespond in one short in-character line.")
+        text = f"{ctx}\nRespond in one short in-character line."
+        if image_path:
+            if self._busy:
+                return
+            threading.Thread(target=self._react_image, args=(text, image_path), daemon=True).start()
+        else:
+            self.say(text)
+
+    def _react_image(self, text: str, image_path: str) -> None:
+        from features.companion import vision
+        self._run(text, image_b64=vision.encode_image_file(image_path))
 
     def cancel(self) -> None:
         self._cancel.set()

@@ -53,3 +53,18 @@ def capture_screenshot(max_dim: int = 1024, quality: int = 70) -> str | None:
     except Exception as e:
         logging.warning(f"Companion screenshot capture failed: {e}")
         return None
+
+
+def encode_image_file(path, max_dim: int = 1024, quality: int = 70) -> str | None:
+    """Encode an image file (e.g. a popup's media) to a downscaled base64 JPEG,
+    or None on failure. Cheaper and more targeted than a full screenshot."""
+    try:
+        from PIL import Image
+        image = Image.open(path).convert("RGB")
+        image.thumbnail((max_dim, max_dim))
+        buffer = io.BytesIO()
+        image.save(buffer, "JPEG", quality=quality)
+        return base64.b64encode(buffer.getvalue()).decode("ascii")
+    except Exception as e:
+        logging.warning(f"Companion image encode failed ({path}): {e}")
+        return None

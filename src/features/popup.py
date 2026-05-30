@@ -183,14 +183,21 @@ class Popup(Gtk.Window):
     def _companion_react(self, event: str, detail: str = "") -> None:
         """Occasionally have the AI companion react to a popup event. Gated by a
         chance so it doesn't spam the backend; the engine drops overlapping
-        requests, so it speaks at most once at a time."""
+        requests, so it speaks at most once at a time. With vision on, the
+        popup's own image is sent (more targeted than a full screenshot)."""
         if not getattr(self.settings, "companion_enabled", False):
             return
         if not roll(getattr(self.settings, "companion_react_chance", 0)):
             return
         companion = getattr(self.state, "companion", None)
-        if companion:
-            companion.react(event, detail)
+        if not companion:
+            return
+        image_path = None
+        if getattr(self.settings, "companion_screenshot_awareness", False):
+            import filetype
+            if self.media and filetype.is_image(self.media):
+                image_path = str(self.media)
+        companion.react(event, detail, image_path=image_path)
 
     def compute_geometry(self, source_width: int, source_height: int) -> None:
         # Monitor may be pre-selected on the main thread (e.g. ImagePopup, which
