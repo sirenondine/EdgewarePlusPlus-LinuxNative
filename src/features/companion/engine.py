@@ -253,10 +253,10 @@ class Companion:
 
     def _run_observe(self) -> None:
         from features.companion import vision
-        image_b64 = vision.capture_screenshot()
+        image_b64 = vision.capture()  # focused window if possible, else whole screen
         if not image_b64:
             return
-        self._run("(screen) React in one short in-character line to what is on the user's screen right now.",
+        self._run("(screen) React in one short in-character line to what the user is looking at right now.",
                   image_b64=image_b64)
 
     # ------------------------------------------------------------------

@@ -44,9 +44,10 @@ PRIVACY_TEXT = (
     "leave your machine. Keep it on a local backend to stay private."
 )
 SCREENSHOT_TEXT = (
-    "Screen awareness sends a screenshot of your whole screen to the backend "
-    "for richer reactions (needs a vision model). This is very sensitive — only "
-    "use it with a trusted LOCAL backend. Overrides window awareness when on."
+    "Screen awareness sends a screenshot to the backend for richer reactions "
+    "(needs a vision model). On niri it captures just the focused window (via "
+    "the clipboard, which is then restored); otherwise the whole screen. Very "
+    "sensitive — only use a trusted LOCAL backend. Overrides window awareness."
 )
 
 

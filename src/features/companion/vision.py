@@ -19,40 +19,78 @@
 # screen, downscales it and returns base64 JPEG for a vision-capable LLM.
 # Blocking (subprocess + encode) — call from a worker thread.
 #
-# PRIVACY: this sends an image of the whole screen (including Edgeware's own
-# popups and anything else open) to the configured backend. With a cloud
-# backend that leaves the machine. It is off by default and danger-gated.
+# PRIVACY: this sends an image of (preferably) the focused window — or, as a
+# fallback, the whole screen — to the configured backend. With a cloud backend
+# that leaves the machine. It is off by default and danger-gated.
 
 import base64
 import io
 import logging
+import os
 import shutil
 import subprocess
+import time
 
 
-def available() -> bool:
-    """Whether a supported screen-capture tool is present (Wayland: grim)."""
-    return shutil.which("grim") is not None
+def _encode(raw: bytes, max_dim: int, quality: int) -> str | None:
+    """PNG/JPEG bytes -> downscaled base64 JPEG (no data URI prefix)."""
+    if not raw:
+        return None
+    from PIL import Image
+    image = Image.open(io.BytesIO(raw)).convert("RGB")
+    image.thumbnail((max_dim, max_dim))  # in place, keeps aspect
+    buffer = io.BytesIO()
+    image.save(buffer, "JPEG", quality=quality)
+    return base64.b64encode(buffer.getvalue()).decode("ascii")
+
+
+def capture(max_dim: int = 1024, quality: int = 70) -> str | None:
+    """Capture the focused window if possible (niri), else the whole screen."""
+    return capture_window(max_dim, quality) or capture_screenshot(max_dim, quality)
+
+
+def capture_window(max_dim: int = 1024, quality: int = 70) -> str | None:
+    """Capture only the focused window via niri's built-in screenshot, which
+    lands on the clipboard; read it back with wl-paste. Restores the previous
+    text clipboard afterwards (best effort). None if niri/wl-clipboard absent."""
+    if not (os.environ.get("NIRI_SOCKET") and shutil.which("wl-paste")):
+        return None
+    prev = None
+    try:
+        prev = subprocess.run(["wl-paste", "-n"], capture_output=True, timeout=2).stdout or None
+    except Exception:
+        pass
+    try:
+        subprocess.run(["niri", "msg", "action", "screenshot-window"], capture_output=True, timeout=3)
+        time.sleep(0.15)  # let the clipboard populate
+        raw = subprocess.run(["wl-paste", "--type", "image/png"], capture_output=True, timeout=3).stdout
+        return _encode(raw, max_dim, quality)
+    except Exception as e:
+        logging.warning(f"Companion window capture failed: {e}")
+        return None
+    finally:
+        if prev and shutil.which("wl-copy"):
+            try:
+                subprocess.run(["wl-copy"], input=prev, timeout=2)
+            except Exception:
+                pass
 
 
 def capture_screenshot(max_dim: int = 1024, quality: int = 70) -> str | None:
-    """Capture the screen, downscale to fit max_dim, return base64 JPEG (no data
-    URI prefix), or None on failure / no capture tool."""
-    if not available():
+    """Whole-screen fallback via grim. None if grim is absent."""
+    if not shutil.which("grim"):
         return None
     try:
         raw = subprocess.run(["grim", "-"], capture_output=True, timeout=5).stdout
-        if not raw:
-            return None
-        from PIL import Image
-        image = Image.open(io.BytesIO(raw)).convert("RGB")
-        image.thumbnail((max_dim, max_dim))  # in place, keeps aspect
-        buffer = io.BytesIO()
-        image.save(buffer, "JPEG", quality=quality)
-        return base64.b64encode(buffer.getvalue()).decode("ascii")
+        return _encode(raw, max_dim, quality)
     except Exception as e:
         logging.warning(f"Companion screenshot capture failed: {e}")
         return None
+
+
+def available() -> bool:
+    """Whether any capture path is usable."""
+    return bool(os.environ.get("NIRI_SOCKET") and shutil.which("wl-paste")) or shutil.which("grim") is not None
 
 
 def encode_image_file(path, max_dim: int = 1024, quality: int = 70) -> str | None:
