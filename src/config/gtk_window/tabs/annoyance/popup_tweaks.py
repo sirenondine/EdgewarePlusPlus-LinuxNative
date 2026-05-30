@@ -85,6 +85,9 @@ class PopupTweaksTab(Adw.PreferencesPage):
 
         monitors = Adw.PreferencesGroup(title="Monitors", description=MONITORS_TEXT)
         self.add(monitors)
+        monitors.add(AdwSwitchRow(
+            "Spawn on Active Monitor", vars.spawn_on_active_monitor,
+            subtitle="Put popups on the monitor you're focused on (niri only)."))
         for monitor in get_monitors():
             monitors.add(_monitor_row(monitor))
 

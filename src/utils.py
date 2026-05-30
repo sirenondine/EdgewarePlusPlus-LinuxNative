@@ -101,6 +101,32 @@ def after_cancel(source_id: int | None) -> None:
             pass
 
 
+def focused_monitor() -> Monitor | None:
+    """The screeninfo Monitor for the compositor's currently focused output.
+    niri only (uses its IPC); None elsewhere or on any error."""
+    import os
+    if not os.environ.get("NIRI_SOCKET"):
+        return None
+    try:
+        import json
+        import subprocess
+        out = subprocess.run(
+            ["niri", "msg", "--json", "focused-output"],
+            capture_output=True, text=True, timeout=1)
+        name = json.loads(out.stdout).get("name")
+        if name:
+            return next((m for m in get_monitors() if m.name == name), None)
+    except Exception:
+        pass
+    return None
+
+
 def random_monitor(settings: Settings) -> Monitor:
     enabled_monitors = [m for m in get_monitors() if m.name not in settings.disabled_monitors]
-    return random.choice(enabled_monitors or primary_monitor())
+
+    if getattr(settings, "spawn_on_active_monitor", False):
+        focused = focused_monitor()
+        if focused and focused.name not in settings.disabled_monitors:
+            return focused
+
+    return random.choice(enabled_monitors or get_monitors())
