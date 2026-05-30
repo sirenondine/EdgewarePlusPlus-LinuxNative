@@ -15,14 +15,11 @@
 # You should have received a copy of the GNU General Public License
 # along with Edgeware++.  If not, see <https://www.gnu.org/licenses/>.
 
-import asyncio
 import logging
 from pathlib import Path
 from random import randint
 from typing import Callable
 
-import booru
-import requests
 from gi.repository import Gtk
 
 from config.settings import Settings
@@ -45,6 +42,11 @@ class ImagePopup(Popup):
         # TODO: Better booru integration
         if self.settings.booru_download and roll(50):
             try:
+                # Deferred: booru pulls in bs4 + aiohttp + lxml (~135ms) — keep it
+                # off the startup path since downloads are off by default.
+                import asyncio
+                import booru
+                import requests
                 gel = booru.Gelbooru()
                 result = booru.resolve(asyncio.run(gel.search_image(query=self.settings.booru_tags, limit=1)))
                 data = requests.get(result[0], stream=True)

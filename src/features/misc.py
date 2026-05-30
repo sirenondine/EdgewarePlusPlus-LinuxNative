@@ -26,9 +26,6 @@ from multiprocessing.connection import Connection
 from threading import Thread
 
 import utils
-from desktop_notifier.common import Attachment, Icon
-from desktop_notifier.sync import DesktopNotifierSync
-from pypresence import Presence
 
 from config.settings import Settings
 import os_utils
@@ -41,12 +38,14 @@ from state import State
 
 
 
-_notifier: DesktopNotifierSync | None = None
+_notifier = None  # lazily built DesktopNotifierSync (deferred import)
 
 
 def notify(title: str, message: str, icon=None, attachment=None) -> None:
     """Send a desktop notification through a single shared notifier."""
     global _notifier
+    from desktop_notifier.common import Attachment, Icon  # deferred (~40ms)
+    from desktop_notifier.sync import DesktopNotifierSync
     if _notifier is None:
         _notifier = DesktopNotifierSync(app_name="Edgeware++")
     _notifier.send(
@@ -162,6 +161,7 @@ def handle_discord(settings: Settings, pack: Pack) -> None:
         return
 
     try:
+        from pypresence import Presence  # deferred (~30ms); Discord is off by default
         presence = Presence("820204081410736148")
         presence.connect()
         presence.update(

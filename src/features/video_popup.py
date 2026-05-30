@@ -23,7 +23,6 @@ from features.gtk_media import stop_media, video_widget
 from features.popup import Popup
 from pack import Pack
 from state import State
-from videoprops import get_video_properties
 
 
 class VideoPopup(Popup):
@@ -33,6 +32,7 @@ class VideoPopup(Popup):
             return
         super().__init__(settings, pack, state, on_close)
 
+        from videoprops import get_video_properties  # deferred (~12ms)
         properties = get_video_properties(self.media)
         self.compute_geometry(properties["width"], properties["height"])
 
