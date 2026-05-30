@@ -24,6 +24,8 @@ from gi.repository import Adw, Gtk
 
 from config.gtk_window.preset import (
     apply_preset,
+    compute_preset_diff,
+    delete_preset,
     list_presets,
     load_preset,
     load_preset_description,
@@ -269,6 +271,7 @@ class StartTab(Adw.PreferencesPage):
 
         preset_list = list_presets()
         self._presets_found = bool(preset_list)
+        self._preset_list = preset_list
 
         self._preset_row = Adw.ComboRow(title="Preset")
         self._preset_row.set_model(Gtk.StringList.new(
@@ -277,33 +280,44 @@ class StartTab(Adw.PreferencesPage):
         self._preset_row.connect("notify::selected", self._on_preset_selected)
         preset_group.add(self._preset_row)
 
+        # Description
         self._preset_desc_row = Adw.ActionRow(title="Description")
         self._preset_desc_row.set_subtitle(
             load_preset_description(preset_list[0]) if self._presets_found else "")
         preset_group.add(self._preset_desc_row)
 
-        load_preset_row = Adw.ActionRow(
-            title="Load Preset",
-            subtitle="Apply the selected preset's settings.",
-        )
+        # Diff preview — shows what the preset will change
+        self._diff_expander = Adw.ExpanderRow(title="Preview Changes")
+        self._diff_expander.set_sensitive(self._presets_found)
+        preset_group.add(self._diff_expander)
+        if self._presets_found:
+            self._refresh_diff(preset_list[0])
+
+        # Actions row
+        actions_row = Adw.ActionRow(title="Actions")
+        btn_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        btn_box.set_valign(Gtk.Align.CENTER)
+
         self.load_preset_btn = Gtk.Button(label="Load")
-        self.load_preset_btn.set_valign(Gtk.Align.CENTER)
+        self.load_preset_btn.add_css_class("suggested-action")
         self.load_preset_btn.set_sensitive(self._presets_found)
         self.load_preset_btn.connect("clicked", self._on_load_preset)
-        load_preset_row.add_suffix(self.load_preset_btn)
-        load_preset_row.set_activatable_widget(self.load_preset_btn)
-        preset_group.add(load_preset_row)
+        btn_box.append(self.load_preset_btn)
 
-        save_preset_row = Adw.ActionRow(
-            title="Save Preset",
-            subtitle="Store the current settings as a new preset.",
-        )
-        save_preset_btn = Gtk.Button(label="Save")
-        save_preset_btn.set_valign(Gtk.Align.CENTER)
-        save_preset_btn.connect("clicked", lambda _: save_preset())
-        save_preset_row.add_suffix(save_preset_btn)
-        save_preset_row.set_activatable_widget(save_preset_btn)
-        preset_group.add(save_preset_row)
+        save_preset_btn = Gtk.Button(icon_name="document-save-as-symbolic")
+        save_preset_btn.set_tooltip_text("Save current settings as a new preset")
+        save_preset_btn.connect("clicked", lambda btn: save_preset(btn))
+        btn_box.append(save_preset_btn)
+
+        self._delete_preset_btn = Gtk.Button(icon_name="user-trash-symbolic")
+        self._delete_preset_btn.add_css_class("destructive-action")
+        self._delete_preset_btn.set_tooltip_text("Delete this preset")
+        self._delete_preset_btn.set_sensitive(self._presets_found)
+        self._delete_preset_btn.connect("clicked", self._on_delete_preset)
+        btn_box.append(self._delete_preset_btn)
+
+        actions_row.add_suffix(btn_box)
+        preset_group.add(actions_row)
 
     def _on_perform_panic(self, btn: Gtk.Button) -> None:
         popover = Gtk.Popover()
@@ -331,20 +345,74 @@ class StartTab(Adw.PreferencesPage):
         from panic import send_panic
         send_panic()
 
+    def _current_preset_name(self) -> str | None:
+        if not self._presets_found:
+            return None
+        model = self._preset_row.get_model()
+        return model.get_string(self._preset_row.get_selected())
+
     def _on_preset_selected(self, row: Adw.ComboRow, _param) -> None:
         if not self._presets_found:
             return
-        model = row.get_model()
-        name = model.get_string(row.get_selected())
-        self._update_preset_description(name)
-
-    def _update_preset_description(self, name: str) -> None:
+        name = self._current_preset_name()
         self._preset_desc_row.set_subtitle(load_preset_description(name))
+        self._refresh_diff(name)
+
+    def _refresh_diff(self, name: str) -> None:
+        # Clear old diff rows
+        child = self._diff_expander.get_first_child()
+        while child:
+            nxt = child.get_next_sibling()
+            # Only remove ActionRow children we added (not the expander's own header)
+            if isinstance(child, Adw.ActionRow):
+                self._diff_expander.remove(child)
+            child = nxt
+
+        changes = compute_preset_diff(name, self._vars)
+        if not changes:
+            self._diff_expander.set_title("Preview Changes — no changes from current settings")
+            return
+
+        self._diff_expander.set_title(f"Preview Changes — {len(changes)} setting{'s' if len(changes) != 1 else ''} will change")
+        for friendly, current, new in changes:
+            row = Adw.ActionRow(title=friendly)
+            row.set_subtitle(f"{current}  →  {new}")
+            self._diff_expander.add_row(row)
 
     def _on_load_preset(self, _btn: Gtk.Button) -> None:
-        model = self._preset_row.get_model()
-        name = model.get_string(self._preset_row.get_selected())
-        apply_preset(load_preset(name), self._vars)
+        name = self._current_preset_name()
+        if name:
+            apply_preset(load_preset(name), self._vars)
+            self._refresh_diff(name)  # update diff after applying
+
+    def _on_delete_preset(self, _btn: Gtk.Button) -> None:
+        name = self._current_preset_name()
+        if not name:
+            return
+        from gtk_dialog import ask_yes_no
+        if not ask_yes_no(
+            "Delete Preset",
+            f'Delete preset "{name}"? This cannot be undone.',
+            heading="Confirm deletion",
+        ):
+            return
+        delete_preset(name)
+        # Rebuild preset list
+        new_list = list_presets()
+        self._preset_list = new_list
+        self._presets_found = bool(new_list)
+        self._preset_row.set_model(Gtk.StringList.new(
+            new_list if new_list else ["No presets found"]))
+        self._preset_row.set_sensitive(self._presets_found)
+        self.load_preset_btn.set_sensitive(self._presets_found)
+        self._delete_preset_btn.set_sensitive(self._presets_found)
+        self._diff_expander.set_sensitive(self._presets_found)
+        if new_list:
+            self._preset_desc_row.set_subtitle(load_preset_description(new_list[0]))
+            self._refresh_diff(new_list[0])
+        else:
+            self._preset_desc_row.set_subtitle("")
+            self._diff_expander.set_title("Preview Changes")
 
 
 def _value_label(text: str, mismatch: bool = False) -> Gtk.Label:

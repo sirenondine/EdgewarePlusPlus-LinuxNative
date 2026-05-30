@@ -15,8 +15,8 @@
 import json
 import logging
 import os
-import shutil
 from json.decoder import JSONDecodeError
+from pathlib import Path
 
 from gi import require_version
 
@@ -24,8 +24,7 @@ require_version("Gtk", "4.0")
 from gi.repository import Gtk
 
 from config.vars import Vars
-from config.gtk_window.toast import toast
-from config.gtk_window.utils import confirm_overwrite
+from config.gtk_window.toast import toast, name_popover
 from paths import Data
 
 
@@ -49,36 +48,66 @@ def load_preset(name: str) -> dict:
 def load_preset_description(name: str) -> str:
     description = Data.PRESETS / f"{name}.txt"
     if not description.is_file():
-        return "This preset has no description file."
+        return "No description provided."
     with open(description, "r") as f:
         return f.read()
 
 
-def save_preset() -> str | None:
-    dialog = Gtk.Dialog(title="Save Preset")
-    dialog.set_default_size(300, 100)
-    entry = Gtk.Entry()
-    entry.set_placeholder_text("Preset name")
-    content = dialog.get_content_area()
-    content.append(entry)
-    dialog.add_button("Cancel", Gtk.ResponseType.CANCEL)
-    dialog.add_button("Save", Gtk.ResponseType.OK)
+def delete_preset(name: str) -> bool:
+    """Delete a preset's .cfg and .txt files. Returns True on success."""
+    deleted = False
+    for ext in (".cfg", ".txt"):
+        p = Data.PRESETS / f"{name}{ext}"
+        try:
+            if p.is_file():
+                p.unlink()
+                deleted = True
+        except Exception as e:
+            logging.warning(f"Failed to delete {p}: {e}")
+    return deleted
 
-    result = [None]
 
-    def on_response(d, r):
-        if r == Gtk.ResponseType.OK:
-            name = entry.get_text().strip()
-            if name:
-                path = Data.PRESETS / f"{name}.cfg"
-                if not confirm_overwrite(path):
-                    return
-                shutil.copyfile(Data.CONFIG, path)
-                result[0] = name
-        d.destroy()
+def compute_preset_diff(name: str, vars: Vars) -> list[tuple[str, str, str]]:
+    """Return (friendly_name, current_value, new_value) for each setting the
+    preset would change relative to the current live values."""
+    preset = load_preset(name)
+    changes = []
+    for key, new_val in preset.items():
+        var = vars.entries.get(key)
+        if var is None:
+            continue
+        current = var.get()
+        # Normalise booleans stored as ints
+        cur_str = str(bool(current) if isinstance(new_val, bool) else current)
+        new_str = str(new_val)
+        if cur_str != new_str:
+            friendly = key.replace("_", " ").title()
+            changes.append((friendly, cur_str, new_str))
+    return changes
 
-    dialog.connect("response", on_response)
-    dialog.present()
+
+def save_preset(anchor: Gtk.Widget) -> None:
+    """Save the current config as a named preset.  Uses name_popover so no
+    deprecated Gtk.Dialog is needed."""
+    def _do_save(preset_name: str) -> None:
+        import shutil
+        path = Data.PRESETS / f"{preset_name}.cfg"
+        if path.exists():
+            from gtk_dialog import ask_yes_no
+            if not ask_yes_no(
+                "Overwrite Preset",
+                f'A preset named "{preset_name}" already exists. Overwrite it?',
+                heading="Confirm overwrite",
+            ):
+                return
+        try:
+            Data.PRESETS.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(Data.CONFIG, path)
+            toast(f'Preset "{preset_name}" saved.')
+        except Exception as e:
+            logging.warning(f"Failed to save preset: {e}")
+
+    name_popover(anchor, "Preset name", _do_save)
 
 
 def apply_preset(preset: dict, vars: Vars, select: list[str] | None = None) -> None:
