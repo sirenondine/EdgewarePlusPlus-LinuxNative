@@ -17,6 +17,7 @@ from config.gtk_window.tabs.annoyance.dangerous_settings import DangerousSetting
 from config.gtk_window.tabs.annoyance.moods import MoodsTab
 from config.gtk_window.tabs.annoyance.popup_tweaks import PopupTweaksTab
 from config.gtk_window.tabs.annoyance.popup_types import PopupTypesTab
+from config.gtk_window.tabs.annoyance.sextoys import SexToysTab
 from config.gtk_window.tabs.annoyance.wallpaper import WallpaperTab
 from config.gtk_window.tabs.corruption import CorruptionModeTab
 from config.gtk_window.tabs.general.default_file import DefaultFileTab
@@ -239,6 +240,7 @@ class ConfigWindow(Adw.ApplicationWindow):
             ("Popup Types",  PopupTypesTab(vars)),
             ("Popup Tweaks", PopupTweaksTab(vars)),
             ("Booru",        BooruTab(vars)),
+            ("Sex Toys",     SexToysTab(vars)),
             ("Modes",        BasicModesTab(vars)),
             ("Dangerous",    DangerousSettingsTab(vars)),
             ("Tutorial",     TutorialTab()),
@@ -248,7 +250,7 @@ class ConfigWindow(Adw.ApplicationWindow):
         all_page_names = [
             "Overview", "Packs", "Assets",
             "Popup Types", "Popup Tweaks",
-            "Wallpaper", "Moods", "Booru",
+            "Wallpaper", "Moods", "Booru", "Sex Toys",
             "Modes", "Corruption", "Dangerous",
             "Troubleshooting", "Tutorial",
         ]
