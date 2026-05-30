@@ -164,6 +164,7 @@ class ConfigWindow(Adw.ApplicationWindow):
         self._base_title = f"Edgeware++ Config — {self._pack.info.name}"
         super().__init__(application=app, title=self._base_title)
         self._dirty = False
+        self._loading_overlay = None
         self.set_default_size(740, 900)
         # Keep minimum narrow enough that NavigationSplitView can collapse
         # (~min_sidebar + min_content ≈ 140+360 = 500px triggers collapse).
@@ -187,6 +188,9 @@ class ConfigWindow(Adw.ApplicationWindow):
                 border-radius: 8px; padding: 8px 16px;
             }
             .version-mismatch { color: @warning_color; font-weight: bold; }
+            .loading-overlay {
+                background: alpha(@window_bg_color, 0.85);
+            }
         """)
         Gtk.StyleContext.add_provider_for_display(
             self.get_display(), css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
@@ -429,19 +433,56 @@ class ConfigWindow(Adw.ApplicationWindow):
 
     def reload_pack(self, pack_name: str) -> None:
         """Switch to a different pack in-place — no process restart."""
-        # Save new pack path to config and disk
+        from threading import Thread
+
+        # Save immediately (fast, stays on main thread)
         self._vars.pack_path.set(pack_name if pack_name != "default" else "")
         write_save(self._vars, exit_at_end=False)
 
-        # Load new pack
-        self._pack = _load_pack(pack_name)
-        _ensure_mood_file(self._pack)
+        # Show loading overlay — keeps the UI responsive while I/O runs
+        self._show_loading(f"Loading {pack_name}…")
 
-        # Auto-populate wallpaperDat from the new pack's root directory.
-        # The old entries referenced the previous pack's files and are now stale.
-        _auto_import_wallpapers(self._pack)
+        def _load_in_thread():
+            new_pack = _load_pack(pack_name)
+            _ensure_mood_file(new_pack)
+            _auto_import_wallpapers(new_pack)
+            GLib.idle_add(lambda: self._finish_reload(new_pack))
 
-        # Rebuild only pack-dependent pages
+        Thread(target=_load_in_thread, daemon=True).start()
+
+    def _show_loading(self, message: str) -> None:
+        """Overlay a spinner + label over the content area."""
+        if hasattr(self, "_loading_overlay") and self._loading_overlay:
+            return
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        box.set_halign(Gtk.Align.CENTER)
+        box.set_valign(Gtk.Align.CENTER)
+        box.set_hexpand(True)
+        box.set_vexpand(True)
+        # Dim background
+        box.add_css_class("loading-overlay")
+
+        spinner = Adw.Spinner()
+        spinner.set_size_request(48, 48)
+        box.append(spinner)
+
+        lbl = Gtk.Label(label=message)
+        lbl.add_css_class("title-3")
+        box.append(lbl)
+
+        self._overlay.add_overlay(box)
+        self._loading_overlay = box
+
+    def _hide_loading(self) -> None:
+        if hasattr(self, "_loading_overlay") and self._loading_overlay:
+            self._overlay.remove_overlay(self._loading_overlay)
+            self._loading_overlay = None
+
+    def _finish_reload(self, new_pack) -> None:
+        """Called on main thread after background load completes."""
+        self._pack = new_pack
+
+        # Rebuild pack-dependent pages
         for name in _PACK_PAGE_NAMES:
             old = self._stack.get_child_by_name(name)
             if old:
@@ -453,9 +494,9 @@ class ConfigWindow(Adw.ApplicationWindow):
             )
             self._stack.add_named(widget, name)
 
-        # Keep the current visible page if it's a static page; otherwise go to Pack Info
+        # Navigate to Packs tab if we were on a pack-dependent page
         visible = self._stack.get_visible_child_name()
-        if visible in _PACK_PAGE_NAMES:
+        if visible in _PACK_PAGE_NAMES or visible == "__search__":
             self._stack.set_visible_child_name("Packs")
             self._content_nav.set_title("Packs")
 
@@ -465,6 +506,8 @@ class ConfigWindow(Adw.ApplicationWindow):
         self._header_title.set_title("Edgeware++ Config")
         self._header_title.set_subtitle(self._pack.info.name)
         self._dirty = False
+
+        self._hide_loading()
 
     def _mark_dirty(self) -> None:
         if not self._dirty:
