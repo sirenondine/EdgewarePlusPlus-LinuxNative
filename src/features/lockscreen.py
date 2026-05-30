@@ -36,11 +36,11 @@ def handle_lock_screen(settings, state) -> None:
 
     def on_lock() -> None:
         logging.info("Session locked — pausing popups.")
-        roll.set_paused(True)
+        roll.add_pause_reason("lock")
 
     def on_unlock() -> None:
         logging.info("Session unlocked — resuming popups.")
-        roll.set_paused(False)
+        roll.remove_pause_reason("lock")
 
     # logind Lock/Unlock (system bus). Match any session path — only ours
     # signals on this connection in practice.

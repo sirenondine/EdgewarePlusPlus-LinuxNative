@@ -237,6 +237,9 @@ class StartTab(Adw.PreferencesPage):
                      "that use ext-session-lock only (Noctalia, swaylock) should call "
                      "edgeware-ctl.sh pause/resume from a lock hook instead."))
         general.add(AdwSwitchRow(
+            "Pause During Screen Share", vars.pause_on_screenshare,
+            subtitle="Stop spawning popups while a screencast is active (niri only)."))
+        general.add(AdwSwitchRow(
             "Warn if \"Dangerous\" Settings Active", vars.safe_mode,
             subtitle="Asks you to confirm before saving if certain settings are enabled."))
         general.add(AdwSwitchRow("Disable Config Help Messages", vars.message_off))

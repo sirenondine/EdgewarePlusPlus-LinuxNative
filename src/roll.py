@@ -21,25 +21,36 @@ from dataclasses import dataclass
 
 from config.settings import Settings
 
-# Soft-pause flag. When set, roll_targets is a no-op so no new popups spawn,
-# but the timer loop keeps running so resume is instant. Toggled over the panic
-# socket (pause/resume/toggle) and from the tray.
-_paused = False
+# Soft-pause. roll_targets is a no-op while paused (no new popups spawn) but the
+# timer keeps running so resume is instant. Pause is reason-counted: lock,
+# screencast, fullscreen and manual ("user") pauses are independent, so e.g.
+# unlocking won't resume if a screencast is still active. Paused == any reason.
+_pause_reasons: set[str] = set()
+
+
+def add_pause_reason(reason: str) -> None:
+    _pause_reasons.add(reason)
+
+
+def remove_pause_reason(reason: str) -> None:
+    _pause_reasons.discard(reason)
 
 
 def set_paused(value: bool) -> None:
-    global _paused
-    _paused = value
+    """Manual pause/resume (the 'user' reason)."""
+    if value:
+        _pause_reasons.add("user")
+    else:
+        _pause_reasons.discard("user")
 
 
 def is_paused() -> bool:
-    return _paused
+    return bool(_pause_reasons)
 
 
 def toggle_paused() -> bool:
-    global _paused
-    _paused = not _paused
-    return _paused
+    set_paused("user" not in _pause_reasons)
+    return is_paused()
 
 
 @dataclass

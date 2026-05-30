@@ -31,6 +31,7 @@ PANIC_MESSAGE = "panic"
 PAUSE_MESSAGE = "pause"
 RESUME_MESSAGE = "resume"
 TOGGLE_MESSAGE = "toggle"
+STATUS_MESSAGE = "status"
 
 
 def _socket_path() -> str:
@@ -105,6 +106,13 @@ def start_panic_listener(settings: Settings, state: State) -> None:
                             roll.set_paused(False)
                         elif message == TOGGLE_MESSAGE:
                             roll.toggle_paused()
+                        elif message == STATUS_MESSAGE:
+                            connection.send({
+                                "running": True,
+                                "paused": roll.is_paused(),
+                                "popups": getattr(state, "popup_number", 0),
+                                "hibernating": getattr(state, "hibernate_active", False),
+                            })
         except OSError as e:
             logging.warning(f"Failed to start panic listener: {e}")
 
@@ -139,8 +147,37 @@ def send_toggle_pause() -> bool:
     return _send(TOGGLE_MESSAGE)
 
 
+def query_status() -> dict | None:
+    """Ask a running runtime for its status. Returns None if not running."""
+    path = _socket_path()
+    try:
+        with Client(address=path, family="AF_UNIX", authkey=AUTHKEY) as connection:
+            connection.send(STATUS_MESSAGE)
+            if connection.poll(2.0):
+                return connection.recv()
+    except (FileNotFoundError, ConnectionRefusedError, EOFError):
+        pass
+    return None
+
+
 if __name__ == "__main__":
     import sys
-    _send({"pause": PAUSE_MESSAGE, "resume": RESUME_MESSAGE,
-           "toggle": TOGGLE_MESSAGE}.get(sys.argv[1] if len(sys.argv) > 1 else "",
-                                         PANIC_MESSAGE))
+
+    cmd = sys.argv[1] if len(sys.argv) > 1 else "panic"
+    if cmd == "status":
+        status = query_status()
+        if status is None:
+            print("Edgeware is not running.")
+        else:
+            print(
+                f"running   : yes\n"
+                f"paused    : {'yes' if status.get('paused') else 'no'}\n"
+                f"popups    : {status.get('popups', 0)}\n"
+                f"hibernating: {'yes' if status.get('hibernating') else 'no'}"
+            )
+    else:
+        _send({
+            "pause": PAUSE_MESSAGE,
+            "resume": RESUME_MESSAGE,
+            "toggle": TOGGLE_MESSAGE,
+        }.get(cmd, PANIC_MESSAGE))
