@@ -182,9 +182,12 @@ class DBusMenu:
             invocation.return_value(GLib.Variant("(v)", (props.get(name, GLib.Variant("s", "")),)))
         elif method == "Event":
             item_id, event_id, _data, _ts = params.unpack()
-            if event_id == "clicked" and 1 <= item_id <= len(self._items):
-                GLib.idle_add(self._items[item_id - 1][1])
             invocation.return_value(None)
+            # Run directly (not via idle_add) so it fires the moment the click
+            # is dispatched — under a popup flood the main loop may have no idle
+            # time, and panic must not depend on that.
+            if event_id == "clicked" and 1 <= item_id <= len(self._items):
+                self._items[item_id - 1][1]()
         elif method == "AboutToShow":
             invocation.return_value(GLib.Variant("(b)", (False,)))
         else:
@@ -272,13 +275,13 @@ class StatusNotifierItem:
         )
 
     def _on_method_call(self, conn, sender, path, iface, method, params, invocation) -> None:
+        invocation.return_value(None)
+        # Run directly so left-click panic works even when the main loop is busy.
         if method == "Activate":
-            GLib.idle_add(self._on_panic)
+            self._on_panic()
         elif method == "SecondaryActivate":
             if self._on_skip_hibernate:
-                GLib.idle_add(self._on_skip_hibernate)
-        # ContextMenu / Scroll: nothing to do
-        invocation.return_value(None)
+                self._on_skip_hibernate()
 
     def _on_get_property(self, conn, sender, path, iface, prop):
         values = {

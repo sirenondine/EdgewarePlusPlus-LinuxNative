@@ -39,7 +39,7 @@ class ImagePopup(Popup):
     def __init__(self, settings: Settings, pack: Pack, state: State, media: Path | None = None, on_close: Callable[[], None] | None = None) -> None:
         self.media = media or pack.random_image()
         self.hypno = roll(settings.hypno_chance)
-        if not self.should_init():
+        if not self.should_init(settings, state):
             return
         super().__init__(settings, pack, state, on_close)
 
@@ -98,9 +98,13 @@ class ImagePopup(Popup):
 
         self.init_finish()
 
-    def should_init(self) -> bool:
-        return self.media
+    def should_init(self, settings: Settings, state: State) -> bool:
+        if self.media and state.image_number < settings.max_image:
+            state.image_number += 1
+            return True
+        return False
 
     def close(self) -> None:
         stop_media(self._media_file)
         super().close()
+        self.state.image_number -= 1

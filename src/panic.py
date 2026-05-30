@@ -95,6 +95,30 @@ def panic(settings: Settings, state: State, condition: bool = True, disable: boo
     GLib.idle_add(do_panic)
 
 
+def emergency_stop(settings: Settings) -> None:
+    """Hard panic: revert the wallpaper and exit the process immediately.
+
+    Unlike panic(), this does not touch GTK or wait for the GLib main loop, so
+    it works even when the loop is saturated (e.g. a popup flood). set_wallpaper
+    only spawns subprocesses, so it is safe to call from any thread."""
+    import os
+    try:
+        set_wallpaper(CustomAssets.panic_wallpaper())
+    except Exception as e:
+        logging.warning(f"emergency_stop: wallpaper revert failed: {e}")
+    os._exit(0)
+
+
+def request_panic(settings: Settings, state: State) -> None:
+    """Panic entry point for the tray and socket. Honours panic lockout (which
+    needs a GTK safeword prompt, so it goes through the graceful path), but
+    otherwise hard-stops immediately and reliably."""
+    if getattr(settings, "panic_lockout", False) and getattr(state, "panic_lockout_active", False):
+        panic(settings, state, disable=False)
+    else:
+        emergency_stop(settings)
+
+
 def _sync_tray_pause(state: State) -> None:
     """Update the tray's pause label to match the current state (on the main loop)."""
     from gi.repository import GLib
@@ -126,7 +150,7 @@ def start_panic_listener(settings: Settings, state: State) -> None:
                     with listener.accept() as connection:
                         message = connection.recv()
                         if message == PANIC_MESSAGE:
-                            panic(settings, state, disable=False)
+                            request_panic(settings, state)
                         elif message in (PAUSE_MESSAGE, RESUME_MESSAGE, TOGGLE_MESSAGE):
                             if message == PAUSE_MESSAGE:
                                 roll.set_paused(True)

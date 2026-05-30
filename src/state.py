@@ -44,6 +44,7 @@ class State:
     _popup_number = Subject(0)
     prompt_active = False
     video_number = 0
+    image_number = 0
 
     audio_players: list = field(default_factory=list)
     popups: list[Popup] = field(default_factory=list)

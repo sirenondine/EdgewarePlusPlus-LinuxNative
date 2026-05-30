@@ -49,6 +49,7 @@
   "wallpaperDat": "{'default': 'wallpaper.png'}",
   "maxAudio": 1,
   "maxVideos": 10,
+  "maxImages": 20,
   "subliminalsChance": 0,
   "safeMode": 1,
   "toggleInternet": 0,

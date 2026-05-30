@@ -111,6 +111,7 @@ CONFIG_ITEMS = {
     "delay": Item("delay", NONNEGATIVE, VAR, int, danger=Danger(DangerLevel.MEDIUM, Schema(Range(max=1999)))),
     "single_mode": Item("singleMode", BOOLEAN, VAR, bool),
     "image_chance": Item("popupMod", PERCENTAGE, VAR, int),
+    "max_image": Item("maxImages", NONNEGATIVE, VAR, int),
     "audio_chance": Item("audioMod", PERCENTAGE, VAR, int),
     "max_audio": Item("maxAudio", NONNEGATIVE, VAR, int),
     "audio_volume": Item("audioVolume", PERCENTAGE, VAR, to_float),

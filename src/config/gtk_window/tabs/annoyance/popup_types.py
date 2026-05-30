@@ -53,6 +53,7 @@ class PopupTypesTab(Adw.PreferencesPage):
         image = Adw.PreferencesGroup(title="Image Popups", description=IMAGE_TEXT)
         self.add(image)
         image.add(AdwSliderRow("Image Popup Chance (%)", vars.image_chance, 0, 100))
+        image.add(AdwSliderRow("Max Image Popups", vars.max_image, 1, 100))
 
         audio = Adw.PreferencesGroup(title="Audio Popups", description=AUDIO_TEXT)
         self.add(audio)
