@@ -39,9 +39,10 @@ def _xdg_data_home() -> Path:
     return Path(os.environ.get("XDG_DATA_HOME") or os.path.expanduser("~/.local/share"))
 
 
-def _launcher(name: str) -> str:
-    """Absolute path to a launcher script (edgeware.sh / config.sh / panic.sh)."""
-    return str(PATH / f"{name}.sh")
+def _launcher(subcommand: str = "") -> str:
+    """edgeware.sh launch command, optionally with a subcommand (config/panic)."""
+    base = str(PATH / "edgeware.sh")
+    return f"{base} {subcommand}".rstrip()
 
 
 def get_wallpaper() -> Path | None:
@@ -139,7 +140,7 @@ def install_app_entries() -> None:
 
     entries = {
         f"{APP_ID}.desktop": _desktop_entry(
-            "Edgeware++", _launcher("edgeware"), icon, wm_class=f"{APP_ID}Runtime"
+            "Edgeware++", _launcher(), icon, wm_class=f"{APP_ID}Runtime"
         ),
         f"{APP_ID}.Config.desktop": _desktop_entry(
             "Edgeware++ Config", _launcher("config"), icon, wm_class=APP_ID
@@ -172,12 +173,12 @@ def make_shortcut(
 ) -> None:
     """Write a single .desktop launcher (used for ~/Desktop copies and autostart)."""
     name_map = {
-        Process.MAIN: "edgeware",
+        Process.MAIN: "",
         Process.CONFIG: "config",
         Process.PANIC: "panic",
     }
-    launcher = name_map.get(process)
-    exec_cmd = _launcher(launcher) if launcher else shlex.join([str(sys.executable), str(process)])
+    subcommand = name_map.get(process)
+    exec_cmd = _launcher(subcommand) if subcommand is not None else shlex.join([str(sys.executable), str(process)])
     icon_name = _install_themed_icon()
 
     file = (location if location else Path(os.path.expanduser("~/Desktop"))) / f"{title}.desktop"

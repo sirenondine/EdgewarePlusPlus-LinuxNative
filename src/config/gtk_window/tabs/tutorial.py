@@ -43,7 +43,7 @@ _INTRO = (
          "are completely removed.\n\n"
          "The global panic hotkey goes through your compositor's GlobalShortcuts portal "
          "(KDE/GNOME) or the tray icon. On Niri, add a native keybind pointing at "
-         "panic.sh — see the Overview tab for a ready-to-paste snippet."),
+         "edgeware.sh panic — see the Overview tab for a ready-to-paste snippet."),
         ("History",
          "Edgeware was created by PetitTournesol in 2021. Araten discovered it in 2023 "
          "and began adding features (originally with zero Python experience). Marigold "
@@ -94,16 +94,17 @@ _GETTING_STARTED = (
         ("Running Edgeware",
          "Click Save & Exit in the header (or use Ctrl+S then close) to save and "
          "optionally launch the runtime.\n\n"
-         "Scripts in the install folder:\n"
-         "• edgeware.sh — starts the runtime\n"
-         "• config.sh  — opens this config window\n"
-         "• panic.sh   — force-quits the runtime and reverts the wallpaper\n"
-         "• setup.sh   — install/update Python dependencies"),
+         "edgeware.sh in the install folder is the single entry point:\n"
+         "• edgeware.sh          — starts the runtime\n"
+         "• edgeware.sh config   — opens this config window\n"
+         "• edgeware.sh panic    — force-quits the runtime and reverts the wallpaper\n"
+         "• edgeware.sh setup    — install/update Python dependencies\n"
+         "(also: pause / resume / toggle / status)"),
         ("Stopping Edgeware",
          "• Press your global panic key (set on the Overview tab).\n"
          "• Click Panic in the system tray menu.\n"
          "• Click \"Perform Panic\" on the Overview tab.\n"
-         "• Run panic.sh from a terminal.\n\n"
+         "• Run edgeware.sh panic from a terminal.\n\n"
          "All methods send a message over a Unix socket — they work even if the "
          "compositor's GlobalShortcuts portal is unavailable."),
     ],

@@ -1,19 +1,68 @@
 #!/bin/bash
+# Single entry point for Edgeware++ LinuxNative.
+#
+#   edgeware.sh            start Edgeware
+#   edgeware.sh config     open the configuration window (extra args forwarded)
+#   edgeware.sh setup      install dependencies / (re)create the virtualenv
+#   edgeware.sh panic      stop everything and revert the wallpaper
+#   edgeware.sh pause      stop spawning new popups
+#   edgeware.sh resume     resume
+#   edgeware.sh toggle     flip the pause state
+#   edgeware.sh status     print running / paused / popup count
 cd ~/.local/share/edgeware || exit 1
 
-# Control subcommands talk to a running instance over the panic socket:
-#   edgeware.sh panic     stop everything and revert the wallpaper
-#   edgeware.sh pause     stop spawning new popups
-#   edgeware.sh resume    resume
-#   edgeware.sh toggle    flip the pause state
-#   edgeware.sh status    print running / paused / popup count
-# With no argument, edgeware.sh starts Edgeware.
+do_setup() {
+    version_string=$(python3 --version)
+    if [ $? -ne 0 ]; then
+        echo "Python not found"
+        echo "Please install Python 3 and try again"
+        exit 1
+    fi
+
+    IFS=" " read -r _p version <<< "$version_string"
+    IFS="." read -r major minor _patch <<< "$version"
+    if (( !(major == 3 && minor >= 12) )); then
+        echo "Python version 3.12 or higher recommended"
+    fi
+
+    # gtk4-layer-shell positions the runtime popups as Wayland overlay surfaces.
+    if ! ldconfig -p 2>/dev/null | grep -q "libgtk4-layer-shell" \
+        && ! ls /usr/lib*/libgtk4-layer-shell.so* >/dev/null 2>&1 \
+        && ! ls /usr/lib/*/libgtk4-layer-shell.so* >/dev/null 2>&1; then
+        echo "gtk4-layer-shell not found"
+        echo "Please install gtk4-layer-shell (Arch: gtk4-layer-shell, Fedora: gtk4-layer-shell, Debian/Ubuntu: libgtk4-layer-shell0) and try again"
+        exit 1
+    fi
+
+    # gtk4paintablesink (from gst-plugins-rs) renders video/animated popups.
+    if ! gst-inspect-1.0 gtk4paintablesink >/dev/null 2>&1; then
+        echo "GStreamer gtk4paintablesink not found"
+        echo "Please install the GStreamer Rust plugins (Arch: gst-plugins-rs, Fedora: gstreamer1-plugins-rs, Debian/Ubuntu: gstreamer1.0-plugins-rs) and try again"
+        exit 1
+    fi
+
+    python3 -m venv .venv || { echo "Failed to create virtual environment"; exit 1; }
+    .venv/bin/python3 -m pip install -r requirements.txt || { echo "Failed to install requirements"; exit 1; }
+    chmod +x edgeware.sh
+    echo "Setup complete. Run 'edgeware.sh config' to configure, then 'edgeware.sh' to start."
+}
+
 case "$1" in
   panic|pause|resume|toggle|status)
     exec .venv/bin/python3 src/panic.py "$1"
     ;;
+  config)
+    shift
+    export GDK_BACKEND=wayland GSK_RENDERER=gl
+    exec .venv/bin/python3 src/main_config.py "$@"
+    ;;
+  setup)
+    do_setup
+    exit 0
+    ;;
 esac
 
+# Default: start the runtime.
 # Preload gtk4-layer-shell before libwayland-client (it must load first).
 # Doing it here means Python starts once; the in-process re-exec fallback in
 # main_edgeware.py only kicks in when launched directly without this.

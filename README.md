@@ -29,11 +29,11 @@ gtk4-layer-shell, and GStreamer with the Rust plugins that provide
 - **Debian/Ubuntu:** `sudo apt install python3 python3-pip python3-gi gir1.2-gtk-4.0 gir1.2-adw-1 libgtk4-layer-shell0 gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-plugins-rs`
 
 Then download/extract Edgeware as a ZIP or clone the repository into
-`~/.local/share/edgeware`, and run `setup.sh` in a terminal there. It checks for the
-required system libraries, creates a Python virtual environment, installs the Python
-dependencies, and writes the run scripts. `config.sh` opens the configuration window
-and `edgeware.sh` starts Edgeware itself; a tray icon and desktop launchers are also
-registered on first run.
+`~/.local/share/edgeware`, and run `./edgeware.sh setup` in a terminal there. It checks
+for the required system libraries, creates a Python virtual environment, and installs
+the Python dependencies. `edgeware.sh config` opens the configuration window and
+`edgeware.sh` (no argument) starts Edgeware itself; a tray icon and desktop launchers
+are registered on first run.
 
 The global **panic** hotkey uses the desktop's GlobalShortcuts portal where available
 (KDE/GNOME); on compositors that don't support it, Edgeware falls back to reading
@@ -60,7 +60,7 @@ This fork adds Linux/Wayland-native integration on top of the upstream feature s
   open/close, captions, notifications, prompts) through Intiface Central. Supports timed
   pulses, a continuous mode that stacks intensity across concurrent popups, and
   vibration patterns (pulse/wave/ramp/random). Requires `buttplug-py` (installed by
-  `setup.sh`) and a running Intiface Central server; configure it in the **Sex Toys** tab.
+  `edgeware.sh setup`) and a running Intiface Central server; configure it in the **Sex Toys** tab.
 
 ### Control commands
 
@@ -79,7 +79,7 @@ edgeware.sh status    # print running / paused / popup count
 
 From there you'll need an actual pack, which can be downloaded online or made yourself. Unfortunately at the time of writing there's really no congregated directory of packs everyone's made, they're all scattered to the four winds... but for a start [the original Edgeware page](https://github.com/PetitTournesol/Edgeware) has a few sample packs, and there's a few more in the "Packs" section of the readme.
 
-After pulling a major update, re-run `setup.sh` to refresh the Python dependencies.
+After pulling a major update, re-run `./edgeware.sh setup` to refresh the Python dependencies.
 
 **Any damage you do to your computer with Edgeware is your own responsibility! Please read the "Dangerous" tab in the config window and make backups if you're planning on using the advanced, dangerous settings!**
 
