@@ -10,3 +10,4 @@ evdev
 requests
 screeninfo
 voluptuous
+buttplug-py
