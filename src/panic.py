@@ -52,6 +52,8 @@ def panic(settings: Settings, state: State, condition: bool = True, disable: boo
             if password != settings.panic_lockout_password:
                 return
 
+        _penalize_panic(settings)
+
         # Each cleanup step is isolated so a failure (e.g. wallpaper revert
         # erroring on some compositors) can never stop the app from quitting.
         try:
@@ -95,6 +97,18 @@ def panic(settings: Settings, state: State, condition: bool = True, disable: boo
     GLib.idle_add(do_panic)
 
 
+def _penalize_panic(settings: Settings) -> None:
+    """Docking XP for giving up (panicking). Best-effort, must never block panic."""
+    if not getattr(settings, "gamification", False):
+        return
+    try:
+        from features import gamification
+        gamification.record("panic")
+        gamification.flush()  # persist before a possible os._exit
+    except Exception as e:
+        logging.warning(f"panic: gamification penalty failed: {e}")
+
+
 def emergency_stop(settings: Settings) -> None:
     """Hard panic: revert the wallpaper and exit the process immediately.
 
@@ -102,6 +116,7 @@ def emergency_stop(settings: Settings) -> None:
     it works even when the loop is saturated (e.g. a popup flood). set_wallpaper
     only spawns subprocesses, so it is safe to call from any thread."""
     import os
+    _penalize_panic(settings)
     try:
         set_wallpaper(CustomAssets.panic_wallpaper())
     except Exception as e:

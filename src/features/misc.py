@@ -124,7 +124,8 @@ def handle_gamification(settings: Settings, pack: Pack, state: State) -> None:
         try:
             from features.hud import ProgressHUD
             into, span = prog.xp_into_level()
-            state.hud = ProgressHUD(prog.level, into, span)
+            corner = getattr(settings, "gamification_hud_corner", "top-right")
+            state.hud = ProgressHUD(prog.level, into, span, corner=corner)
             gamification.set_progress_callback(state.hud.update)
         except Exception as e:
             logging.warning(f"Failed to create gamification HUD: {e}")

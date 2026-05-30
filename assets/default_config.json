@@ -109,5 +109,6 @@
   "escalation": 0,
   "gamification": 0,
   "gamificationRewards": 1,
-  "gamificationHud": 1
+  "gamificationHud": 1,
+  "gamificationHudCorner": "top-right"
 }

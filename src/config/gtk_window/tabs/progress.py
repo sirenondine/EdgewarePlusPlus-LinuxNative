@@ -21,9 +21,10 @@ require_version("Gtk", "4.0")
 require_version("Adw", "1")
 from gi.repository import Adw, Gtk
 
-from config.gtk_window.widgets import AdwSwitchRow
+from config.gtk_window.widgets import AdwComboRow, AdwSwitchRow
 from config.vars import Vars
 from features import gamification
+from features.hud import CORNERS
 
 GAMIFICATION_TEXT = (
     "Earn XP and unlock achievements as you use Edgeware. Fully local: progress "
@@ -56,6 +57,9 @@ class ProgressTab(Adw.PreferencesPage):
         general.add(AdwSwitchRow(
             "On-screen Progress HUD", vars.gamification_hud,
             subtitle="Show a live level and XP bar in the corner while running."))
+        general.add(AdwComboRow(
+            "HUD Corner", vars.gamification_hud_corner,
+            {c: c.replace("-", " ").title() for c in CORNERS}))
 
         reset_row = Adw.ActionRow(title="Reset Progress", subtitle="Erase all XP, levels and achievements.")
         reset_btn = Gtk.Button(label="Reset")

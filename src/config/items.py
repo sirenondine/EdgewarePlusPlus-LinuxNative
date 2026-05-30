@@ -228,6 +228,7 @@ CONFIG_ITEMS = {
     "gamification": Item("gamification", BOOLEAN, VAR, bool, block=True),
     "gamification_rewards": Item("gamificationRewards", BOOLEAN, VAR, bool, block=True),
     "gamification_hud": Item("gamificationHud", BOOLEAN, VAR, bool, block=True),
+    "gamification_hud_corner": Item("gamificationHudCorner", STRING, VAR, str, block=True),
 }
 # fmt: on
 

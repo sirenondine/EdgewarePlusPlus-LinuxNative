@@ -33,12 +33,15 @@ from typing import Callable
 
 from paths import Data
 
-# XP awarded per event. Counters are tracked for every event regardless of XP.
+# XP per event (negative = penalty). Counters are tracked for every event.
 EVENT_XP = {
     "popup_closed": 1,
     "prompt_completed": 5,
     "denial_seen": 2,
     "playtime_minute": 1,
+    # Penalties for "giving up".
+    "panic": -25,
+    "prompt_failed": -5,
 }
 
 LEVEL_STEP = 25  # tuning constant for the level curve
@@ -186,7 +189,7 @@ class Progress:
         self.ensure_quests()  # roll daily/weekly over if the period changed
         self.counters[event] = self.counters.get(event, 0) + count
         gain = (EVENT_XP.get(event, 0) if xp is None else xp) * count
-        if gain > 0:
+        if gain:  # may be negative (a penalty)
             self._add_xp(gain)
         self._check_achievements()
         self._advance_quests(event, count)
@@ -238,7 +241,7 @@ class Progress:
                 logging.warning(f"gamification achievement '{ach.id}' check error: {e}")
 
     def _add_xp(self, gain: int) -> None:
-        self.xp += gain
+        self.xp = max(0, self.xp + gain)  # penalties can't push XP below zero
         new_level = level_for_xp(self.xp)
         if new_level > self.level:
             self.level = new_level
@@ -247,6 +250,8 @@ class Progress:
                     self.on_level_up(new_level)
                 except Exception as e:
                     logging.warning(f"gamification level-up callback error: {e}")
+        elif new_level < self.level:
+            self.level = new_level  # demoted by a penalty; no notification
         if self.on_progress_change:
             try:
                 into, span = self.xp_into_level()

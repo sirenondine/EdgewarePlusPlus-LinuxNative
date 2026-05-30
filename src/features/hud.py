@@ -23,6 +23,7 @@
 import gi
 
 gi.require_version("Gtk", "4.0")
+gi.require_version("Gdk", "4.0")
 gi.require_version("Gtk4LayerShell", "1.0")
 from gi.repository import Gdk, GLib, Gtk
 from gi.repository import Gtk4LayerShell as LayerShell
@@ -58,8 +59,18 @@ def _ensure_css() -> None:
     _CSS_LOADED = True
 
 
+# Config value -> (vertical edge, horizontal edge).
+_CORNERS = {
+    "top-left": (LayerShell.Edge.TOP, LayerShell.Edge.LEFT),
+    "top-right": (LayerShell.Edge.TOP, LayerShell.Edge.RIGHT),
+    "bottom-left": (LayerShell.Edge.BOTTOM, LayerShell.Edge.LEFT),
+    "bottom-right": (LayerShell.Edge.BOTTOM, LayerShell.Edge.RIGHT),
+}
+CORNERS = list(_CORNERS.keys())
+
+
 class ProgressHUD(Gtk.Window):
-    def __init__(self, level: int = 0, into: int = 0, span: int = 1) -> None:
+    def __init__(self, level: int = 0, into: int = 0, span: int = 1, corner: str = "top-right") -> None:
         super().__init__()
         _ensure_css()
         self.set_decorated(False)
@@ -84,10 +95,11 @@ class ProgressHUD(Gtk.Window):
             LayerShell.init_for_window(self)
             LayerShell.set_layer(self, LayerShell.Layer.OVERLAY)
             LayerShell.set_namespace(self, "edgeware-hud")
-            LayerShell.set_anchor(self, LayerShell.Edge.TOP, True)
-            LayerShell.set_anchor(self, LayerShell.Edge.RIGHT, True)
-            LayerShell.set_margin(self, LayerShell.Edge.TOP, 24)
-            LayerShell.set_margin(self, LayerShell.Edge.RIGHT, 24)
+            v_edge, h_edge = _CORNERS.get(corner, _CORNERS["top-right"])
+            LayerShell.set_anchor(self, v_edge, True)
+            LayerShell.set_anchor(self, h_edge, True)
+            LayerShell.set_margin(self, v_edge, 24)
+            LayerShell.set_margin(self, h_edge, 24)
 
         # Click-through: an empty input region lets clicks pass to whatever is
         # behind the HUD.

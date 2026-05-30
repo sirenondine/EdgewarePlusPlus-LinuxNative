@@ -136,3 +136,7 @@ class Prompt(Gtk.Window):
                 gamification.record("prompt_completed")
             if self.on_close:
                 self.on_close()
+        elif self.settings.gamification:
+            # Too many mistakes: the prompt stays open, but it costs XP.
+            from features import gamification
+            gamification.record("prompt_failed")
