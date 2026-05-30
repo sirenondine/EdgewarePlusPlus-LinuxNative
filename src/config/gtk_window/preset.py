@@ -67,10 +67,9 @@ def delete_preset(name: str) -> bool:
     return deleted
 
 
-def compute_preset_diff(name: str, vars: Vars) -> list[tuple[str, str, str]]:
-    """Return (friendly_name, current_value, new_value) for each setting the
-    preset would change relative to the current live values."""
-    preset = load_preset(name)
+def compute_diff(preset: dict, vars: Vars) -> list[tuple[str, str, str]]:
+    """Return (friendly_name, current_value, new_value) for each setting in
+    `preset` that differs from the current live value."""
     changes = []
     for key, new_val in preset.items():
         var = vars.entries.get(key)
@@ -84,6 +83,82 @@ def compute_preset_diff(name: str, vars: Vars) -> list[tuple[str, str, str]]:
             friendly = key.replace("_", " ").title()
             changes.append((friendly, cur_str, new_str))
     return changes
+
+
+def compute_preset_diff(name: str, vars: Vars) -> list[tuple[str, str, str]]:
+    """compute_diff for a named preset on disk."""
+    return compute_diff(load_preset(name), vars)
+
+
+def show_config_diff(parent, title: str, description: str,
+                     changes: list[tuple[str, str, str]],
+                     apply_label: str, on_apply) -> None:
+    """Modal that previews the settings a config change would make, then
+    applies it on confirmation. Shared by the preset and pack-config loaders."""
+    require_version("Adw", "1")
+    from gi.repository import Adw
+
+    win = Adw.Window()
+    win.set_title(title)
+    win.set_default_size(480, 520)
+    win.set_modal(True)
+    if parent is not None:
+        win.set_transient_for(parent)
+
+    toolbar_view = Adw.ToolbarView()
+    header = Adw.HeaderBar()
+    header.set_show_end_title_buttons(False)
+    header.set_title_widget(Adw.WindowTitle(
+        title=title,
+        subtitle=(f"{len(changes)} setting{'s' if len(changes) != 1 else ''} will change"
+                  if changes else "No changes from current settings"),
+    ))
+    toolbar_view.add_top_bar(header)
+    win.set_content(toolbar_view)
+
+    page = Adw.PreferencesPage()
+    toolbar_view.set_content(page)
+
+    if description:
+        desc_group = Adw.PreferencesGroup(title="Description")
+        page.add(desc_group)
+        desc_row = Adw.ActionRow()
+        desc_row.set_activatable(False)
+        lbl = Gtk.Label(label=description, wrap=True, xalign=0)
+        lbl.set_margin_start(12)
+        lbl.set_margin_end(12)
+        lbl.set_margin_top(8)
+        lbl.set_margin_bottom(8)
+        desc_row.set_child(lbl)
+        desc_group.add(desc_row)
+
+    changes_group = Adw.PreferencesGroup(
+        title="Changes",
+        description=("Settings that differ from your current configuration." if changes
+                     else "This matches your current settings — nothing will change."),
+    )
+    page.add(changes_group)
+    for friendly, current, new in changes:
+        changes_group.add(Adw.ActionRow(title=friendly, subtitle=f"{current}  →  {new}"))
+
+    btn_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+    btn_bar.set_margin_start(16)
+    btn_bar.set_margin_end(16)
+    btn_bar.set_margin_top(8)
+    btn_bar.set_margin_bottom(16)
+    btn_bar.set_halign(Gtk.Align.END)
+
+    cancel_btn = Gtk.Button(label="Cancel")
+    cancel_btn.connect("clicked", lambda _: win.close())
+    btn_bar.append(cancel_btn)
+
+    apply_btn = Gtk.Button(label=apply_label)
+    apply_btn.add_css_class("suggested-action")
+    apply_btn.connect("clicked", lambda _: (on_apply(), win.close()))
+    btn_bar.append(apply_btn)
+
+    toolbar_view.add_bottom_bar(btn_bar)
+    win.present()
 
 
 def save_preset(anchor: Gtk.Widget) -> None:

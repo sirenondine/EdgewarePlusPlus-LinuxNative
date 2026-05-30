@@ -336,78 +336,15 @@ class StartTab(Adw.PreferencesPage):
         self._show_preset_diff_modal(name)
 
     def _show_preset_diff_modal(self, name: str) -> None:
-        changes = compute_preset_diff(name, self._vars)
-        description = load_preset_description(name)
-
-        win = Adw.Window()
-        win.set_title(f"Load Preset: {name}")
-        win.set_default_size(480, 520)
-        win.set_resizable(True)
-        win.set_modal(True)
-        win.set_transient_for(self.get_root())
-
-        toolbar_view = Adw.ToolbarView()
-        header = Adw.HeaderBar()
-        header.set_show_end_title_buttons(False)
-        header.set_title_widget(Adw.WindowTitle(
-            title=name,
-            subtitle=f"{len(changes)} setting{'s' if len(changes) != 1 else ''} will change" if changes else "No changes from current settings",
-        ))
-        toolbar_view.add_top_bar(header)
-        win.set_content(toolbar_view)
-
-        page = Adw.PreferencesPage()
-        toolbar_view.set_content(page)
-
-        # Description
-        desc_group = Adw.PreferencesGroup(title="Description")
-        page.add(desc_group)
-        desc_row = Adw.ActionRow()
-        desc_row.set_activatable(False)
-        desc_lbl = Gtk.Label(label=description, wrap=True, xalign=0)
-        desc_lbl.set_margin_start(12)
-        desc_lbl.set_margin_end(12)
-        desc_lbl.set_margin_top(8)
-        desc_lbl.set_margin_bottom(8)
-        desc_row.set_child(desc_lbl)
-        desc_group.add(desc_row)
-
-        # Changes
-        changes_group = Adw.PreferencesGroup(
-            title="Changes",
-            description="Settings that differ from your current configuration." if changes
-                        else "This preset matches your current settings — nothing will change.",
+        from config.gtk_window.preset import show_config_diff
+        show_config_diff(
+            self.get_root(),
+            f"Load Preset: {name}",
+            load_preset_description(name),
+            compute_preset_diff(name, self._vars),
+            "Apply Preset",
+            lambda: apply_preset(load_preset(name), self._vars),
         )
-        page.add(changes_group)
-
-        for friendly, current, new in changes:
-            row = Adw.ActionRow(title=friendly, subtitle=f"{current}  →  {new}")
-            changes_group.add(row)
-
-        # Buttons
-        btn_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        btn_bar.set_margin_start(16)
-        btn_bar.set_margin_end(16)
-        btn_bar.set_margin_top(8)
-        btn_bar.set_margin_bottom(16)
-        btn_bar.set_halign(Gtk.Align.END)
-
-        cancel_btn = Gtk.Button(label="Cancel")
-        cancel_btn.connect("clicked", lambda _: win.close())
-        btn_bar.append(cancel_btn)
-
-        apply_btn = Gtk.Button(label="Apply Preset")
-        apply_btn.add_css_class("suggested-action")
-
-        def on_apply(_b):
-            apply_preset(load_preset(name), self._vars)
-            win.close()
-
-        apply_btn.connect("clicked", on_apply)
-        btn_bar.append(apply_btn)
-
-        toolbar_view.add_bottom_bar(btn_bar)
-        win.present()
 
     def _on_delete_preset(self, _btn: Gtk.Button) -> None:
         name = self._current_preset_name()

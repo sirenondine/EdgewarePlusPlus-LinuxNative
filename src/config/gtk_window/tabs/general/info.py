@@ -64,7 +64,6 @@ class InfoTab(Adw.PreferencesPage):
 
         # ---- Pack configuration (this pack's creator-suggested settings) ---
         if vars is not None:
-            from config.gtk_window.preset import apply_preset
             from config.gtk_window.widgets import AdwSwitchRow
 
             config_group = Adw.PreferencesGroup(
@@ -81,10 +80,10 @@ class InfoTab(Adw.PreferencesPage):
                 subtitle=f"{len(pack.config)} suggested setting"
                          f"{'s' if len(pack.config) != 1 else ''} in this pack.",
             )
-            load_cfg_btn = Gtk.Button(label="Load")
+            load_cfg_btn = Gtk.Button(label="Preview & Load…")
             load_cfg_btn.set_valign(Gtk.Align.CENTER)
             load_cfg_btn.set_sensitive(bool(pack.config))
-            load_cfg_btn.connect("clicked", lambda _: apply_preset(pack.config, vars))
+            load_cfg_btn.connect("clicked", lambda _: self._on_load_pack_config())
             load_cfg_row.add_suffix(load_cfg_btn)
             load_cfg_row.set_activatable_widget(load_cfg_btn)
             config_group.add(load_cfg_row)
@@ -220,6 +219,17 @@ class InfoTab(Adw.PreferencesPage):
         )
         discord.add(image_row)
 
+
+    def _on_load_pack_config(self) -> None:
+        from config.gtk_window.preset import apply_preset, compute_diff, show_config_diff
+        show_config_diff(
+            self.get_root(),
+            "Load Pack Configuration",
+            f"Suggested settings shipped with {self._pack.info.name}.",
+            compute_diff(self._pack.config, self._vars),
+            "Apply Pack Config",
+            lambda: apply_preset(self._pack.config, self._vars),
+        )
 
     def _on_import_new(self) -> None:
         from config.gtk_window.import_pack import import_pack
