@@ -27,7 +27,7 @@ from config.gtk_window.preset import (
     load_preset_description,
     save_preset,
 )
-from config.gtk_window.utils import request_global_panic_key
+from config.gtk_window.utils import pretty_panic_key, request_global_panic_key
 from config.gtk_window.widgets import AdwSwitchRow
 from config.vars import Vars
 from pack import Pack
@@ -135,7 +135,7 @@ class StartTab(Adw.PreferencesPage):
                 "Edgeware falls back to evdev (requires the 'input' group)."
             ),
         )
-        self.global_panic_btn = Gtk.Button(label=f"<{vars.global_panic_key.get()}>")
+        self.global_panic_btn = Gtk.Button(label=f"<{pretty_panic_key(vars.global_panic_key.get())}>")
         self.global_panic_btn.set_valign(Gtk.Align.CENTER)
         self.global_panic_btn.connect(
             "clicked",

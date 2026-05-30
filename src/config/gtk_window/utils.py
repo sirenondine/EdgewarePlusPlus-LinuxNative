@@ -14,15 +14,12 @@
 
 import json
 import logging
-import multiprocessing
 import os
 import shutil
 import subprocess
 import sys
 import urllib.request
-from multiprocessing.connection import Connection
 from pathlib import Path
-from threading import Thread
 
 from gi import require_version
 
@@ -69,61 +66,97 @@ def dialog_run(dialog: Gtk.Dialog) -> Gtk.ResponseType:
     return result[0]
 
 
-def keyboard_listener(connection: Connection) -> None:
-    # Use pynput's uinput backend (python-evdev) on Wayland; it needs input-device
-    # access + a readable console keymap, so it fails for unprivileged users.
-    os.environ.setdefault("PYNPUT_BACKEND", "uinput")
-    try:
-        from pynput import keyboard
-    except Exception:
-        connection.send("focus")  # unblock the UI; key capture simply won't fire
-        return
-    with keyboard.Listener(on_release=lambda key: connection.send(str(key))) as listener:
-        connection.send("focus")
-        listener.join()
+# Stored panic keys use pynput's str(key) form ("'a'", "Key.f9") so they match
+# what the runtime panic listeners compare against: the GlobalShortcuts portal
+# hint (_to_trigger) and the evdev fallback (key == settings.global_panic_key).
+_GDK_NAME_TO_PYNPUT = {
+    "space": "Key.space",
+    "Return": "Key.enter",
+    "KP_Enter": "Key.enter",
+    "Escape": "Key.esc",
+    "Tab": "Key.tab",
+    "BackSpace": "Key.backspace",
+    "Delete": "Key.delete",
+    "Insert": "Key.insert",
+    "Home": "Key.home",
+    "End": "Key.end",
+    "Page_Up": "Key.page_up",
+    "Page_Down": "Key.page_down",
+    "Up": "Key.up",
+    "Down": "Key.down",
+    "Left": "Key.left",
+    "Right": "Key.right",
+    "Caps_Lock": "Key.caps_lock",
+    "Menu": "Key.menu",
+    "Shift_L": "Key.shift_l",
+    "Shift_R": "Key.shift_r",
+    "Control_L": "Key.ctrl_l",
+    "Control_R": "Key.ctrl_r",
+    "Alt_L": "Key.alt_l",
+    "Alt_R": "Key.alt_r",
+    "ISO_Level3_Shift": "Key.alt_gr",
+    "Super_L": "Key.cmd",
+    "Super_R": "Key.cmd_r",
+}
 
 
-def _is_wayland() -> bool:
-    return bool(os.environ.get("WAYLAND_DISPLAY")) or os.environ.get("XDG_SESSION_TYPE", "").lower() == "wayland"
+def _keyval_to_pynput(keyval: int) -> str:
+    """Convert a GTK keyval to pynput's str(key) form (e.g. "'a'", "Key.f9")."""
+    from gi.repository import Gdk
+
+    unicode_point = Gdk.keyval_to_unicode(keyval)
+    if unicode_point:
+        char = chr(unicode_point)
+        if char.isprintable() and not char.isspace():
+            return f"'{char.lower()}'"
+
+    name = Gdk.keyval_name(keyval) or ""
+    if len(name) >= 2 and name[0] in "Ff" and name[1:].isdigit():
+        return f"Key.{name.lower()}"  # function keys F1..F35
+    return _GDK_NAME_TO_PYNPUT.get(name, f"Key.{name.lower()}")
+
+
+def pretty_panic_key(stored: str) -> str:
+    """Human-friendly label for a stored panic key (e.g. "'a'" -> "A")."""
+    if not stored:
+        return "None"
+    if len(stored) >= 2 and stored[0] == "'" and stored[-1] == "'":
+        return stored[1:-1].upper()
+    if stored.startswith("Key."):
+        return stored[4:].upper()
+    return stored
 
 
 def request_global_panic_key(button: Gtk.Button, var: ConfigVar) -> None:
-    window = Gtk.Window(title="Key Listener")
-    window.set_default_size(250, 250)
+    # Capture the key with GTK's own key controller. This works without any
+    # privileges; the old pynput/uinput capture silently failed for users not in
+    # the 'input' group, so the dialog never read a keypress. The captured value
+    # is stored in pynput's str() format so the runtime portal/evdev panic
+    # listeners recognise it.
+    window = Gtk.Window(title="Set Panic Key")
+    window.set_default_size(300, 160)
     window.set_resizable(False)
     window.set_modal(True)
     window.set_transient_for(button.get_root())
 
-    if _is_wayland():
-        label = Gtk.Label(
-            label="Press any key or close\n\n(Wayland: requires 'input' group\nor evdev access)",
-            wrap=True,
-        )
-    else:
-        label = Gtk.Label(label="Press any key or close")
+    label = Gtk.Label(
+        label="Press any key to set it as the panic hotkey,\nor close this window to cancel.",
+        wrap=True,
+    )
     label.set_vexpand(True)
     label.set_hexpand(True)
     window.set_child(label)
 
-    parent_connection, child_connection = multiprocessing.Pipe()
-    process = multiprocessing.Process(target=keyboard_listener, args=(child_connection,))
-    process.start()
-
-    def assign_panic_key(key: str) -> None:
-        button.set_label(f"Set Global\nPanic Key\n<{key}>")
-        var.set(key)
+    def on_key_pressed(_controller, keyval: int, _keycode: int, _state) -> bool:
+        stored = _keyval_to_pynput(keyval)
+        var.set(stored)
+        button.set_label(f"<{pretty_panic_key(stored)}>")
         window.close()
+        return True
 
-    def receive_panic_key() -> None:
-        try:
-            assert parent_connection.recv() == "focus"
-            key = parent_connection.recv()
-            window.connect("map", lambda _: assign_panic_key(key))
-        except (EOFError, AssertionError):
-            pass
-
-    Thread(target=receive_panic_key).start()
-    window.connect("close-request", lambda _: process.terminate())
+    controller = Gtk.EventControllerKey.new()
+    controller.connect("key-pressed", on_key_pressed)
+    window.add_controller(controller)
     window.present()
 
 
