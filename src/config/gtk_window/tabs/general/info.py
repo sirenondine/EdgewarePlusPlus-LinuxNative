@@ -48,7 +48,6 @@ class InfoTab(Adw.PreferencesPage):
 
         current_row = Adw.ActionRow(title="Active Pack", subtitle=pack.info.name)
         current_row.add_prefix(_pack_icon_prefix(pack.paths.root))
-        current_row.add_suffix(Gtk.Image.new_from_icon_name("media-playback-start-symbolic"))
         mgmt.add(current_row)
 
         import_row = Adw.ActionRow(
