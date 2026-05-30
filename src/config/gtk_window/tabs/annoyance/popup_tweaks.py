@@ -15,126 +15,80 @@
 from gi import require_version
 
 require_version("Gtk", "4.0")
-from gi.repository import Gtk
+require_version("Adw", "1")
+from gi.repository import Adw
 
-from config.gtk_window.widgets import ConfigRow, ConfigScale, ConfigSection, ConfigToggle
+from config.gtk_window.widgets import AdwSliderRow, AdwSwitchRow
 from config.gtk_window.utils import config
 from config.vars import Vars
 from screeninfo import get_monitors
 
 OVERLAY_TEXT = (
-    "Overlays are modifiers for popups.\n"
-    "Hypno adds a transparent gif over affected popups.\n"
+    "Modifiers applied on top of popups. Hypno overlays a transparent gif; "
     "Denial \"censors\" a popup by blurring it."
 )
-CAPTION_TEXT = "Captions are small bits of text that adorn each popup."
-MONITORS_TEXT = "Choose what monitors Edgeware++ will spawn popups on!"
-MOVEMENT_TEXT = "Gives each popup a chance to move around the screen."
-MISC_TEXT = (
-    "\"Buttonless Closing Popups\" removes the close button on every popup.\n"
-    "\"Multi Click Popups\" makes popups take more clicks to close.\n"
-    "\"Popup Opacity\" affects the transparency of all popups."
-)
-TIMEOUT_TEXT = "After a certain time, popups will fade out and delete themselves."
+CAPTION_TEXT = "Small bits of text that adorn each popup."
+MONITORS_TEXT = "Choose which monitors Edgeware++ may spawn popups on."
+MOVEMENT_TEXT = "Give each popup a chance to drift around the screen."
+TIMEOUT_TEXT = "After a set time, popups fade out and delete themselves."
 
 
-class MonitorToggle(Gtk.Box):
-    def __init__(self, monitor) -> None:
-        super().__init__(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
-        self._monitor = monitor
-        disabled = config.get("disabledMonitors", [])
-        is_active = monitor.name not in disabled
+def _monitor_row(monitor) -> Adw.SwitchRow:
+    """A switch row that enables/disables popups on one monitor (writes the
+    disabledMonitors config list directly, not a ConfigVar)."""
+    row = Adw.SwitchRow(title=monitor.name, subtitle=f"{monitor.width}×{monitor.height}")
+    row.set_active(monitor.name not in config.get("disabledMonitors", []))
 
-        switch = Gtk.Switch()
-        switch.set_active(is_active)
-        switch.connect("notify::active", self._on_toggled)
-        self.append(switch)
+    def on_toggled(r, _p):
+        disabled = config.setdefault("disabledMonitors", [])
+        if r.get_active():
+            if monitor.name in disabled:
+                disabled.remove(monitor.name)
+        elif monitor.name not in disabled:
+            disabled.append(monitor.name)
 
-        lbl = Gtk.Label(label=f"{monitor.name} ({monitor.width}x{monitor.height})")
-        lbl.set_xalign(0)
-        lbl.set_hexpand(True)
-        self.append(lbl)
-
-    def _on_toggled(self, switch: Gtk.Switch, _param) -> None:
-        if "disabledMonitors" not in config:
-            config["disabledMonitors"] = []
-        disabled = config["disabledMonitors"]
-        if switch.get_active():
-            if self._monitor.name in disabled:
-                disabled.remove(self._monitor.name)
-        else:
-            if self._monitor.name not in disabled:
-                disabled.append(self._monitor.name)
+    row.connect("notify::active", on_toggled)
+    return row
 
 
-class PopupTweaksTab(Gtk.ScrolledWindow):
+class PopupTweaksTab(Adw.PreferencesPage):
     def __init__(self, vars: Vars) -> None:
         super().__init__()
-        self.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-        self.set_hexpand(True)
-        self.set_vexpand(True)
 
-        vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
-        vbox.set_margin_start(8)
-        vbox.set_margin_end(8)
-        vbox.set_margin_top(8)
-        vbox.set_margin_bottom(8)
-        self.set_child(vbox)
+        captions = Adw.PreferencesGroup(title="Captions", description=CAPTION_TEXT)
+        self.add(captions)
+        captions.add(AdwSwitchRow("Enable Popup Captions", vars.captions_in_popups))
 
-        # Captions
-        caps_section = ConfigSection("Captions", CAPTION_TEXT)
-        vbox.append(caps_section)
-        caps_section.append(ConfigToggle("Enable Popup Captions", vars.captions_in_popups))
+        overlays = Adw.PreferencesGroup(title="Overlays", description=OVERLAY_TEXT)
+        self.add(overlays)
+        overlays.add(AdwSliderRow("Hypno Chance (%)", vars.hypno_chance, 0, 100))
+        overlays.add(AdwSliderRow("Hypno Opacity (%)", vars.hypno_opacity, 1, 99))
+        overlays.add(AdwSliderRow("Denial Chance (%)", vars.denial_chance, 0, 100))
 
-        # Overlays
-        ov_section = ConfigSection("Overlays", OVERLAY_TEXT)
-        vbox.append(ov_section)
-        hypno_row = ConfigRow()
-        ov_section.append(hypno_row)
-        hypno_row.append(ConfigScale("Hypno Chance (%)", vars.hypno_chance, 0, 100))
-        hypno_row.append(ConfigScale("Hypno Opacity (%)", vars.hypno_opacity, 1, 99))
-        denial_row = ConfigRow()
-        ov_section.append(denial_row)
-        denial_row.append(ConfigScale("Denial Chance (%)", vars.denial_chance, 0, 100))
+        opacity = Adw.PreferencesGroup(title="Opacity")
+        self.add(opacity)
+        opacity.add(AdwSliderRow("Popup Opacity (%)", vars.opacity, 5, 100))
 
-        # Opacity
-        opacity_section = ConfigSection("Opacity")
-        vbox.append(opacity_section)
-        op_row = ConfigRow()
-        opacity_section.append(op_row)
-        op_row.append(ConfigScale("Popup Opacity (%)", vars.opacity, 5, 100))
+        timeout = Adw.PreferencesGroup(title="Popup Timeout", description=TIMEOUT_TEXT)
+        self.add(timeout)
+        timeout.add(AdwSwitchRow("Enable Popup Timeout", vars.timeout_enabled))
+        timeout.add(AdwSliderRow("Timeout (seconds)", vars.timeout, 1, 120))
 
-        # Timeout
-        timeout_section = ConfigSection("Popup Timeout", TIMEOUT_TEXT)
-        vbox.append(timeout_section)
-        t_row = ConfigRow()
-        timeout_section.append(t_row)
-        t_row.append(ConfigToggle("Popup Timeout", vars.timeout_enabled))
-        t_row_2 = ConfigRow()
-        timeout_section.append(t_row_2)
-        t_row_2.append(ConfigScale("Time (sec)", vars.timeout, 1, 120))
+        misc = Adw.PreferencesGroup(title="Misc. Tweaks")
+        self.add(misc)
+        misc.add(AdwSwitchRow(
+            "Buttonless Closing Popups", vars.buttonless,
+            subtitle="Removes the close button; click a popup anywhere to close it."))
+        misc.add(AdwSwitchRow(
+            "Multi-Click Popups", vars.multi_click_popups,
+            subtitle="Popups take several clicks to close."))
 
-        # Misc
-        misc_section = ConfigSection("Misc. Tweaks", MISC_TEXT)
-        vbox.append(misc_section)
-        m_row = ConfigRow()
-        misc_section.append(m_row)
-        m_row.append(
-            ConfigToggle("Buttonless Closing Popups", vars.buttonless,
-                tooltip="Panic hotkey only works while holding mouse over a popup!")
-        )
-        m_row.append(ConfigToggle("Multi-Click popups", vars.multi_click_popups))
-
-        # Monitors
-        monitors_section = ConfigSection("Monitors", MONITORS_TEXT)
-        vbox.append(monitors_section)
+        monitors = Adw.PreferencesGroup(title="Monitors", description=MONITORS_TEXT)
+        self.add(monitors)
         for monitor in get_monitors():
-            monitors_section.append(MonitorToggle(monitor))
+            monitors.add(_monitor_row(monitor))
 
-        # Movement
-        move_section = ConfigSection("Popup Movement", MOVEMENT_TEXT)
-        vbox.append(move_section)
-        mv_row = ConfigRow()
-        move_section.append(mv_row)
-        mv_row.append(ConfigScale("Moving Popup Chance", vars.moving_chance, 0, 100))
-        mv_row.append(ConfigScale("Max Movespeed", vars.moving_speed, 1, 15))
+        movement = Adw.PreferencesGroup(title="Popup Movement", description=MOVEMENT_TEXT)
+        self.add(movement)
+        movement.add(AdwSliderRow("Moving Popup Chance (%)", vars.moving_chance, 0, 100))
+        movement.add(AdwSliderRow("Max Move Speed", vars.moving_speed, 1, 15))
