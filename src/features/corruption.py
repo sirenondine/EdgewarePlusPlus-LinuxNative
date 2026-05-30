@@ -52,26 +52,38 @@ def corruption_danger_check(settings: Settings, pack: Pack) -> None:
             if not danger:
                 continue
 
-            warning = f"\n•{danger.warning or key}"
-            if danger.check(value) and warning not in danger_levels[danger.level]:
-                danger_levels[danger.level].append(warning)
+            text = danger.warning or key
+            if danger.check(value) and text not in danger_levels[danger.level]:
+                danger_levels[danger.level].append(text)
 
-    danger_num = 0
-    warnings = ""
+    danger_num = sum(len(d) for d in danger_levels.values())
+    if not danger_num:
+        return
+
+    from gi.repository import GLib
+
+    sections = []
     for level, dangers in danger_levels.items():
-        danger_num += len(dangers)
-        if dangers:
-            warnings += f"\n\n{level.value.capitalize()}{''.join(dangers)}"
+        if not dangers:
+            continue
+        bullets = "\n".join(f"  • {GLib.markup_escape_text(d)}" for d in dangers)
+        sections.append(f"<b>{level.value.capitalize()}</b>\n{bullets}")
 
-    if danger_num:
-        from gtk_dialog import ask_yes_no
-        proceed = ask_yes_no(
-            "Corruption Config Warning",
-            "You are using corruption in full permission mode, meaning your pack is capable of changing Edgeware's settings.\n\n"
-            f"Your pack changes {danger_num} setting(s) which may be dangerous. Are you sure you want to proceed? {warnings}",
-        )
-        if not proceed:
-            sys.exit()
+    message = (
+        "This pack uses corruption in full-permission mode, so it can change "
+        f"Edgeware's own settings. It changes <b>{danger_num}</b> setting(s) "
+        "that may be risky:\n\n" + "\n\n".join(sections)
+    )
+
+    from gtk_dialog import ask_yes_no
+    proceed = ask_yes_no(
+        "Corruption Config Warning",
+        message,
+        markup=True,
+        heading="Proceed with this pack's corruption settings?",
+    )
+    if not proceed:
+        sys.exit()
 
 
 def next_corruption_level(settings: Settings, pack: Pack, state: State) -> int:

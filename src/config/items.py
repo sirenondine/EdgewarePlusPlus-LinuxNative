@@ -80,7 +80,7 @@ class Item:
     block: bool = False
 
 
-REPLACE_IMAGES_DANGER = "Replace Images is enabled! THIS WILL DELETE FILES ON YOUR COMPUTER! Only enable this willingly and cautiously! Read the documentation in the Annoyance/Runtime Dangerous tab!"
+REPLACE_IMAGES_DANGER = "Replace Images is enabled! THIS WILL DELETE FILES ON YOUR COMPUTER! Only enable this willingly and cautiously! Read the documentation in the Dangerous tab!"
 RUN_AT_STARTUP_DANGER = "Launch on PC Startup is enabled! This will run Edgeware when you start your computer!"
 FILL_DRIVE_DANGER = "Fill Drive is enabled! Edgeware will place images all over your computer! Even if you want this, make sure the protected directories are right!"
 PANIC_LOCKOUT_DANGER = "Panic Lockout is enabled! Panic cannot be used until a specific time! Make sure you know your Safeword!"
@@ -88,7 +88,7 @@ MITOSIS_MODE_DANGER = "Mitosis Mode is enabled! With high popup rates, this coul
 HIBERNATE_DELAY_MIN_DANGER = "You are running Hibernate Mode with a short minimum cooldown! You might experience lag if a bunch of hibernate modes overlap!"
 HIBERNATE_DELAY_MAX_DANGER = "You are running Hibernate Mode with a short maximum cooldown! You might experience lag if a bunch of hibernate modes overlap!"
 SHOW_ON_DISCORD_DANGER = "Show on Discord is enabled! This could lead to potential embarassment if you're on your main account!"
-PANIC_DISABLED_DANGER = "Panic Hotkey is disabled! If you want to easily close Edgeware, read the tooltip in the Annoyance tab for other ways to panic!"
+PANIC_DISABLED_DANGER = "Panic Hotkey is disabled! Panic is still available from the tray icon and the panic command."
 RUN_ON_SAVE_QUIT_DANGER = "Edgeware will run on Save & Exit (AKA: when you hit Yes!)"
 
 
