@@ -230,6 +230,8 @@ CONFIG_ITEMS = {
     # scripted fallback. Cloud backend + window awareness are danger-gated
     # because they send data off the machine.
     "companion_enabled": Item("companionEnabled", BOOLEAN, VAR, bool, block=True),
+    "companion_name": Item("companionName", STRING, VAR, str, block=True),
+    "companion_system_prompt": Item("companionSystemPrompt", STRING, VAR, str, block=True),
     "companion_backend": Item("companionBackend", STRING, VAR, str, danger=Danger(DangerLevel.MEDIUM, Schema("openai"), COMPANION_CLOUD_DANGER), block=True),
     "companion_base_url": Item("companionBaseUrl", STRING, VAR, str, block=True),
     "companion_model": Item("companionModel", STRING, VAR, str, block=True),

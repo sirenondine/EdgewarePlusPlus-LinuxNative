@@ -58,6 +58,13 @@ class CompanionTab(Adw.PreferencesPage):
         group.add(AdwEntryRow("Model", vars.companion_model))
         group.add(AdwEntryRow("API key", vars.companion_api_key, password=True))
 
+        persona = Adw.PreferencesGroup(
+            title="Persona",
+            description="Override the pack's companion. Leave blank to use the pack's companion.json (or the built-in default).")
+        self.add(persona)
+        persona.add(AdwEntryRow("Name", vars.companion_name))
+        persona.add(self._prompt_editor(vars))
+
         behaviour = Adw.PreferencesGroup(title="Behaviour")
         self.add(behaviour)
         behaviour.add(AdwSliderRow("Idle Chatter Chance", vars.companion_chatter_chance, 0, 100))
@@ -85,6 +92,42 @@ class CompanionTab(Adw.PreferencesPage):
         self._reply.set_margin_top(4)
         self._reply.set_margin_bottom(4)
         test_group.add(self._reply)
+
+    def _prompt_editor(self, vars: Vars) -> Gtk.Widget:
+        """A multiline editor for the system prompt, bound to the config var."""
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        label = Gtk.Label(label="System prompt", xalign=0)
+        label.add_css_class("dim-label")
+        box.append(label)
+
+        view = Gtk.TextView(wrap_mode=Gtk.WrapMode.WORD_CHAR, accepts_tab=False)
+        view.set_top_margin(6)
+        view.set_bottom_margin(6)
+        view.set_left_margin(6)
+        view.set_right_margin(6)
+        buf = view.get_buffer()
+        buf.set_text(str(vars.companion_system_prompt.get() or ""))
+
+        def on_changed(b) -> None:
+            vars.companion_system_prompt.set(b.get_text(b.get_start_iter(), b.get_end_iter(), False))
+        buf.connect("changed", on_changed)
+
+        # Reflect external changes (preset / pack apply) without looping.
+        def on_var(value) -> None:
+            text = str(value or "")
+            if buf.get_text(buf.get_start_iter(), buf.get_end_iter(), False) != text:
+                buf.set_text(text)
+        vars.companion_system_prompt.trace_add(on_var)
+
+        scroller = Gtk.ScrolledWindow()
+        scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        scroller.set_min_content_height(120)
+        scroller.set_child(view)
+        frame = Gtk.Frame()
+        frame.add_css_class("card")
+        frame.set_child(scroller)
+        box.append(frame)
+        return box
 
     def _on_test(self, _btn: Gtk.Button) -> None:
         backend = self._vars.companion_backend.get() or "scripted"

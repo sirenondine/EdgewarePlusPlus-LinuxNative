@@ -52,7 +52,7 @@ class Companion:
     def __init__(self, settings, pack, *, on_start, on_token, on_done, on_error=None) -> None:
         self.settings = settings
         self.pack = pack
-        self.persona = pack.companion or _DEFAULT_PERSONA
+        self.persona = self._resolve_persona()
         self._on_start = on_start
         self._on_token = on_token
         self._on_done = on_done
@@ -64,6 +64,20 @@ class Companion:
         self._busy = False
         self.backend = self._build_backend()
         logging.info(f"Companion ready: persona='{self.persona.name}' backend={self.backend.name}")
+
+    def _resolve_persona(self) -> Persona:
+        """Persona precedence: config overrides (name / system prompt from the
+        config window) layered over the pack's companion.json, else the built-in
+        default. Greetings/idle lines (the scripted fallback corpus) come from
+        the pack/default."""
+        base = self.pack.companion or _DEFAULT_PERSONA
+        name = (getattr(self.settings, "companion_name", "") or "").strip() or base.name
+        prompt = (getattr(self.settings, "companion_system_prompt", "") or "").strip() or base.system_prompt
+        if name == base.name and prompt == base.system_prompt:
+            return base
+        return Persona(
+            name=name, avatar=base.avatar, spritesheet=base.spritesheet,
+            system_prompt=prompt, greetings=base.greetings, idle_lines=base.idle_lines)
 
     # ------------------------------------------------------------------
     def _build_backend(self) -> llm.LLMBackend:

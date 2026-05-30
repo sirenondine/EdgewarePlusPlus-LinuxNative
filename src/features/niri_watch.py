@@ -39,7 +39,10 @@ def handle_niri_watch(settings, state) -> None:
 
     want_casts = bool(getattr(settings, "pause_on_screenshare", False))
     pause_apps = _parse_apps(getattr(settings, "pause_apps", "") or "")
-    if not want_casts and not pause_apps:
+    want_companion = bool(
+        getattr(settings, "companion_enabled", False)
+        and getattr(settings, "companion_window_awareness", False))
+    if not want_casts and not pause_apps and not want_companion:
         return  # nothing to watch
 
     def watch() -> None:
@@ -54,15 +57,22 @@ def handle_niri_watch(settings, state) -> None:
 
         windows: dict[int, str] = {}  # window id -> app_id
         focused_id = [None]
+        last_app = [None]  # for companion: react only when the focused app changes
 
         def eval_focus() -> None:
-            if not pause_apps:
-                return
             app = (windows.get(focused_id[0]) or "").lower()
-            if app and app in pause_apps:
-                roll.add_pause_reason("app")
-            else:
-                roll.remove_pause_reason("app")
+            if pause_apps:
+                if app and app in pause_apps:
+                    roll.add_pause_reason("app")
+                else:
+                    roll.remove_pause_reason("app")
+            if want_companion and app and app != last_app[0]:
+                last_app[0] = app
+                # Don't narrate our own windows.
+                if "edgeware" not in app and "sirenondine" not in app:
+                    companion = getattr(state, "companion", None)
+                    if companion:
+                        companion.react("focused_app", f"the user just switched to the app '{app}'")
 
         try:
             for line in proc.stdout:

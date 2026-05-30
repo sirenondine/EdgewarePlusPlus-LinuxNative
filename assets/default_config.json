@@ -108,6 +108,8 @@
   "pauseApps": "",
   "escalation": 0,
   "companionEnabled": 0,
+  "companionName": "",
+  "companionSystemPrompt": "",
   "companionBackend": "ollama",
   "companionBaseUrl": "http://localhost:11434",
   "companionModel": "",
