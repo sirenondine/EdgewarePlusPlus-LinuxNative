@@ -29,7 +29,7 @@ from paths import Data, PackPaths
 from voluptuous import ALLOW_EXTRA, PREVENT_EXTRA, All, Any, Equal, In, Length, Number, Optional, Range, Required, Schema, Url
 from voluptuous.error import Invalid
 
-from pack.data import CorruptionLevel, Default, Discord, Index, Info, Mood, MoodBase, MoodSet, Web
+from pack.data import CorruptionLevel, Default, Discord, Index, Info, Mood, MoodBase, MoodSet, Persona, Web
 
 T = TypeVar("T")
 
@@ -209,6 +209,32 @@ def load_info(paths: PackPaths) -> Info:
         return Info(info["name"], Data.MOODS / f"{info['id']}.{mood_id}.json", info["creator"], info["version"], info["description"])
 
     return try_load(paths.info, load) or default
+
+
+def load_companion(paths: PackPaths) -> Persona | None:
+    def load(content: str) -> Persona:
+        data = json.loads(content)
+
+        Schema(
+            {
+                Optional("name"): str,
+                Optional("avatar"): str,
+                Optional("system_prompt"): str,
+                Optional("greetings"): [str],
+                Optional("idle_lines"): [str],
+            },
+            extra=PREVENT_EXTRA,
+        )(data)
+
+        return Persona(
+            name=data.get("name", "Companion"),
+            avatar=data.get("avatar"),
+            system_prompt=data.get("system_prompt", ""),
+            greetings=data.get("greetings", []),
+            idle_lines=data.get("idle_lines", []),
+        )
+
+    return try_load(paths.companion, load)
 
 
 def load_config(paths: PackPaths) -> dict:

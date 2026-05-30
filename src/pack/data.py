@@ -81,6 +81,19 @@ class Index:
 
 
 @dataclass
+class Persona:
+    """AI-companion character shipped with a pack (companion.json). system_prompt
+    drives an LLM backend; greetings/idle_lines double as the no-network scripted
+    corpus, so the persona has a voice even without an LLM. avatar is a path
+    relative to the pack root."""
+    name: str = "Companion"
+    avatar: str | None = None
+    system_prompt: str = ""
+    greetings: list[str] = field(default_factory=list)
+    idle_lines: list[str] = field(default_factory=list)
+
+
+@dataclass
 class Info:
     name: str = "Unnamed Pack"
     mood_file: Path = Path()

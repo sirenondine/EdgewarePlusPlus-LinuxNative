@@ -143,6 +143,7 @@ class PackPaths:
         self.script = self.root / "script.lua"
         self.splash = [self.root / f"loading_splash.{extension}" for extension in ["png", "gif", "jpg", "jpeg", "bmp"]]
         self.wallpaper = self.root / "wallpaper.png"
+        self.companion = self.root / "companion.json"
 
         # Legacy fallback options
         self.hypno_legacy = self.root / "subliminals"

@@ -23,7 +23,7 @@ import filetype
 from paths import PATH, CustomAssets, PackPaths
 
 from pack.data import MoodBase, MoodSet
-from pack.load import list_media, load_allowed_moods, load_config, load_corruption, load_discord, load_index, load_info
+from pack.load import list_media, load_allowed_moods, load_companion, load_config, load_corruption, load_discord, load_index, load_info
 
 
 class Pack:
@@ -43,6 +43,7 @@ class Pack:
         self.index = load_index(self.paths)
         self.info = load_info(self.paths)
         self.config = load_config(self.paths)
+        self.companion = load_companion(self.paths)  # None if the pack ships no persona
 
         # Data files
         self.allowed_moods = load_allowed_moods(self.info.mood_file) or MoodSet(map(lambda mood: mood.name, self.index.moods))
