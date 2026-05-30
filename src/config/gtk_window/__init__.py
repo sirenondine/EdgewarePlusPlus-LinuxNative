@@ -25,7 +25,7 @@ from config.gtk_window.tabs.general.info import InfoTab
 from config.gtk_window.tabs.general.start import StartTab
 from config.gtk_window.tabs.modes import BasicModesTab
 from config.gtk_window.tabs.troubleshooting import TroubleshootingTab
-from config.gtk_window.tabs.tutorial import open_tutorial
+from config.gtk_window.tabs.tutorial import TutorialTab
 from config.gtk_window.utils import config, dialog_run, get_live_version, refresh, write_save
 from config.vars import Vars
 from pack import Pack
@@ -143,16 +143,7 @@ class ConfigWindow(Adw.ApplicationWindow):
         notebook.append_page(BasicModesTab(vars), Gtk.Label(label="Modes"))
         notebook.append_page(CorruptionModeTab(vars, pack), Gtk.Label(label="Corruption"))
         notebook.append_page(TroubleshootingTab(vars, pack), Gtk.Label(label="Troubleshooting"))
-
-        # Tutorial is a real page with a button that opens the WebKit popover
-        tutorial_page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
-        tutorial_page.set_halign(Gtk.Align.CENTER)
-        tutorial_page.set_valign(Gtk.Align.CENTER)
-        tutorial_page.append(Gtk.Label(label="Learn how to use Edgeware++."))
-        open_tutorial_btn = Gtk.Button(label="Open Tutorial")
-        open_tutorial_btn.connect("clicked", lambda _: open_tutorial(open_tutorial_btn, self))
-        tutorial_page.append(open_tutorial_btn)
-        notebook.append_page(tutorial_page, Gtk.Label(label="Tutorial"))
+        notebook.append_page(TutorialTab(), Gtk.Label(label="Tutorial"))
 
         # Ctrl+S shortcut
         key_ctrl = Gtk.EventControllerKey.new()
