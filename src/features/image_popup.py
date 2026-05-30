@@ -18,12 +18,13 @@
 import logging
 from pathlib import Path
 from random import randint
+from threading import Thread
 from typing import Callable
 
-from gi.repository import Gtk
+from gi.repository import GLib, Gtk
 
 from config.settings import Settings
-from features.gtk_media import picture_from_pil, stop_media, video_widget
+from features.gtk_media import pil_to_pixbuf, stop_media, video_widget
 from features.popup import Popup
 from pack import Pack
 from PIL import Image
@@ -68,35 +69,53 @@ class ImagePopup(Popup):
             # Animated image — play natively via GStreamer
             video, self._media_file = video_widget(self.media, self.width, self.height, loop=True, muted=True, blur=self.denial, hardware_acceleration=self.settings.video_hardware_acceleration)
             self.set_media_widget(video)
+            self.init_finish()
         else:
-            # Fast-path the decode: draft() lets the JPEG loader decode at a
-            # reduced scale close to the target (big win for multi-megapixel
-            # sources); it's a harmless no-op for formats without it (PNG/GIF).
+            # Decode + resize (the expensive part) on a worker thread so it
+            # doesn't hitch the main loop; PIL releases the GIL during these
+            # ops. Build the widget and present back on the main thread.
+            denial_filter = self.try_denial_filter()
+            Thread(target=self._prepare_still, args=(image, denial_filter), daemon=True).start()
+
+    def _prepare_still(self, image: Image.Image, denial_filter) -> None:
+        try:
+            # draft() lets the JPEG loader decode at a reduced scale near the
+            # target (big win for multi-megapixel sources); no-op for PNG/GIF.
             try:
                 image.draft(None, (self.width, self.height))
             except Exception:
                 pass
             resized = image.resize((self.width, self.height), Image.LANCZOS).convert("RGBA")
-            filter = self.try_denial_filter()
-            if filter == "resizeblur":
+            if denial_filter == "resizeblur":
                 shrink_d = randint(5, 15)
                 resized = resized.resize((int(self.width / shrink_d), int(self.height / shrink_d)), Image.BILINEAR)
                 resized = resized.resize((self.width, self.height), Image.NEAREST)
-                filter = ""
-            final = resized.filter(filter) if filter else resized
+                denial_filter = ""
+            final = resized.filter(denial_filter) if denial_filter else resized
+            pixbuf = pil_to_pixbuf(final)
+        except Exception as e:
+            logging.warning(f"image popup prepare failed: {e}")
+            GLib.idle_add(self.close)  # release the slot + destroy the empty window
+            return
+        GLib.idle_add(self._finish_still, pixbuf)
 
-            if self.hypno:
-                # Static image with an animated hypno overlay on top
-                overlay = Gtk.Overlay()
-                overlay.set_child(picture_from_pil(final, self.width, self.height))
-                hypno_video, self._media_file = video_widget(self.pack.random_hypno(), self.width, self.height, loop=True, muted=True)
-                hypno_video.set_opacity(self.settings.hypno_opacity)
-                overlay.add_overlay(hypno_video)
-                self.set_media_widget(overlay)
-            else:
-                self.set_media_widget(picture_from_pil(final, self.width, self.height))
+    def _finish_still(self, pixbuf) -> bool:
+        picture = Gtk.Picture.new_for_pixbuf(pixbuf)
+        picture.set_size_request(self.width, self.height)
+        picture.set_content_fit(Gtk.ContentFit.FILL)
+
+        if self.hypno:
+            overlay = Gtk.Overlay()
+            overlay.set_child(picture)
+            hypno_video, self._media_file = video_widget(self.pack.random_hypno(), self.width, self.height, loop=True, muted=True)
+            hypno_video.set_opacity(self.settings.hypno_opacity)
+            overlay.add_overlay(hypno_video)
+            self.set_media_widget(overlay)
+        else:
+            self.set_media_widget(picture)
 
         self.init_finish()
+        return False
 
     def should_init(self, settings: Settings, state: State) -> bool:
         if self.media and state.image_number < settings.max_image:
