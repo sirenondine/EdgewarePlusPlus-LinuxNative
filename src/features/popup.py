@@ -178,6 +178,20 @@ class Popup(Gtk.Window):
             from features.vibration_mixin import vibrate_event
             vibrate_event(self.vibration_open_event, self.settings, self.state.sextoy)
 
+        self._companion_react("popup_open")
+
+    def _companion_react(self, event: str, detail: str = "") -> None:
+        """Occasionally have the AI companion react to a popup event. Gated by a
+        chance so it doesn't spam the backend; the engine drops overlapping
+        requests, so it speaks at most once at a time."""
+        if not getattr(self.settings, "companion_enabled", False):
+            return
+        if not roll(getattr(self.settings, "companion_react_chance", 0)):
+            return
+        companion = getattr(self.state, "companion", None)
+        if companion:
+            companion.react(event, detail)
+
     def compute_geometry(self, source_width: int, source_height: int) -> None:
         # Monitor may be pre-selected on the main thread (e.g. ImagePopup, which
         # then sizes on a worker thread where GDK/screeninfo are unsafe).
@@ -232,6 +246,7 @@ class Popup(Gtk.Window):
             if self.settings.gamification:
                 from features import gamification
                 gamification.record("denial_seen")
+            self._companion_react("denial", "the user is being denied")
 
     def try_caption(self) -> None:
         caption = self.pack.random_caption(self.media)

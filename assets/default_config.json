@@ -113,6 +113,7 @@
   "companionModel": "",
   "companionApiKey": "",
   "companionChatterChance": 20,
+  "companionReactChance": 15,
   "companionGreetOnStart": 1,
   "companionWindowAware": 0,
   "gamification": 0,

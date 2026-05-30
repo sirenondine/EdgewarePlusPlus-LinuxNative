@@ -61,6 +61,8 @@ class CompanionTab(Adw.PreferencesPage):
         behaviour = Adw.PreferencesGroup(title="Behaviour")
         self.add(behaviour)
         behaviour.add(AdwSliderRow("Idle Chatter Chance", vars.companion_chatter_chance, 0, 100))
+        behaviour.add(AdwSliderRow("Reaction Chance", vars.companion_react_chance, 0, 100,
+                                   subtitle="How often the companion reacts to popups and denials."))
         behaviour.add(AdwSwitchRow("Greet on Start", vars.companion_greet_on_start))
         behaviour.add(AdwSwitchRow(
             "Window Awareness", vars.companion_window_awareness, subtitle=PRIVACY_TEXT))
