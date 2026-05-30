@@ -16,7 +16,7 @@ from gi import require_version
 
 require_version("Gtk", "4.0")
 require_version("Adw", "1")
-from gi.repository import Adw, Gtk
+from gi.repository import Adw, GLib, Gtk
 
 from pack import Pack
 
@@ -75,7 +75,7 @@ class InfoTab(Adw.PreferencesPage):
         info.add(_value_row("Author Name", pack.info.creator))
         info.add(_value_row("Version", pack.info.version))
         desc_row = Adw.ActionRow(title="Description")
-        desc_row.set_subtitle(pack.info.description or "")
+        desc_row.set_subtitle(GLib.markup_escape_text(pack.info.description or ""))
         info.add(desc_row)
 
         # ---- Discord -----------------------------------------------------
@@ -83,7 +83,7 @@ class InfoTab(Adw.PreferencesPage):
         discord.set_sensitive(pack.paths.discord.is_file())
         self.add(discord)
         status_row = Adw.ActionRow(title="Custom Discord Status")
-        status_row.set_subtitle(pack.discord.text or "")
+        status_row.set_subtitle(GLib.markup_escape_text(pack.discord.text or ""))
         discord.add(status_row)
         image_row = Adw.ActionRow(title="Discord Status Image")
         image_row.add_suffix(_value_label(pack.discord.image))

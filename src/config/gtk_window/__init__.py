@@ -63,7 +63,6 @@ class ConfigWindow(Adw.ApplicationWindow):
 
         css = Gtk.CssProvider()
         css.load_from_string("""
-            .save-bar button { font-weight: bold; min-height: 36px; }
             .config-section { border: 1px solid @borders; border-radius: 6px; }
             .config-section-title {
                 font-weight: bold; font-size: 1.1em;
@@ -94,6 +93,30 @@ class ConfigWindow(Adw.ApplicationWindow):
         header = Adw.HeaderBar()
         header.set_title_widget(Adw.WindowTitle(title="Edgeware++ Config", subtitle=pack.info.name))
         self._header_title = header.get_title_widget()
+
+        # Pack management (header start)
+        import_btn = Gtk.Button(label="Import Pack")
+        import_btn.set_tooltip_text("Import a new pack or change the default.")
+        import_btn.connect("clicked", lambda _: self._import_popover(import_btn))
+        header.pack_start(import_btn)
+
+        switch_btn = Gtk.Button(label="Switch Pack")
+        switch_btn.set_tooltip_text("Switch to another imported pack.")
+        switch_btn.connect("clicked", lambda _: self._switch_popover(vars, switch_btn))
+        header.pack_start(switch_btn)
+
+        # Save actions (header end)
+        save_exit_btn = Gtk.Button(label="Save & Exit")
+        save_exit_btn.add_css_class("suggested-action")
+        save_exit_btn.set_tooltip_text("Save settings and close the config window.")
+        save_exit_btn.connect("clicked", lambda _: write_save(vars, True))
+        header.pack_end(save_exit_btn)
+
+        save_btn = Gtk.Button(label="Save")
+        save_btn.set_tooltip_text("Save without exiting (Ctrl+S).")
+        save_btn.connect("clicked", lambda _: write_save(vars, False))
+        header.pack_end(save_btn)
+
         toolbar_view.add_top_bar(header)
         toolbar_view.set_content(self._overlay)
         self.set_content(toolbar_view)
@@ -130,37 +153,6 @@ class ConfigWindow(Adw.ApplicationWindow):
         open_tutorial_btn.connect("clicked", lambda _: open_tutorial(open_tutorial_btn, self))
         tutorial_page.append(open_tutorial_btn)
         notebook.append_page(tutorial_page, Gtk.Label(label="Tutorial"))
-
-        # Bottom bar: pack management
-        pack_frame = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
-        vbox.append(pack_frame)
-
-        import_btn = Gtk.Button(label="Import New Pack")
-        import_btn.set_hexpand(True)
-        import_btn.connect("clicked", lambda _: self._import_popover(import_btn))
-        pack_frame.append(import_btn)
-
-        switch_btn = Gtk.Button(label="Switch Pack")
-        switch_btn.set_hexpand(True)
-        switch_btn.connect("clicked", lambda _: self._switch_popover(vars, switch_btn))
-        pack_frame.append(switch_btn)
-
-        # Save bar: Save (no exit) + Save & Exit
-        save_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
-        save_bar.add_css_class("save-bar")
-        vbox.append(save_bar)
-
-        save_btn = Gtk.Button(label="Save")
-        save_btn.set_hexpand(True)
-        save_btn.add_css_class("suggested-action")
-        save_btn.connect("clicked", lambda _: write_save(vars, False))
-        save_bar.append(save_btn)
-
-        save_exit_btn = Gtk.Button(label="Save & Exit")
-        save_exit_btn.set_hexpand(True)
-        save_exit_btn.add_css_class("suggested-action")
-        save_exit_btn.connect("clicked", lambda _: write_save(vars, True))
-        save_bar.append(save_exit_btn)
 
         # Ctrl+S shortcut
         key_ctrl = Gtk.EventControllerKey.new()
