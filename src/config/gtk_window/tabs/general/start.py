@@ -12,7 +12,9 @@
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 # GNU General Public License for more details.
 
+import os
 import webbrowser
+from pathlib import Path
 
 from gi import require_version
 
@@ -47,6 +49,91 @@ PRESET_TEXT = (
     "Be careful before importing unknown config presets! Double check the settings "
     "before launching Edgeware."
 )
+
+# Niri doesn't support the GlobalShortcuts portal, so the panic hotkey falls
+# back to evdev (needs the 'input' group) — usually unavailable. Guide users
+# to add a native niri keybind that calls panic.sh directly over the socket.
+_EDGEWARE_DIR = Path(__file__).resolve().parents[5]  # repo root
+
+
+def _is_niri() -> bool:
+    return bool(os.environ.get("NIRI_SOCKET"))
+
+
+def _niri_keybind_snippet(key_label: str) -> str:
+    panic_sh = _EDGEWARE_DIR / "panic.sh"
+    return (
+        f'// Add to ~/.config/niri/config.kdl:\n'
+        f'binds {{\n'
+        f'    {key_label} {{ spawn "{panic_sh}"; }}\n'
+        f'}}'
+    )
+
+
+def _niri_keybind_row(key_var) -> Adw.ActionRow:
+    from config.gtk_window.utils import pretty_panic_key
+
+    key_label = pretty_panic_key(key_var.get())
+    snippet = _niri_keybind_snippet(key_label)
+
+    row = Adw.ActionRow()
+    row.set_activatable(False)
+
+    vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+    vbox.set_margin_start(12)
+    vbox.set_margin_end(12)
+    vbox.set_margin_top(10)
+    vbox.set_margin_bottom(10)
+
+    # Warning banner
+    warning_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+    warn_icon = Gtk.Image.new_from_icon_name("dialog-warning-symbolic")
+    warn_icon.add_css_class("warning")
+    warn_icon.set_valign(Gtk.Align.START)
+    warn_label = Gtk.Label(wrap=True, xalign=0, hexpand=True)
+    warn_label.set_text(
+        "Niri doesn't implement the GlobalShortcuts portal, so the global panic "
+        "hotkey above won't fire. Add a native niri keybind that calls panic.sh "
+        "directly over the Unix socket — it always works regardless of portal support:"
+    )
+    warning_row.append(warn_icon)
+    warning_row.append(warn_label)
+    vbox.append(warning_row)
+
+    # Monospaced snippet
+    code_view = Gtk.TextView()
+    code_view.set_editable(False)
+    code_view.set_monospace(True)
+    code_view.set_wrap_mode(Gtk.WrapMode.NONE)
+    code_view.set_cursor_visible(False)
+    code_view.add_css_class("card")
+    code_view.get_buffer().set_text(snippet)
+    vbox.append(code_view)
+
+    # Step hint
+    hint = Gtk.Label(
+        label="Paste into ~/.config/niri/config.kdl, then run: niri msg action reload-config",
+        xalign=0, wrap=True,
+    )
+    hint.add_css_class("dim-label")
+    vbox.append(hint)
+
+    # Copy button
+    copy_btn = Gtk.Button(label="Copy to Clipboard")
+    copy_btn.set_halign(Gtk.Align.END)
+
+    def on_copy(_b):
+        clipboard = copy_btn.get_clipboard()
+        if clipboard:
+            clipboard.set(snippet)
+        from config.gtk_window.toast import toast
+        toast("Keybind config copied")
+
+    copy_btn.connect("clicked", on_copy)
+    vbox.append(copy_btn)
+
+    row.set_child(vbox)
+    return row
 
 
 class StartTab(Adw.PreferencesPage):
@@ -144,6 +231,9 @@ class StartTab(Adw.PreferencesPage):
         panic_key_row.add_suffix(self.global_panic_btn)
         panic_key_row.set_activatable_widget(self.global_panic_btn)
         panic_group.add(panic_key_row)
+
+        if _is_niri():
+            panic_group.add(_niri_keybind_row(vars.global_panic_key))
 
         panic_now_row = Adw.ActionRow(
             title="Perform Panic",
