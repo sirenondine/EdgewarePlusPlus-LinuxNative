@@ -1,4 +1,4 @@
-# Copyright (C) 2025 Araten & Marigold
+# Copyright (C) 2024 Araten & Marigold
 #
 # This file is part of Edgeware++.
 #
@@ -15,103 +15,73 @@
 from gi import require_version
 
 require_version("Gtk", "4.0")
-from gi.repository import Gtk
+require_version("Adw", "1")
+from gi.repository import Adw
 
-from config.gtk_window.widgets import ConfigMessage, ConfigRow, ConfigScale, ConfigSection, ConfigToggle
+from config.gtk_window.widgets import AdwSliderRow, AdwSwitchRow
 from config.vars import Vars
 
 FREQUENCY_TEXT = (
-    "This tab dictates the frequency of every popup type you will see during runtime, "
-    "which in turn affects nearly every other tab in the config window!"
+    "Dictates how often each popup type appears at runtime. These chances feed into "
+    "nearly every other tab."
 )
 SINGLE_TEXT = (
-    "\"Single Popup Per Roll\" stops the \"rolling process\" once one type is picked. "
-    "This allows for a much more consistent experience."
+    "Stops the rolling process once one type is picked, for a more consistent experience. "
+    "Each popup's chance becomes a weight used to choose a single type."
 )
-IMAGE_TEXT = "Image popups are the most common type of popup. Every single pack will have these."
-AUDIO_TEXT = "Audio popups have no visuals attached, focusing only on sound."
-VIDEO_TEXT = "Video popups are functionally the same as image popups, just animated and with sound."
-WEBSITE_TEXT = "Opens up a website in your default browser whenever a roll is passed."
-PROMPT_TEXT = "Prompt popups require you to repeat a prompt via a text box before they can be closed."
-NOTIFICATION_TEXT = "Notification popups use your operating system's notification feature."
-SUBLIMINAL_TEXT = "Subliminal message popups briefly flash a caption on screen."
+IMAGE_TEXT = "The most common popup type. Every pack has these."
+AUDIO_TEXT = "No visuals, sound only."
+VIDEO_TEXT = "Like image popups, but animated and with sound."
+WEBSITE_TEXT = "Opens a website in your default browser when a roll passes."
+PROMPT_TEXT = "Requires you to type a prompt before the popup can be closed."
+SUBLIMINAL_TEXT = "Briefly flashes a caption on screen."
+NOTIFICATION_TEXT = "Uses your operating system's notification feature."
 
 
-class PopupTypesTab(Gtk.ScrolledWindow):
+class PopupTypesTab(Adw.PreferencesPage):
     def __init__(self, vars: Vars) -> None:
         super().__init__()
-        self.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-        self.set_hexpand(True)
-        self.set_vexpand(True)
 
-        vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
-        self.set_child(vbox)
+        freq = Adw.PreferencesGroup(title="General Popup Frequency", description=FREQUENCY_TEXT)
+        self.add(freq)
+        freq.add(AdwSliderRow("Popup Timer Delay (ms)", vars.delay, 10, 60000))
+        freq.add(AdwSwitchRow("Single Popup Per Roll", vars.single_mode, subtitle=SINGLE_TEXT))
 
-        # Frequency
-        freq_section = ConfigSection("General Popup Frequency", FREQUENCY_TEXT)
-        vbox.append(freq_section)
-        freq_section.append(ConfigScale("Popup Timer Delay (ms)", vars.delay, 10, 60000))
-        freq_section.append(ConfigMessage(SINGLE_TEXT))
-        single = ConfigToggle("Single Popup Per Roll", vars.single_mode,
-            tooltip="The chance of a popup appearing is used as a weight to choose a single popup type.")
-        freq_section.append(single)
+        image = Adw.PreferencesGroup(title="Image Popups", description=IMAGE_TEXT)
+        self.add(image)
+        image.add(AdwSliderRow("Image Popup Chance (%)", vars.image_chance, 0, 100))
 
-        # Image
-        img_section = ConfigSection("Image Popups", IMAGE_TEXT)
-        vbox.append(img_section)
-        img_section.append(ConfigScale("Image Popup Chance (%)", vars.image_chance, 0, 100))
+        audio = Adw.PreferencesGroup(title="Audio Popups", description=AUDIO_TEXT)
+        self.add(audio)
+        audio.add(AdwSliderRow("Audio Popup Chance (%)", vars.audio_chance, 0, 100))
+        audio.add(AdwSliderRow("Max Audio Popups", vars.max_audio, 1, 50))
+        audio.add(AdwSliderRow("Audio Volume (%)", vars.audio_volume, 1, 100))
+        audio.add(AdwSliderRow("Fade-In Duration (ms)", vars.fade_in_duration, 0, 10000))
+        audio.add(AdwSliderRow("Fade-Out Duration (ms)", vars.fade_out_duration, 0, 10000))
 
-        # Audio
-        audio_section = ConfigSection("Audio Popups", AUDIO_TEXT)
-        vbox.append(audio_section)
-        r1 = ConfigRow()
-        audio_section.append(r1)
-        r1.append(ConfigScale("Audio Popup Chance (%)", vars.audio_chance, 0, 100))
-        r1.append(ConfigScale("Max Audio Popups", vars.max_audio, 1, 50))
-        r1.append(ConfigScale("Audio Volume (%)", vars.audio_volume, 1, 100))
-        r2 = ConfigRow()
-        audio_section.append(r2)
-        r2.append(ConfigScale("Fade-In Duration (ms)", vars.fade_in_duration, 0, 10000))
-        r2.append(ConfigScale("Fade-Out Duration (ms)", vars.fade_out_duration, 0, 10000))
+        video = Adw.PreferencesGroup(title="Video Popups", description=VIDEO_TEXT)
+        self.add(video)
+        video.add(AdwSliderRow("Video Popup Chance (%)", vars.video_chance, 0, 100))
+        video.add(AdwSliderRow("Max Video Popups", vars.max_video, 1, 50))
+        video.add(AdwSliderRow("Video Volume (%)", vars.video_volume, 0, 100))
 
-        # Video
-        vid_section = ConfigSection("Video Popups", VIDEO_TEXT)
-        vbox.append(vid_section)
-        vr = ConfigRow()
-        vid_section.append(vr)
-        vr.append(ConfigScale("Video Popup Chance (%)", vars.video_chance, 0, 100))
-        vr.append(ConfigScale("Max Video Popups", vars.max_video, 1, 50))
-        vr.append(ConfigScale("Video Volume (%)", vars.video_volume, 0, 100))
+        website = Adw.PreferencesGroup(title="Website Popups", description=WEBSITE_TEXT)
+        self.add(website)
+        website.add(AdwSliderRow("Website Frequency (%)", vars.web_chance, 0, 100))
+        website.add(AdwSwitchRow("Closing a popup opens a web page", vars.web_on_popup_close))
 
-        # Website
-        web_section = ConfigSection("Website Popups", WEBSITE_TEXT)
-        vbox.append(web_section)
-        wr = ConfigRow()
-        web_section.append(wr)
-        wr.append(ConfigScale("Website Freq (%)", vars.web_chance, 0, 100))
-        web_section.append(ConfigToggle("Popup close opens web page", vars.web_on_popup_close))
+        prompt = Adw.PreferencesGroup(title="Prompt Popups", description=PROMPT_TEXT)
+        self.add(prompt)
+        prompt.add(AdwSliderRow("Prompt Chance (%)", vars.prompt_chance, 0, 100))
+        prompt.add(AdwSliderRow("Allowed Prompt Mistakes", vars.prompt_max_mistakes, 0, 150))
 
-        # Prompt
-        prompt_section = ConfigSection("Prompt Popups", PROMPT_TEXT)
-        vbox.append(prompt_section)
-        pr = ConfigRow()
-        prompt_section.append(pr)
-        pr.append(ConfigScale("Prompt Chance (%)", vars.prompt_chance, 0, 100))
-        pr.append(ConfigScale("Prompt Mistakes", vars.prompt_max_mistakes, 0, 150))
+        sub = Adw.PreferencesGroup(title="Subliminal Popups", description=SUBLIMINAL_TEXT)
+        self.add(sub)
+        sub.add(AdwSliderRow("Subliminal Popup Chance (%)", vars.subliminal_chance, 0, 100))
+        sub.add(AdwSliderRow("Subliminal Popup Length (ms)", vars.subliminal_timeout, 1, 1000))
+        sub.add(AdwSliderRow("Subliminal Popup Opacity (%)", vars.subliminal_opacity, 1, 100))
 
-        # Subliminal
-        sub_section = ConfigSection("Subliminal Popups", SUBLIMINAL_TEXT)
-        vbox.append(sub_section)
-        sr = ConfigRow()
-        sub_section.append(sr)
-        sr.append(ConfigScale("Subliminal Popup Chance (%)", vars.subliminal_chance, 0, 100))
-        sr.append(ConfigScale("Subliminal Popup Length (ms)", vars.subliminal_timeout, 1, 1000))
-        sr.append(ConfigScale("Subliminal Popup Opacity (%)", vars.subliminal_opacity, 1, 100))
-
-        # Notification
-        notif_section = ConfigSection("Notification Popups", NOTIFICATION_TEXT)
-        vbox.append(notif_section)
-        nr = ConfigRow()
-        notif_section.append(nr)
-        nr.append(ConfigScale("Notification Chance (%)", vars.notification_chance, 0, 100))
-        nr.append(ConfigScale("Notification Image Chance (%)", vars.notification_image_chance, 0, 100))
+        notif = Adw.PreferencesGroup(title="Notification Popups", description=NOTIFICATION_TEXT)
+        self.add(notif)
+        notif.add(AdwSliderRow("Notification Chance (%)", vars.notification_chance, 0, 100))
+        notif.add(AdwSliderRow("Notification Image Chance (%)", vars.notification_image_chance, 0, 100))

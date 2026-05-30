@@ -16,7 +16,8 @@ from gi import require_version
 
 require_version("Gdk", "4.0")
 require_version("Gtk", "4.0")
-from gi.repository import Gdk, Gtk
+require_version("Adw", "1")
+from gi.repository import Adw, Gdk, Gtk
 
 from config.vars import ConfigVar
 
@@ -230,3 +231,65 @@ class ConfigDropdown(Gtk.Box):
             key = keys[selected]
             self._variable.set(key)
             self._desc.set_text(self._items[key])
+
+
+# --- libadwaita preference rows (modern config tabs) -----------------------
+# Adw.SwitchRow / Adw.ComboRow are final GTypes (cannot be subclassed), so these
+# are factory functions that build and bind a configured row.
+
+def AdwSwitchRow(title: str, variable: ConfigVar, subtitle: str | None = None) -> Adw.SwitchRow:
+    """A switch row bound to a ConfigVar."""
+    row = Adw.SwitchRow(title=title)
+    if subtitle:
+        row.set_subtitle(subtitle)
+    row.set_active(bool(variable.get()))
+    row.connect("notify::active", lambda r, _p: variable.set(r.get_active()))
+    return row
+
+
+def AdwSliderRow(title: str, variable: ConfigVar, from_: int, to: int, subtitle: str | None = None) -> Adw.ActionRow:
+    """An ActionRow with an inline slider + spin button bound to a ConfigVar
+    through a shared adjustment. The valid range shows as the subtitle."""
+    row = Adw.ActionRow(title=title)
+    row.set_subtitle(subtitle or f"{from_}–{to}")
+
+    adj = Gtk.Adjustment(value=variable.get(), lower=from_, upper=to, step_increment=1)
+    adj.connect("value-changed", lambda a: variable.set(int(a.get_value())))
+
+    scale = Gtk.Scale(orientation=Gtk.Orientation.HORIZONTAL, adjustment=adj)
+    scale.set_draw_value(False)
+    scale.set_digits(0)
+    scale.set_hexpand(True)
+    scale.set_size_request(180, -1)
+    scale.set_valign(Gtk.Align.CENTER)
+
+    spin = Gtk.SpinButton(adjustment=adj, climb_rate=1, digits=0)
+    spin.set_numeric(True)
+    spin.set_valign(Gtk.Align.CENTER)
+
+    box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+    box.set_hexpand(True)
+    box.append(scale)
+    box.append(spin)
+    row.add_suffix(box)
+    return row
+
+
+def AdwComboRow(title: str, variable: ConfigVar, options: dict[str, str], subtitle: str | None = None) -> Adw.ComboRow:
+    """A ComboRow bound to a ConfigVar. `options` maps stored value -> label."""
+    row = Adw.ComboRow(title=title)
+    if subtitle:
+        row.set_subtitle(subtitle)
+    values = list(options.keys())
+    row.set_model(Gtk.StringList.new([options[v] for v in values]))
+    current = variable.get()
+    if current in values:
+        row.set_selected(values.index(current))
+
+    def on_selected(r, _p):
+        idx = r.get_selected()
+        if 0 <= idx < len(values):
+            variable.set(values[idx])
+
+    row.connect("notify::selected", on_selected)
+    return row
