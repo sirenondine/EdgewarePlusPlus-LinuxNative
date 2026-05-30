@@ -26,7 +26,9 @@
 import logging
 import random
 import threading
+import time
 from collections import deque
+from datetime import datetime
 
 from features.companion import llm
 from pack.data import Persona
@@ -71,9 +73,11 @@ _DEFAULT_PERSONA = Persona(
 
 
 class Companion:
-    def __init__(self, settings, pack, *, on_start, on_token, on_done, on_error=None) -> None:
+    def __init__(self, settings, pack, state=None, *, on_start, on_token, on_done, on_error=None) -> None:
         self.settings = settings
         self.pack = pack
+        self.state = state
+        self._started = time.monotonic()
         self.persona = self._resolve_persona()
         self._on_start = on_start
         self._on_token = on_token
@@ -162,6 +166,37 @@ class Companion:
             if getattr(self.settings, "gamification", False):
                 from features import gamification
                 lines.append(f"The user is at progression level {gamification.progress().level}.")
+        except Exception:
+            pass
+
+        # Time of day + how long this session has run.
+        try:
+            mins = int((time.monotonic() - self._started) // 60)
+            when = datetime.now().strftime("%H:%M")
+            lines.append(f"It is {when} and the user has been running Edgeware for {mins} minute(s).")
+        except Exception:
+            pass
+
+        # Recent on-screen text (captions, denials, subliminals, notifications).
+        recent = list(getattr(self.state, "recent_text", []) or [])
+        if recent:
+            lines.append("Recent on-screen text: " + " | ".join(recent[-5:]))
+
+        # What Edgeware itself is playing right now.
+        try:
+            videos = getattr(self.state, "video_number", 0)
+            audio = len(getattr(self.state, "audio_players", []) or [])
+            if videos or audio:
+                lines.append(f"Edgeware is currently showing {videos} video(s) and playing {audio} audio clip(s).")
+        except Exception:
+            pass
+
+        # System-wide media (music / video the user has playing elsewhere).
+        try:
+            from features.companion import awareness
+            playing = awareness.now_playing()
+            if playing:
+                lines.append(f"The user is also playing media: {playing}.")
         except Exception:
             pass
 

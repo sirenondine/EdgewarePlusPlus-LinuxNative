@@ -249,7 +249,9 @@ class Popup(Gtk.Window):
 
     def try_denial_text(self) -> None:
         if self.denial:
-            self._add_text(self.pack.random_denial(), Gtk.Align.CENTER, Gtk.Align.CENTER)
+            denial = self.pack.random_denial()
+            self._add_text(denial, Gtk.Align.CENTER, Gtk.Align.CENTER)
+            self._note_text(denial)
             if self.settings.gamification:
                 from features import gamification
                 gamification.record("denial_seen")
@@ -259,8 +261,17 @@ class Popup(Gtk.Window):
         caption = self.pack.random_caption(self.media)
         if self.settings.captions_in_popups and caption:
             self._add_text(caption, Gtk.Align.START, Gtk.Align.START)
+            self._note_text(caption)
             from features.vibration_mixin import vibrate_event
             vibrate_event("caption", self.settings, self.state.sextoy)
+
+    def _note_text(self, text: str) -> None:
+        """Record on-screen text for companion context."""
+        if text:
+            try:
+                self.state.recent_text.append(text)
+            except Exception:
+                pass
 
     def try_corruption_dev(self) -> None:
         if self.settings.corruption_dev_mode:

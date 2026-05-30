@@ -102,7 +102,7 @@ def handle_companion(settings: Settings, pack: Pack, state: State) -> None:
         persona = pack.companion or _DEFAULT_PERSONA
         window = CompanionWindow(settings, pack, persona)
         companion = Companion(
-            settings, pack,
+            settings, pack, state,
             on_start=window.begin, on_token=window.append, on_done=window.finish,
         )
         state.companion = companion

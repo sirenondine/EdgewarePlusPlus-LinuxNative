@@ -16,6 +16,7 @@
 # along with Edgeware++.  If not, see <https://www.gnu.org/licenses/>.
 
 import multiprocessing
+from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
@@ -69,6 +70,9 @@ class State:
     companion: object | None = None  # features.companion.engine.Companion when enabled
     companion_window: object | None = None  # features.companion.window.CompanionWindow
     hud: object | None = None  # features.hud.ProgressHUD when the gamification HUD is on
+    # Recent on-screen text (captions, denials, subliminals, notifications) for
+    # companion context.
+    recent_text: deque = field(default_factory=lambda: deque(maxlen=12))
 
     @property
     def popup_number(self) -> int:
