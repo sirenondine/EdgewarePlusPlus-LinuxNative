@@ -81,6 +81,19 @@ def panic(settings: Settings, state: State, condition: bool = True, disable: boo
     GLib.idle_add(do_panic)
 
 
+def _sync_tray_pause(state: State) -> None:
+    """Update the tray's pause label to match the current state (on the main loop)."""
+    from gi.repository import GLib
+
+    def update() -> bool:
+        import roll
+        if getattr(state, "tray", None) and hasattr(state.tray, "set_pause_label"):
+            state.tray.set_pause_label(roll.is_paused())
+        return False
+
+    GLib.idle_add(update)
+
+
 def start_panic_listener(settings: Settings, state: State) -> None:
     path = _socket_path()
 
@@ -100,12 +113,14 @@ def start_panic_listener(settings: Settings, state: State) -> None:
                         message = connection.recv()
                         if message == PANIC_MESSAGE:
                             panic(settings, state, disable=False)
-                        elif message == PAUSE_MESSAGE:
-                            roll.set_paused(True)
-                        elif message == RESUME_MESSAGE:
-                            roll.set_paused(False)
-                        elif message == TOGGLE_MESSAGE:
-                            roll.toggle_paused()
+                        elif message in (PAUSE_MESSAGE, RESUME_MESSAGE, TOGGLE_MESSAGE):
+                            if message == PAUSE_MESSAGE:
+                                roll.set_paused(True)
+                            elif message == RESUME_MESSAGE:
+                                roll.set_paused(False)
+                            else:
+                                roll.toggle_paused()
+                            _sync_tray_pause(state)
                         elif message == STATUS_MESSAGE:
                             connection.send({
                                 "running": True,

@@ -132,9 +132,24 @@ class DBusMenu:
     def __init__(self, conn: Gio.DBusConnection, iface, items: list[tuple[str, Callable[[], None]]]) -> None:
         # items: list of (label, callback); ids are 1-based index.
         self._items = items
+        self._conn = conn
+        self._revision = 1
         self.reg_id = conn.register_object(
             _MENU_PATH, iface, self._on_method_call, self._on_get_property, None
         )
+
+    def set_item_label(self, index: int, label: str) -> None:
+        """Relabel an item in place and tell the host to re-fetch the layout."""
+        if not (0 <= index < len(self._items)):
+            return
+        self._items[index] = (label, self._items[index][1])
+        self._revision += 1
+        try:
+            self._conn.emit_signal(
+                None, _MENU_PATH, "com.canonical.dbusmenu", "LayoutUpdated",
+                GLib.Variant("(ui)", (self._revision, 0)))
+        except Exception:
+            pass
 
     def _item_props(self, label: str) -> dict:
         return {
@@ -152,7 +167,7 @@ class DBusMenu:
 
     def _on_method_call(self, conn, sender, path, iface, method, params, invocation) -> None:
         if method == "GetLayout":
-            invocation.return_value(GLib.Variant("(u(ia{sv}av))", (1, self._layout_tuple())))
+            invocation.return_value(GLib.Variant("(u(ia{sv}av))", (self._revision, self._layout_tuple())))
         elif method == "GetGroupProperties":
             ids, _names = params.unpack()
             wanted = ids or [i + 1 for i in range(len(self._items))]
@@ -203,8 +218,10 @@ class StatusNotifierItem:
 
         # Build the right-click menu model.
         self._menu_items: list[tuple[str, Callable[[], None]]] = [("Panic", on_panic)]
+        self._pause_index: int | None = None
         if on_toggle_pause:
-            self._menu_items.append(("Pause / Resume Popups", on_toggle_pause))
+            self._pause_index = len(self._menu_items)
+            self._menu_items.append(("Pause Popups", on_toggle_pause))
         if on_skip_hibernate:
             self._menu_items.append(("Skip to Hibernate", on_skip_hibernate))
         if on_open_config:
@@ -281,6 +298,11 @@ class StatusNotifierItem:
             "Menu": GLib.Variant("o", _MENU_PATH),
         }
         return values.get(prop)
+
+    def set_pause_label(self, paused: bool) -> None:
+        """Reflect the current pause state in the tray menu item."""
+        if self._menu and self._pause_index is not None:
+            self._menu.set_item_label(self._pause_index, "Resume Popups" if paused else "Pause Popups")
 
     def stop(self) -> None:
         if self._conn:

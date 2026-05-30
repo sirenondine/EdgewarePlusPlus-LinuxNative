@@ -118,7 +118,9 @@ def make_tray_icon(
 
     def toggle_pause() -> None:
         import roll
-        roll.toggle_paused()
+        paused = roll.toggle_paused()
+        if state.tray and hasattr(state.tray, "set_pause_label"):
+            state.tray.set_pause_label(paused)
 
     try:
         state.tray = StatusNotifierItem(
