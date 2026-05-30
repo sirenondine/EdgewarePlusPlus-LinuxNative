@@ -456,27 +456,34 @@ class ConfigWindow(Adw.ApplicationWindow):
         Thread(target=_load_in_thread, daemon=True).start()
 
     def _show_loading(self, message: str) -> None:
-        """Overlay a spinner + label over the content area."""
+        """Overlay a full-window spinner + label."""
         if hasattr(self, "_loading_overlay") and self._loading_overlay:
             return
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
-        box.set_halign(Gtk.Align.CENTER)
-        box.set_valign(Gtk.Align.CENTER)
-        box.set_hexpand(True)
-        box.set_vexpand(True)
-        # Dim background
-        box.add_css_class("loading-overlay")
+
+        # Outer box fills the entire overlay area (halign/valign FILL).
+        outer = Gtk.Box()
+        outer.set_halign(Gtk.Align.FILL)
+        outer.set_valign(Gtk.Align.FILL)
+        outer.add_css_class("loading-overlay")
+
+        # Inner box centers the spinner + label within the outer fill.
+        inner = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        inner.set_halign(Gtk.Align.CENTER)
+        inner.set_valign(Gtk.Align.CENTER)
+        inner.set_hexpand(True)
+        inner.set_vexpand(True)
 
         spinner = Adw.Spinner()
         spinner.set_size_request(48, 48)
-        box.append(spinner)
+        inner.append(spinner)
 
         lbl = Gtk.Label(label=message)
         lbl.add_css_class("title-3")
-        box.append(lbl)
+        inner.append(lbl)
 
-        self._root_overlay.add_overlay(box)
-        self._loading_overlay = box
+        outer.append(inner)
+        self._root_overlay.add_overlay(outer)
+        self._loading_overlay = outer
 
     def _hide_loading(self) -> None:
         if hasattr(self, "_loading_overlay") and self._loading_overlay:
