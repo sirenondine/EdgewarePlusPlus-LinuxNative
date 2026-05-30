@@ -15,67 +15,63 @@
 from gi import require_version
 
 require_version("Gtk", "4.0")
-from gi.repository import Gtk
+require_version("Adw", "1")
+from gi.repository import Adw, Gtk
 
 from config.gtk_window.toast import name_popover
-
 from config.gtk_window.utils import config
-from config.gtk_window.widgets import ConfigRow, ConfigSection, ConfigToggle
+from config.gtk_window.widgets import AdwSwitchRow
 from config.vars import Vars
 
 BOORU_TEXT = (
-    "The \"Booru Downloader\" is not currently in a great state. "
-    "It can lead to performance issues and is not guaranteed to work in the future."
+    "The Booru Downloader is not currently in a great state — it can cause "
+    "performance issues and is not guaranteed to work in the future."
 )
 
 
-class BooruTab(Gtk.ScrolledWindow):
+class BooruTab(Adw.PreferencesPage):
     def __init__(self, vars: Vars) -> None:
         super().__init__()
-        self.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-        self.set_hexpand(True)
-        self.set_vexpand(True)
 
-        vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
-        self.set_child(vbox)
+        group = Adw.PreferencesGroup(title="Booru Settings", description=BOORU_TEXT)
+        self.add(group)
+        group.add(AdwSwitchRow("Download from Booru", vars.booru_download))
 
-        section = ConfigSection("Booru Settings", BOORU_TEXT)
-        vbox.append(section)
-
-        download_row = ConfigRow()
-        section.append(download_row)
-        section.append(ConfigToggle("Download from Booru", vars.booru_download))
-
-        tag_row = ConfigRow()
-        section.append(tag_row)
+        tags_group = Adw.PreferencesGroup(title="Tags")
+        self.add(tags_group)
 
         tags = [t for t in config.get("tagList", "").split(">") if t]
         self._tag_store = Gtk.StringList.new(tags)
         self._tag_selection = Gtk.SingleSelection.new(self._tag_store)
-        self._tag_list = Gtk.ListView.new(self._tag_selection)
-        self._tag_list.set_vexpand(True)
+        self._tag_selection.connect("notify::selected", self._update_buttons)
+
         factory = Gtk.SignalListItemFactory()
-        factory.connect("setup", lambda f, i: i.set_child(Gtk.Label(xalign=0, wrap=True)))
-        factory.connect("bind", lambda f, i: i.get_child().set_text(i.get_item().get_string()))
-        self._tag_list.set_factory(factory)
-        tag_row.append(self._tag_list)
+        factory.connect("setup", self._on_setup)
+        factory.connect("bind", self._on_bind)
+        tag_list = Gtk.ListView.new(self._tag_selection, factory)
 
-        btn_col = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
-        tag_row.append(btn_col)
+        scroller = Gtk.ScrolledWindow()
+        scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        scroller.set_min_content_height(180)
+        scroller.set_child(tag_list)
+        list_frame = Gtk.Frame()
+        list_frame.add_css_class("card")
+        list_frame.set_child(scroller)
+        tags_group.add(list_frame)
 
-        add_btn = Gtk.Button(label="Add Tag")
+        # Header suffix buttons
+        btn_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        add_btn = Gtk.Button(label="Add")
         add_btn.connect("clicked", self._on_add)
-        btn_col.append(add_btn)
-
-        self._tag_remove_btn = Gtk.Button(label="Remove Tag")
-        self._tag_remove_btn.connect("clicked", self._on_remove)
-        self._tag_remove_btn.set_sensitive(False)
-        self._tag_selection.connect("notify::selected", self._update_remove_btn)
-        btn_col.append(self._tag_remove_btn)
-
-        reset_btn = Gtk.Button(label="Reset Tags")
+        btn_row.append(add_btn)
+        self._remove_btn = Gtk.Button(label="Remove")
+        self._remove_btn.connect("clicked", self._on_remove)
+        self._remove_btn.set_sensitive(False)
+        btn_row.append(self._remove_btn)
+        reset_btn = Gtk.Button(label="Reset")
         reset_btn.connect("clicked", self._on_reset)
-        btn_col.append(reset_btn)
+        btn_row.append(reset_btn)
+        tags_group.set_header_suffix(btn_row)
 
     def _on_add(self, btn: Gtk.Button) -> None:
         name_popover(btn, "Tag name (or space-separated tags)", self._add_tag)
@@ -85,9 +81,10 @@ class BooruTab(Gtk.ScrolledWindow):
         config["tagList"] = f"{current}>{tag}" if current else tag
         self._tag_store.append(tag)
 
-    def _update_remove_btn(self, selection, _param=None) -> None:
+    def _update_buttons(self, selection, _param=None) -> None:
         pos = selection.get_selected()
-        self._tag_remove_btn.set_sensitive(
+        # pos 0 is "all" — don't allow removing it
+        self._remove_btn.set_sensitive(
             pos != Gtk.INVALID_LIST_POSITION and pos > 0
         )
 
@@ -104,3 +101,15 @@ class BooruTab(Gtk.ScrolledWindow):
             self._tag_store.remove(0)
         self._tag_store.append("all")
         config["tagList"] = "all"
+
+    @staticmethod
+    def _on_setup(_factory, item) -> None:
+        lbl = Gtk.Label(xalign=0, wrap=True)
+        lbl.set_margin_start(8)
+        lbl.set_margin_top(4)
+        lbl.set_margin_bottom(4)
+        item.set_child(lbl)
+
+    @staticmethod
+    def _on_bind(_factory, item) -> None:
+        item.get_child().set_text(item.get_item().get_string())

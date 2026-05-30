@@ -18,35 +18,24 @@ import logging
 from gi import require_version
 
 require_version("Gtk", "4.0")
-from gi.repository import Gtk
+require_version("Adw", "1")
+from gi.repository import Adw, Gtk
 
 from config.gtk_window.utils import config
-from config.gtk_window.widgets import ConfigSection
 from pack import Pack
 
 MOOD_TEXT = (
-    "Moods are a very important part of edgeware. Every piece of media has a mood attached to it, "
-    "and edgeware checks to see if that mood is enabled before deciding to show it.\n\n"
-    "In this tab you can disable or enable moods."
+    "Every piece of media has a mood attached to it. Edgeware checks whether that "
+    "mood is enabled before deciding to show it. Disable moods here to filter content."
 )
 
 
-class MoodsTab(Gtk.ScrolledWindow):
+class MoodsTab(Adw.PreferencesPage):
     def __init__(self, pack: Pack) -> None:
         super().__init__()
-        self.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-        self.set_hexpand(True)
-        self.set_vexpand(True)
 
-        vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
-        self.set_child(vbox)
-
-        section = ConfigSection("Moods", MOOD_TEXT)
-        vbox.append(section)
-
-        mood_list = Gtk.ListBox(css_classes=["mood-list"])
-        mood_list.set_vexpand(True)
-        section.append(mood_list)
+        group = Adw.PreferencesGroup(title="Moods", description=MOOD_TEXT)
+        self.add(group)
 
         active_moods = []
         if not config.get("toggleMoodSet"):
@@ -56,72 +45,58 @@ class MoodsTab(Gtk.ScrolledWindow):
             except Exception as e:
                 logging.warning(f"error reading mood file: {e}")
 
-        self._mood_switches: list[Gtk.Switch] = []
+        self._mood_rows: list[Adw.SwitchRow] = []
         has_moods = False
+
         for mood in pack.index.moods:
             assert mood.name is not None
             has_moods = True
-            row = Gtk.ListBoxRow()
-            hbox = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-            row.set_child(hbox)
 
-            switch = Gtk.Switch()
-            switch.set_active(mood.name in active_moods)
-            switch.connect("notify::active", self._make_mood_callback(pack, mood.name))
-            self._mood_switches.append(switch)
-            hbox.append(switch)
-
-            lbl = Gtk.Label(label=mood.name)
-            lbl.set_xalign(0)
-            lbl.set_hexpand(True)
-            hbox.append(lbl)
-
-            info_lbl = Gtk.Label(
-                label=f"Media: {sum(1 for v in pack.index.media_moods.values() if v == mood.name)} | "
-                f"Clicks: {mood.max_clicks} | Caps: {len(mood.captions)}",
-                wrap=True,
+            media_count = sum(1 for v in pack.index.media_moods.values() if v == mood.name)
+            row = Adw.SwitchRow(
+                title=mood.name,
+                subtitle=f"{media_count} media · {mood.max_clicks} max clicks · {len(mood.captions)} captions",
             )
-            info_lbl.set_xalign(0)
-            info_lbl.add_css_class("caption")
-            hbox.append(info_lbl)
-
-            mood_list.append(row)
+            row.set_active(mood.name in active_moods)
+            row.connect("notify::active", self._make_mood_callback(pack, mood.name))
+            self._mood_rows.append(row)
+            group.add(row)
 
         if not has_moods:
-            row = Gtk.ListBoxRow()
-            row.set_child(Gtk.Label(label="No moods found in pack!"))
-            mood_list.append(row)
+            empty = Adw.ActionRow(title="No moods found in this pack.")
+            empty.set_sensitive(False)
+            group.add(empty)
 
         if has_moods:
-            btn_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
-            section.append(btn_row)
-            select_all_btn = Gtk.Button(label="Select All")
-            select_all_btn.connect("clicked", lambda _: self._set_all_moods(True))
-            btn_row.append(select_all_btn)
-            deselect_all_btn = Gtk.Button(label="Deselect All")
-            deselect_all_btn.connect("clicked", lambda _: self._set_all_moods(False))
-            btn_row.append(deselect_all_btn)
+            btn_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+            select_all = Gtk.Button(label="Select All")
+            select_all.connect("clicked", lambda _: self._set_all(True))
+            deselect_all = Gtk.Button(label="Deselect All")
+            deselect_all.connect("clicked", lambda _: self._set_all(False))
+            btn_row.append(select_all)
+            btn_row.append(deselect_all)
+            group.set_header_suffix(btn_row)
 
-    def _set_all_moods(self, active: bool) -> None:
-        for switch in self._mood_switches:
-            switch.set_active(active)
+    def _set_all(self, active: bool) -> None:
+        for row in self._mood_rows:
+            row.set_active(active)
 
     @staticmethod
     def _make_mood_callback(pack: Pack, mood_name: str):
-        def callback(switch: Gtk.Switch, _param):
+        def callback(row: Adw.SwitchRow, _param):
             if config.get("toggleMoodSet"):
                 return
             try:
                 with open(pack.info.mood_file, "r+") as f:
-                    active = json.loads(f.read())
-                    if switch.get_active():
-                        if mood_name not in active["active"]:
-                            active["active"].append(mood_name)
+                    data = json.loads(f.read())
+                    if row.get_active():
+                        if mood_name not in data["active"]:
+                            data["active"].append(mood_name)
                     else:
-                        if mood_name in active["active"]:
-                            active["active"].remove(mood_name)
+                        if mood_name in data["active"]:
+                            data["active"].remove(mood_name)
                     f.seek(0)
-                    f.write(json.dumps(active))
+                    f.write(json.dumps(data))
                     f.truncate()
             except Exception as e:
                 logging.warning(f"error updating mood file: {e}")
