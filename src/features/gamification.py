@@ -26,6 +26,8 @@ import logging
 import os
 import tempfile
 import time
+from dataclasses import dataclass
+from typing import Callable
 
 from paths import Data
 
@@ -39,6 +41,41 @@ EVENT_XP = {
 
 LEVEL_STEP = 25  # tuning constant for the level curve
 _SAVE_THROTTLE = 3.0  # seconds; coalesce frequent writes during popup floods
+
+
+@dataclass(frozen=True)
+class Achievement:
+    id: str
+    name: str
+    description: str
+    check: Callable[["Progress"], bool]
+
+
+def _count(p: "Progress", event: str) -> int:
+    return p.counters.get(event, 0)
+
+
+# Static achievement table. Each `check` is a predicate over a Progress; it is
+# evaluated after every recorded event and unlocked the first time it holds.
+ACHIEVEMENTS: list[Achievement] = [
+    Achievement("first_close", "First Contact", "Close your first popup.", lambda p: _count(p, "popup_closed") >= 1),
+    Achievement("close_100", "Getting Into It", "Close 100 popups.", lambda p: _count(p, "popup_closed") >= 100),
+    Achievement("close_500", "Eager", "Close 500 popups.", lambda p: _count(p, "popup_closed") >= 500),
+    Achievement("close_1000", "Devoted", "Close 1000 popups.", lambda p: _count(p, "popup_closed") >= 1000),
+    Achievement("level_5", "Climbing", "Reach level 5.", lambda p: p.level >= 5),
+    Achievement("level_10", "Ascendant", "Reach level 10.", lambda p: p.level >= 10),
+    Achievement("level_25", "Conditioned", "Reach level 25.", lambda p: p.level >= 25),
+    Achievement("first_prompt", "Obedient", "Complete your first prompt.", lambda p: _count(p, "prompt_completed") >= 1),
+    Achievement("prompt_25", "Good Pet", "Complete 25 prompts.", lambda p: _count(p, "prompt_completed") >= 25),
+    Achievement("prompt_100", "Well Trained", "Complete 100 prompts.", lambda p: _count(p, "prompt_completed") >= 100),
+    Achievement("denial_50", "Teased", "See 50 denials.", lambda p: _count(p, "denial_seen") >= 50),
+    Achievement("denial_250", "On the Edge", "See 250 denials.", lambda p: _count(p, "denial_seen") >= 250),
+    Achievement("playtime_60", "Hooked", "Rack up an hour of playtime.", lambda p: _count(p, "playtime_minute") >= 60),
+    Achievement("playtime_300", "Lost Track of Time", "Five hours of playtime.", lambda p: _count(p, "playtime_minute") >= 300),
+    Achievement("playtime_600", "No Escape", "Ten hours of playtime.", lambda p: _count(p, "playtime_minute") >= 600),
+]
+
+_ACHIEVEMENTS_BY_ID = {a.id: a for a in ACHIEVEMENTS}
 
 
 def cumulative_xp(level: int) -> int:
@@ -60,6 +97,7 @@ class Progress:
         self.counters: dict[str, int] = {}
         self.achievements: set[str] = set()
         self.on_level_up = None  # callback(new_level) injected by the UI layer
+        self.on_achievement = None  # callback(Achievement) injected by the UI layer
         self._last_save = 0.0
         self._dirty = False
 
@@ -70,8 +108,21 @@ class Progress:
         gain = (EVENT_XP.get(event, 0) if xp is None else xp) * count
         if gain > 0:
             self._add_xp(gain)
+        self._check_achievements()
         self._dirty = True
         self._maybe_save()
+
+    def _check_achievements(self) -> None:
+        for ach in ACHIEVEMENTS:
+            if ach.id in self.achievements:
+                continue
+            try:
+                if ach.check(self):
+                    self.achievements.add(ach.id)
+                    if self.on_achievement:
+                        self.on_achievement(ach)
+            except Exception as e:
+                logging.warning(f"gamification achievement '{ach.id}' check error: {e}")
 
     def _add_xp(self, gain: int) -> None:
         self.xp += gain
@@ -108,7 +159,16 @@ class Progress:
             self.achievements = set(data.get("achievements") or [])
             # Trust persisted level but never let it disagree with the curve.
             self.level = max(int(data.get("level", 0)), level_for_xp(self.xp))
-            logging.info(f"Gamification: loaded level {self.level}, {self.xp} XP.")
+            # Silently mark already-earned achievements (e.g. progress that
+            # predates the achievement table) so the user isn't flooded with
+            # unlock notifications on the next event.
+            for ach in ACHIEVEMENTS:
+                try:
+                    if ach.check(self):
+                        self.achievements.add(ach.id)
+                except Exception:
+                    pass
+            logging.info(f"Gamification: loaded level {self.level}, {self.xp} XP, {len(self.achievements)} achievements.")
         except FileNotFoundError:
             logging.info("Gamification: no progress file yet, starting fresh.")
         except Exception as e:
@@ -153,6 +213,18 @@ def record(event: str, count: int = 1, xp: int | None = None) -> None:
 
 def set_level_up_callback(callback) -> None:
     progress().on_level_up = callback
+
+
+def set_achievement_callback(callback) -> None:
+    progress().on_achievement = callback
+
+
+def all_achievements() -> list[Achievement]:
+    return list(ACHIEVEMENTS)
+
+
+def is_unlocked(achievement_id: str) -> bool:
+    return achievement_id in progress().achievements
 
 
 def flush() -> None:

@@ -101,7 +101,11 @@ def handle_gamification(settings: Settings, pack: Pack, state: State) -> None:
     def on_level_up(level: int) -> None:
         notify("Edgeware++", f"Level up! You reached level {level}.", icon=pack.icon)
 
+    def on_achievement(ach) -> None:
+        notify(f"Achievement unlocked: {ach.name}", ach.description, icon=pack.icon)
+
     gamification.set_level_up_callback(on_level_up)
+    gamification.set_achievement_callback(on_achievement)
     gamification.progress()  # load now so the first event is fast
 
     def tick() -> bool:
