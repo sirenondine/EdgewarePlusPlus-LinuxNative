@@ -40,23 +40,21 @@ from pack import Pack
 from paths import CustomAssets
 
 INTRO_TEXT = (
-    "Welcome to Edgeware++!\n"
-    "You can use the tabs at the top of this window to navigate the various config settings "
-    "for the main program. Annoyance/Runtime is for how the program works while running, "
-    "Modes is for more complicated and involved settings that change how Edgeware works drastically, "
-    "and Troubleshooting and About are for learning this program better and fixing errors should "
-    "anything go wrong.\n\n"
-    "Aside from these helper memos, there are also tooltips on several buttons and sliders. "
-    "If you see your mouse cursor change to a \"question mark\", hover for a second or two to "
-    "see more information on the setting."
+    "Welcome to Edgeware++ LinuxNative — the Wayland-native build (GTK4 popups via "
+    "layer-shell, GStreamer media, no Tkinter or X11).\n"
+    "Use the tabs on the left to configure everything: Popup Types and Popup Tweaks "
+    "control what appears and how; Wallpaper, Moods and Booru tune the content; Modes "
+    "and Corruption change how Edgeware behaves over time; and Dangerous holds the "
+    "destructive options. Pack Info and Troubleshooting help when something goes wrong.\n\n"
+    "Many buttons and sliders have tooltips — hover for a second to see details. "
+    "Set a panic hotkey below before you start."
 )
 PANIC_TEXT = (
-    "\"Panic\" is a feature that allows you to instantly halt the program and revert your "
-    "desktop background back to the \"panic background\" set in the wallpaper sub-tab. "
-    "(found in the annoyance tab)\n\n"
-    "There are a few ways to initiate panic, but one of the easiest to access is setting a "
-    "hotkey here. You should also make sure to change your panic wallpaper to your currently "
-    "used wallpaper before using Edgeware!"
+    "\"Panic\" instantly halts Edgeware and reverts your desktop to the \"panic "
+    "wallpaper\" set in the Wallpaper tab.\n\n"
+    "On Wayland the global hotkey is registered through the desktop's GlobalShortcuts "
+    "portal where supported; panic is also available from the tray icon and the panic "
+    "command. Set your panic wallpaper to your current wallpaper before using Edgeware!"
 )
 PRESET_TEXT = (
     "Please be careful before importing unknown config presets! Double check to make sure "
@@ -107,11 +105,11 @@ class StartTab(Gtk.ScrolledWindow):
         col2 = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=PAD)
         btn_box.append(col2)
 
-        local_lbl = Gtk.Label(label=f"Edgeware++ Local Version:\n{local_version}")
+        local_lbl = Gtk.Label(label=f"Installed LinuxNative Version:\n{local_version}")
         local_lbl.set_xalign(0)
         col2.append(local_lbl)
 
-        github_lbl = Gtk.Label(label=f"Edgeware++ Github Version:\n{live_version}")
+        github_lbl = Gtk.Label(label=f"Latest on GitHub:\n{live_version}")
         github_lbl.set_xalign(0)
         if live_version and local_version != live_version:
             github_lbl.add_css_class("version-mismatch")
