@@ -59,12 +59,13 @@ class StartupSplash(Gtk.Window):
         else:
             self.set_child(picture_from_pil(image.resize((width, height), Image.LANCZOS), width, height))
 
-        LayerShell.init_for_window(self)
-        LayerShell.set_layer(self, LayerShell.Layer.OVERLAY)
-        LayerShell.set_namespace(self, "edgeware-splash")
-        gdk_mon = utils.gdk_monitor_for(monitor)
-        if gdk_mon:
-            LayerShell.set_monitor(self, gdk_mon)
+        if LayerShell.is_supported():
+            LayerShell.init_for_window(self)
+            LayerShell.set_layer(self, LayerShell.Layer.OVERLAY)
+            LayerShell.set_namespace(self, "edgeware-splash")
+            gdk_mon = utils.gdk_monitor_for(monitor)
+            if gdk_mon:
+                LayerShell.set_monitor(self, gdk_mon)
 
         self.present()
         self.fade_in()

@@ -27,7 +27,9 @@ if __name__ == "__main__":
 
         lib = ctypes.util.find_library("gtk4-layer-shell")
         if not lib:
-            candidates = glob.glob("/usr/lib*/libgtk4-layer-shell.so*") + glob.glob("/usr/lib/*/libgtk4-layer-shell.so*")
+            candidates = (glob.glob("/app/lib*/libgtk4-layer-shell.so*")       # Flatpak
+                          + glob.glob("/usr/lib*/libgtk4-layer-shell.so*")
+                          + glob.glob("/usr/lib/*/libgtk4-layer-shell.so*"))
             lib = candidates[0] if candidates else None
         if lib:
             os.environ["LD_PRELOAD"] = (os.environ.get("LD_PRELOAD", "") + " " + lib).strip()

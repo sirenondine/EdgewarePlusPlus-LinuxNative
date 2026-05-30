@@ -35,7 +35,6 @@ from config import load_config
 from config.items import CONFIG_DANGER, DangerLevel
 from config.vars import ConfigVar, Vars
 from paths import Data, Process
-from pynput import keyboard
 
 config = load_config()
 log_file = utils.init_logging("config")
@@ -71,10 +70,11 @@ def dialog_run(dialog: Gtk.Dialog) -> Gtk.ResponseType:
 
 
 def keyboard_listener(connection: Connection) -> None:
-    # pynput uses evdev on Wayland — requires read access to /dev/input/event*
-    # (user must be in the 'input' group or session must grant access)
+    # pynput opens an X connection at import, so import it lazily here — the
+    # config window must load on pure-Wayland / sandboxed sessions without X.
     if os.environ.get("WAYLAND_DISPLAY") and "PYNPUT_BACKEND" not in os.environ:
         os.environ["PYNPUT_BACKEND"] = "evdev"
+    from pynput import keyboard
     with keyboard.Listener(on_release=lambda key: connection.send(str(key))) as listener:
         connection.send("focus")
         listener.join()

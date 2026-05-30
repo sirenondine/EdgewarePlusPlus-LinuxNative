@@ -52,13 +52,14 @@ class SubliminalPopup(Gtk.Window):
         )
         label.get_style_context().add_provider(provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
 
-        LayerShell.init_for_window(self)
-        LayerShell.set_layer(self, LayerShell.Layer.OVERLAY)
-        LayerShell.set_namespace(self, "edgeware-subliminal")
-        gdk_mon = utils.gdk_monitor_for(monitor)
-        if gdk_mon:
-            LayerShell.set_monitor(self, gdk_mon)
-        # No edge anchors → compositor centers the window on the monitor
+        if LayerShell.is_supported():
+            LayerShell.init_for_window(self)
+            LayerShell.set_layer(self, LayerShell.Layer.OVERLAY)
+            LayerShell.set_namespace(self, "edgeware-subliminal")
+            gdk_mon = utils.gdk_monitor_for(monitor)
+            if gdk_mon:
+                LayerShell.set_monitor(self, gdk_mon)
+            # No edge anchors → compositor centers the window on the monitor
 
         self.present()
         GLib.timeout_add(settings.subliminal_timeout, lambda: (self.destroy(), GLib.SOURCE_REMOVE)[1])

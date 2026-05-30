@@ -37,6 +37,7 @@ from paths import Data
 from roll import roll
 from state import State
 
+_LAYER_OK = LayerShell.is_supported()
 _CSS_LOADED = False
 
 
@@ -104,12 +105,16 @@ class Popup(Gtk.Window):
         self.set_resizable(False)
         self.set_opacity(self.opacity)
 
-        # Layer-shell: float as an overlay on the chosen monitor, positioned by margins
-        LayerShell.init_for_window(self)
-        LayerShell.set_layer(self, LayerShell.Layer.OVERLAY)
-        LayerShell.set_anchor(self, LayerShell.Edge.TOP, True)
-        LayerShell.set_anchor(self, LayerShell.Edge.LEFT, True)
-        LayerShell.set_namespace(self, "edgeware-popup")
+        # Layer-shell: float as an overlay on the chosen monitor, positioned by
+        # margins. Unavailable on X11 and for sandboxed clients on compositors
+        # that restrict it (e.g. niri via the Wayland security-context) — fall
+        # back to an ordinary toplevel that the compositor places.
+        if _LAYER_OK:
+            LayerShell.init_for_window(self)
+            LayerShell.set_layer(self, LayerShell.Layer.OVERLAY)
+            LayerShell.set_anchor(self, LayerShell.Edge.TOP, True)
+            LayerShell.set_anchor(self, LayerShell.Edge.LEFT, True)
+            LayerShell.set_namespace(self, "edgeware-popup")
 
         # Record whether Alt was held at click-time (for alt+click blacklist) —
         # capture phase so it fires before the button/buttonless handler.
@@ -128,6 +133,9 @@ class Popup(Gtk.Window):
         self._overlay.set_child(widget)
 
     def _apply_position(self) -> None:
+        if not _LAYER_OK:
+            self.set_default_size(self.width, self.height)
+            return
         gdk_mon = utils.gdk_monitor_for(self.monitor)
         if gdk_mon:
             LayerShell.set_monitor(self, gdk_mon)
@@ -228,6 +236,8 @@ class Popup(Gtk.Window):
             self._overlay.add_overlay(button)
 
     def try_move(self) -> None:
+        if not _LAYER_OK:
+            return  # can't reposition an ordinary toplevel on Wayland
         if not roll(self.settings.moving_chance):
             return
 

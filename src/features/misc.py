@@ -28,7 +28,6 @@ from threading import Thread
 import utils
 from desktop_notifier.common import Attachment, Icon
 from desktop_notifier.sync import DesktopNotifierSync
-from pynput import keyboard
 from pypresence import Presence
 
 from config.settings import Settings
@@ -211,9 +210,12 @@ def handle_mitosis_mode(settings: Settings, pack: Pack, state: State) -> None:
 
 
 def keyboard_listener(connection: Connection) -> None:
-    # pynput uses evdev on Wayland — requires read access to /dev/input/event*
+    # pynput connects to X at import time, so import it lazily (only the evdev
+    # fallback path needs it; the portal path and the config window must not
+    # crash on a pure-Wayland / sandboxed session without X).
     if os.environ.get("WAYLAND_DISPLAY") and "PYNPUT_BACKEND" not in os.environ:
         os.environ["PYNPUT_BACKEND"] = "evdev"
+    from pynput import keyboard
 
     def callback(type: str) -> None:
         return lambda key: connection.send((type, str(key)))
@@ -249,7 +251,13 @@ def handle_keyboard(settings: Settings, state: State) -> None:
 def _start_evdev_keyboard(settings: Settings, state: State) -> None:
     if getattr(state, "keyboard_process", None):
         return  # already running
-    # pynput (evdev on Wayland — needs the 'input' group).
+    # pynput (evdev on Wayland — needs the 'input' group). Imported lazily: it
+    # opens an X connection on import, which fails on pure Wayland / in sandboxes.
+    try:
+        from pynput import keyboard
+    except Exception as e:
+        logging.warning(f"Keyboard fallback unavailable (no pynput backend): {e}")
+        return
     alt = [
         str(keyboard.Key.alt),
         str(keyboard.Key.alt_gr),

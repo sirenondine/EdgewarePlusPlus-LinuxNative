@@ -76,13 +76,14 @@ class Prompt(Gtk.Window):
         button.connect("clicked", lambda _: self._on_submit())
         vbox.append(button)
 
-        LayerShell.init_for_window(self)
-        LayerShell.set_layer(self, LayerShell.Layer.OVERLAY)
-        LayerShell.set_namespace(self, "edgeware-prompt")
-        LayerShell.set_keyboard_mode(self, LayerShell.KeyboardMode.EXCLUSIVE)
-        gdk_mon = utils.gdk_monitor_for(monitor)
-        if gdk_mon:
-            LayerShell.set_monitor(self, gdk_mon)
+        if LayerShell.is_supported():
+            LayerShell.init_for_window(self)
+            LayerShell.set_layer(self, LayerShell.Layer.OVERLAY)
+            LayerShell.set_namespace(self, "edgeware-prompt")
+            LayerShell.set_keyboard_mode(self, LayerShell.KeyboardMode.EXCLUSIVE)
+            gdk_mon = utils.gdk_monitor_for(monitor)
+            if gdk_mon:
+                LayerShell.set_monitor(self, gdk_mon)
 
         self.present()
 
