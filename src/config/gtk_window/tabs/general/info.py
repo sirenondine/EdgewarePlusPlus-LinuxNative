@@ -15,200 +15,117 @@
 from gi import require_version
 
 require_version("Gtk", "4.0")
-from gi.repository import Gtk
+require_version("Adw", "1")
+from gi.repository import Adw, Gtk
 
-from config.gtk_window.widgets import ConfigSection
 from pack import Pack
 
 MULTI_PACK_TEXT = (
-    "NOTE: If you have multiple packs loaded, make sure to apply the pack you want "
-    "using the \"Switch Pack\" button at the bottom of the window!"
+    "If you have multiple packs loaded, make sure to apply the one you want using "
+    "\"Switch Pack\" at the bottom of the window."
 )
 INFO_TEXT = (
-    "This section requires an optional \"information file\" that pack creators can choose "
-    "to add. If the section is greyed out but other sections on this page are working fine, "
-    "chances are the pack just doesn't have one!"
+    "Requires an optional \"information file\" that pack creators can add. If this is "
+    "greyed out but other sections work, the pack just doesn't have one."
 )
 DISCORD_TEXT = (
-    "These will only display on your discord if you turn the associated "
-    "\"Show on Discord\" setting on (found in the Dangerous Settings tab)."
+    "Only displays on Discord if you turn on the associated \"Show on Discord\" "
+    "setting (Dangerous Settings tab)."
 )
 
 
-class StatusItem(Gtk.Box):
-    def __init__(self, text: str, includes: bool, tooltip: str | None = None) -> None:
-        super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=2)
-        self.set_hexpand(True)
-
-        lbl = Gtk.Label(label=text, wrap=True)
-        lbl.add_css_class("heading")
-        self.append(lbl)
-
-        status = "\u2713" if includes else "\u2717"
-        status_lbl = Gtk.Label(label=status)
-        status_lbl.add_css_class("status-ok" if includes else "status-fail")
-        if tooltip:
-            status_lbl.set_tooltip_text(tooltip)
-        self.append(status_lbl)
-
-
-class StatsItem(Gtk.Box):
-    def __init__(self, text: str, number: int) -> None:
-        super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=2)
-        self.set_hexpand(True)
-
-        lbl = Gtk.Label(label=text)
-        lbl.add_css_class("heading")
-        self.append(lbl)
-
-        sep = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
-        self.append(sep)
-
-        num_lbl = Gtk.Label(label=str(number))
-        num_lbl.add_css_class("stats-number")
-        self.append(num_lbl)
-
-
-class InfoTab(Gtk.ScrolledWindow):
+class InfoTab(Adw.PreferencesPage):
     def __init__(self, pack: Pack) -> None:
         super().__init__()
-        self.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-        self.set_hexpand(True)
-        self.set_vexpand(True)
 
-        vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
-        self.set_child(vbox)
+        # ---- Status ------------------------------------------------------
+        status = Adw.PreferencesGroup(title="Pack Status", description=MULTI_PACK_TEXT)
+        self.add(status)
+        status.add(_status_row("Pack Loaded", pack.paths.root.exists()))
+        status.add(_status_row("Info File", pack.paths.info.is_file()))
+        status.add(_status_row("Wallpaper", pack.paths.wallpaper.is_file()))
+        status.add(_status_row(
+            "Custom Startup", bool(pack.paths.splash),
+            "For older packs, put the file in /resource/ named \"loading_splash.png\"."))
+        status.add(_status_row("Custom Discord Status", pack.paths.discord.is_file()))
+        status.add(_status_row(
+            "Custom Icon", pack.paths.icon.is_file(),
+            "Put the file in /resource/ named \"icon.ico\"."))
+        status.add(_status_row(
+            "Corruption", pack.paths.corruption.is_file(),
+            "An Edgeware++ feature that changes content over time."))
 
-        # Stats
-        stats_section = ConfigSection("Stats", MULTI_PACK_TEXT)
-        vbox.append(stats_section)
+        # ---- Content counts ----------------------------------------------
+        content = Adw.PreferencesGroup(title="Content")
+        self.add(content)
+        content.add(_count_row("Images", len(pack.images)))
+        content.add(_count_row("Audio Files", len(pack.audio)))
+        content.add(_count_row("Videos", len(pack.videos)))
+        content.add(_count_row("Web Links", _list_length(pack, "web")))
+        content.add(_count_row("Prompts", _list_length(pack, "prompts")))
+        content.add(_count_row("Captions", _list_length(pack, "captions")))
+        content.add(_count_row("Hypnos", len(pack.hypnos)))
 
-        status_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
-        stats_section.append(status_row)
-        status_row.append(StatusItem("Pack Loaded", pack.paths.root.exists()))
-        status_row.append(StatusItem("Info File", pack.paths.info.is_file()))
-        status_row.append(StatusItem("Pack has Wallpaper", pack.paths.wallpaper.is_file()))
-        status_row.append(
-            StatusItem(
-                "Custom Startup",
-                bool(pack.paths.splash),
-                "If you are looking to add this to packs made before Edgeware++, "
-                'put the desired file in /resource/ and name it "loading_splash.png"',
-            )
-        )
-        status_row.append(StatusItem("Custom Discord Status", pack.paths.discord.is_file()))
-        status_row.append(
-            StatusItem(
-                "Custom Icon",
-                pack.paths.icon.is_file(),
-                'put the desired file in /resource/ and name it "icon.ico".',
-            )
-        )
-        status_row.append(
-            StatusItem(
-                "Corruption",
-                pack.paths.corruption.is_file(),
-                "An Edgeware++ feature that changes content over time.",
-            )
-        )
-
-        # Stats numbers
-        stats_row_1 = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
-        stats_section.append(stats_row_1)
-        stats_row_1.append(StatsItem("Images", len(pack.images)))
-        stats_row_1.append(StatsItem("Audio Files", len(pack.audio)))
-        stats_row_1.append(StatsItem("Videos", len(pack.videos)))
-        stats_row_1.append(StatsItem("Web Links", _list_length(pack, "web")))
-
-        stats_row_2 = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
-        stats_section.append(stats_row_2)
-        stats_row_2.append(StatsItem("Prompts", _list_length(pack, "prompts")))
-        stats_row_2.append(StatsItem("Captions", _list_length(pack, "captions")))
-        stats_row_2.append(StatsItem("Hypnos", len(pack.hypnos)))
-
-        # Information
-        info_section = ConfigSection("Information", INFO_TEXT)
-        vbox.append(info_section)
-
-        info_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
-        info_section.append(info_row)
-
-        desc_frame = Gtk.Frame()
-        desc_vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
-        desc_frame.set_child(desc_vbox)
-        desc_title = Gtk.Label(label="Description")
-        desc_title.add_css_class("heading")
-        desc_vbox.append(desc_title)
-        desc_lbl = Gtk.Label(label=pack.info.description, wrap=True)
-        desc_lbl.set_xalign(0)
-        desc_vbox.append(desc_lbl)
-        info_row.append(desc_frame)
-
-        basic_frame = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
-        basic_frame.set_hexpand(True)
-        info_row.append(basic_frame)
-
-        name_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=2)
-        basic_frame.append(name_row)
-        name_heading = Gtk.Label(label="Pack Name:")
-        name_heading.add_css_class("heading")
-        name_row.append(name_heading)
-        name_lbl = Gtk.Label(label=pack.info.name, wrap=True)
-        name_lbl.set_hexpand(True)
-        name_row.append(name_lbl)
-
-        creator_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=2)
-        basic_frame.append(creator_row)
-        creator_heading = Gtk.Label(label="Author Name:")
-        creator_heading.add_css_class("heading")
-        creator_row.append(creator_heading)
-        creator_lbl = Gtk.Label(label=pack.info.creator, wrap=True)
-        creator_lbl.set_hexpand(True)
-        creator_row.append(creator_lbl)
-
-        version_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=2)
-        basic_frame.append(version_row)
-        version_heading = Gtk.Label(label="Version:")
-        version_heading.add_css_class("heading")
-        version_row.append(version_heading)
-        version_lbl = Gtk.Label(label=pack.info.version, wrap=True)
-        version_lbl.set_hexpand(True)
-        version_row.append(version_lbl)
-
+        # ---- Information -------------------------------------------------
         has_info = pack.paths.info.is_file()
-        desc_frame.set_sensitive(has_info)
-        basic_frame.set_sensitive(has_info)
+        info = Adw.PreferencesGroup(title="Information", description=INFO_TEXT)
+        info.set_sensitive(has_info)
+        self.add(info)
+        info.add(_value_row("Pack Name", pack.info.name))
+        info.add(_value_row("Author Name", pack.info.creator))
+        info.add(_value_row("Version", pack.info.version))
+        desc_row = Adw.ActionRow(title="Description")
+        desc_row.set_subtitle(pack.info.description or "")
+        info.add(desc_row)
 
-        # Discord
-        discord_section = ConfigSection("Discord Information", DISCORD_TEXT)
-        vbox.append(discord_section)
-
-        discord_frame = Gtk.Frame()
-        discord_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
-        discord_frame.set_child(discord_row)
-        discord_section.append(discord_frame)
-
-        c1 = Gtk.Label(label="Custom Discord Status:")
-        c1.add_css_class("heading")
-        discord_row.append(c1)
-        dc_lbl = Gtk.Label(label=pack.discord.text, wrap=True)
-        dc_lbl.set_hexpand(True)
-        discord_row.append(dc_lbl)
-
-        sep = Gtk.Separator(orientation=Gtk.Orientation.VERTICAL)
-        discord_row.append(sep)
-
-        c2 = Gtk.Label(label="Discord Status Image:")
-        c2.add_css_class("heading")
-        discord_row.append(c2)
-        img_lbl = Gtk.Label(label=pack.discord.image)
-        img_lbl.set_tooltip_text(
-            "As much as I would like to show you this image, it's fetched from the discord "
-            "application API- which I cannot access without permissions."
+        # ---- Discord -----------------------------------------------------
+        discord = Adw.PreferencesGroup(title="Discord Information", description=DISCORD_TEXT)
+        discord.set_sensitive(pack.paths.discord.is_file())
+        self.add(discord)
+        status_row = Adw.ActionRow(title="Custom Discord Status")
+        status_row.set_subtitle(pack.discord.text or "")
+        discord.add(status_row)
+        image_row = Adw.ActionRow(title="Discord Status Image")
+        image_row.add_suffix(_value_label(pack.discord.image))
+        image_row.set_tooltip_text(
+            "The image is fetched from the Discord application API, which can't be "
+            "accessed without permissions, so it can't be previewed here."
         )
-        discord_row.append(img_lbl)
+        discord.add(image_row)
 
-        discord_frame.set_sensitive(pack.paths.discord.is_file())
+
+def _status_row(title: str, ok: bool, tooltip: str | None = None) -> Adw.ActionRow:
+    row = Adw.ActionRow(title=title)
+    if tooltip:
+        row.set_tooltip_text(tooltip)
+    lbl = Gtk.Label(label="✓" if ok else "✗")
+    lbl.set_valign(Gtk.Align.CENTER)
+    lbl.add_css_class("status-ok" if ok else "status-fail")
+    row.add_suffix(lbl)
+    return row
+
+
+def _count_row(title: str, number: int) -> Adw.ActionRow:
+    row = Adw.ActionRow(title=title)
+    lbl = Gtk.Label(label=str(number))
+    lbl.set_valign(Gtk.Align.CENTER)
+    lbl.add_css_class("stats-number")
+    row.add_suffix(lbl)
+    return row
+
+
+def _value_row(title: str, value: str) -> Adw.ActionRow:
+    row = Adw.ActionRow(title=title)
+    row.add_suffix(_value_label(value))
+    return row
+
+
+def _value_label(text: str) -> Gtk.Label:
+    lbl = Gtk.Label(label=text or "")
+    lbl.set_valign(Gtk.Align.CENTER)
+    lbl.set_wrap(True)
+    lbl.add_css_class("dim-label")
+    return lbl
 
 
 def _list_length(pack: Pack, attr: str) -> int:
