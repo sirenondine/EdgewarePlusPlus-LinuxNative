@@ -72,6 +72,70 @@ def _make_pack_page(name: str, vars: Vars, pack: Pack,
     raise ValueError(f"Unknown pack page: {name}")
 
 
+def _build_search_index(pages: list[tuple[str, Gtk.Widget]]) -> list[tuple[str, str, str]]:
+    """Walk all Adw.PreferencesRow children of each page and return
+    (tab_name, title, subtitle) tuples for the search index."""
+    index = []
+
+    def walk(widget, tab_name):
+        if isinstance(widget, Adw.PreferencesRow):
+            title = widget.get_title() if hasattr(widget, "get_title") else ""
+            subtitle = (widget.get_subtitle()
+                        if hasattr(widget, "get_subtitle") else "") or ""
+            if title:
+                index.append((tab_name, title, subtitle))
+        child = widget.get_first_child()
+        while child:
+            walk(child, tab_name)
+            child = child.get_next_sibling()
+
+    for name, page in pages:
+        if page:
+            walk(page, name)
+    return index
+
+
+class _SearchResultsPage(Adw.PreferencesPage):
+    def __init__(self) -> None:
+        super().__init__()
+        self._group = Adw.PreferencesGroup(title="Search Results")
+        self.add(self._group)
+
+    def show_results(self, results: list[tuple[str, str, str]],
+                     on_navigate) -> None:
+        # Clear old rows
+        while True:
+            child = self._group.get_first_child()
+            if child is None:
+                break
+            # PreferencesGroup internal structure — remove all ActionRows
+            # by re-creating the group
+            break
+        # Rebuild group by replacing it
+        old = self._group
+        self.remove(old)
+        self._group = Adw.PreferencesGroup(
+            title="Search Results",
+            description=f"{len(results)} result{'s' if len(results) != 1 else ''} found",
+        )
+        self.add(self._group)
+
+        if not results:
+            empty = Adw.ActionRow(title="No results found.")
+            empty.set_sensitive(False)
+            self._group.add(empty)
+            return
+
+        for tab_name, title, subtitle in results[:50]:
+            row = Adw.ActionRow(title=title, subtitle=tab_name)
+            row.set_activatable(True)
+            arrow = Gtk.Image.new_from_icon_name("go-next-symbolic")
+            arrow.set_valign(Gtk.Align.CENTER)
+            row.add_suffix(arrow)
+            row.connect("activated", lambda _r, t=tab_name: on_navigate(t))
+            self._group.add(row)
+
+
 class ConfigWindow(Adw.ApplicationWindow):
     def __init__(self, app: Gtk.Application) -> None:
         global config, vars
@@ -85,7 +149,9 @@ class ConfigWindow(Adw.ApplicationWindow):
         super().__init__(application=app, title=self._base_title)
         self._dirty = False
         self.set_default_size(740, 900)
-        self.set_size_request(640, 600)
+        # Keep minimum narrow enough that NavigationSplitView can collapse
+        # (~min_sidebar + min_content ≈ 140+360 = 500px triggers collapse).
+        self.set_size_request(360, 480)
 
         try:
             self.set_icon_from_file(str(CustomAssets.config_icon()))
@@ -177,10 +243,42 @@ class ConfigWindow(Adw.ApplicationWindow):
             )
             self._stack.add_named(widget, name)
 
+        # Build search index from all preference rows across all pages
+        self._search_index = _build_search_index(
+            [(n, self._stack.get_child_by_name(n)) for n in all_page_names]
+        )
+
+        # Search results page (added to stack, not in sidebar)
+        self._search_page = _SearchResultsPage()
+        self._stack.add_named(self._search_page, "__search__")
+
         # Sidebar
+        sidebar_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+
+        # Search bar
+        search_bar = Gtk.SearchBar()
+        search_bar.set_show_close_button(True)
+        search_entry = Gtk.SearchEntry()
+        search_entry.set_placeholder_text("Search settings…")
+        search_entry.set_hexpand(True)
+        search_bar.set_child(search_entry)
+        search_bar.connect_entry(search_entry)
+        sidebar_box.append(search_bar)
+
+        # Search toggle button in header
+        search_btn = Gtk.ToggleButton()
+        search_btn.set_icon_name("system-search-symbolic")
+        search_btn.set_tooltip_text("Search settings (Ctrl+F)")
+        search_btn.connect("toggled", lambda btn: (
+            search_bar.set_search_mode(btn.get_active()),
+            search_entry.grab_focus() if btn.get_active() else None,
+        ))
+        header.pack_start(search_btn)
+
         sidebar_list = Gtk.ListBox()
         sidebar_list.set_selection_mode(Gtk.SelectionMode.SINGLE)
         sidebar_list.add_css_class("navigation-sidebar")
+        self._sidebar_rows: list[Gtk.ListBoxRow] = []
         for name in all_page_names:
             row = Gtk.ListBoxRow()
             lbl = Gtk.Label(label=name, xalign=0)
@@ -190,24 +288,28 @@ class ConfigWindow(Adw.ApplicationWindow):
             lbl.set_margin_bottom(8)
             row.set_child(lbl)
             sidebar_list.append(row)
+            self._sidebar_rows.append(row)
 
         sidebar_list.select_row(sidebar_list.get_row_at_index(0))
+
+        sidebar_scroll = Gtk.ScrolledWindow()
+        sidebar_scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        sidebar_scroll.set_child(sidebar_list)
+        sidebar_box.append(sidebar_scroll)
 
         split = Adw.NavigationSplitView()
         split.set_min_sidebar_width(140)
         split.set_max_sidebar_width(200)
         split.set_sidebar_width_fraction(0.28)
 
-        sidebar_scroll = Gtk.ScrolledWindow()
-        sidebar_scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-        sidebar_scroll.set_child(sidebar_list)
-        sidebar_nav = Adw.NavigationPage.new(sidebar_scroll, "Settings")
+        sidebar_nav = Adw.NavigationPage.new(sidebar_box, "Settings")
         split.set_sidebar(sidebar_nav)
 
         self._overlay = Gtk.Overlay()
         self._overlay.set_child(self._stack)
         self._content_nav = Adw.NavigationPage.new(self._overlay, all_page_names[0])
         split.set_content(self._content_nav)
+        self._split = split
 
         def on_row_selected(_lb, row):
             if row is None:
@@ -218,6 +320,39 @@ class ConfigWindow(Adw.ApplicationWindow):
             split.set_show_content(True)
 
         sidebar_list.connect("row-selected", on_row_selected)
+
+        # Search logic
+        def on_search_changed(entry):
+            query = entry.get_text().strip().lower()
+            if not query:
+                # Show current sidebar tab
+                sel = sidebar_list.get_selected_row()
+                if sel:
+                    name = all_page_names[sel.get_index()]
+                    self._stack.set_visible_child_name(name)
+                    self._content_nav.set_title(name)
+                return
+            results = [
+                (tab, title, sub) for tab, title, sub in self._search_index
+                if query in tab.lower() or query in title.lower() or query in sub.lower()
+            ]
+            self._search_page.show_results(results, self._navigate_to)
+            self._stack.set_visible_child_name("__search__")
+            self._content_nav.set_title("Search Results")
+            split.set_show_content(True)
+
+        def on_search_stopped(_bar):
+            sidebar_list.unselect_all()
+            sidebar_list.select_row(sidebar_list.get_row_at_index(0))
+
+        search_entry.connect("search-changed", on_search_changed)
+        search_bar.connect("notify::search-mode", lambda b, _p:
+            on_search_stopped(b) if not b.get_search_mode() else None)
+
+        # Ctrl+F shortcut — toggle search
+        self._search_bar = search_bar
+        self._search_entry = search_entry
+
         toolbar_view.set_content(split)
 
         key_ctrl = Gtk.EventControllerKey.new()
@@ -295,10 +430,30 @@ class ConfigWindow(Adw.ApplicationWindow):
         self._header_title.set_subtitle(self._pack.info.name)
 
     def _on_key_pressed(self, _ctrl, keyval: int, _keycode: int, state: Gdk.ModifierType) -> bool:
-        if keyval == Gdk.KEY_s and (state & Gdk.ModifierType.CONTROL_MASK):
+        ctrl = state & Gdk.ModifierType.CONTROL_MASK
+        if keyval == Gdk.KEY_s and ctrl:
             write_save(self._vars, False)
             return True
+        if keyval == Gdk.KEY_f and ctrl:
+            self._search_bar.set_search_mode(
+                not self._search_bar.get_search_mode())
+            if self._search_bar.get_search_mode():
+                self._search_entry.grab_focus()
+            return True
         return False
+
+    def _navigate_to(self, tab_name: str) -> None:
+        """Navigate to a tab by name and close search."""
+        self._search_bar.set_search_mode(False)
+        self._stack.set_visible_child_name(tab_name)
+        self._content_nav.set_title(tab_name)
+        self._split.set_show_content(True)
+        # Select the matching sidebar row
+        for i, row in enumerate(self._sidebar_rows):
+            lbl = row.get_child()
+            if isinstance(lbl, Gtk.Label) and lbl.get_text() == tab_name:
+                row.get_parent().select_row(row)
+                break
 
     def _show_toast(self, message: str) -> None:
         box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
