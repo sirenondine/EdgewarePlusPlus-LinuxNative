@@ -14,7 +14,30 @@ All stable builds can be found in the "Releases" tab on the right (or [here](htt
 
 Save and extract it somewhere, then run `edgeware/EdgewareSetup.bat`. This will install python for you, alongside some necessary libraries. After that it will give you instructions for further use, and open up `edgeware/config.pyw`. **Check the top of the installer window to see if you have an older version of Python installed!** Edgeware previously used python 3.10, and if you're using that version, you'll have to uninstall it to get the newest version!
 
-**If you're using Linux**, first you need to install Python 3.12, pip, and mpv yourself, if you don't already have them installed already. Your distribution should contain packages for them. For example, on Debian and its derivatives, you can install them by running `sudo apt install python3 python3-pip mpv gcc python3-dev libmpv-dev python3-tk`. Once installed, download and extract Edgeware as a ZIP or clone the repository, then run `setup.sh` in a terminal window in the `edgeware` directory. This will create a Python virtual environment for Edgeware, install the dependencies, and create scripts for running Edgeware. `config.sh` allows you to configure Edgeware and `edgeware.sh` will start Edgeware itself.
+**If you're using Linux**, this fork (LinuxNative) runs **natively on Wayland** — the
+config window and the runtime popups are GTK4, popups use `gtk4-layer-shell`, and
+video/audio play through GStreamer (no mpv, no Tkinter). It needs a Wayland
+compositor that supports the layer-shell protocol (niri, Sway, Hyprland, KDE, etc.;
+it also runs under X11 via XWayland, but layer-shell positioning is Wayland-only).
+
+First install the system dependencies (Python 3.12+, PyGObject/GTK4, libadwaita,
+gtk4-layer-shell, and GStreamer with the Rust plugins that provide
+`gtk4paintablesink`):
+
+- **Arch:** `sudo pacman -S python python-pip python-gobject gtk4 libadwaita gtk4-layer-shell gstreamer gst-plugins-base gst-plugins-good gst-plugins-bad gst-plugins-rs`
+- **Fedora:** `sudo dnf install python3 python3-pip python3-gobject gtk4 libadwaita gtk4-layer-shell gstreamer1-plugins-base gstreamer1-plugins-good gstreamer1-plugins-bad-free gstreamer1-plugins-rs`
+- **Debian/Ubuntu:** `sudo apt install python3 python3-pip python3-gi gir1.2-gtk-4.0 gir1.2-adw-1 libgtk4-layer-shell0 gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-plugins-rs`
+
+Then download/extract Edgeware as a ZIP or clone the repository into
+`~/.local/share/edgeware`, and run `setup.sh` in a terminal there. It checks for the
+required system libraries, creates a Python virtual environment, installs the Python
+dependencies, and writes the run scripts. `config.sh` opens the configuration window
+and `edgeware.sh` starts Edgeware itself; a tray icon and desktop launchers are also
+registered on first run.
+
+The global **panic** hotkey uses the desktop's GlobalShortcuts portal where available
+(KDE/GNOME); on compositors that don't support it, Edgeware falls back to reading
+input devices directly, which requires your user to be in the `input` group.
 
 From there you'll need an actual pack, which can be downloaded online or made yourself. Unfortunately at the time of writing there's really no congregated directory of packs everyone's made, they're all scattered to the four winds... but for a start [the original Edgeware page](https://github.com/PetitTournesol/Edgeware) has a few sample packs, and there's a few more in the "Packs" section of the readme.
 
