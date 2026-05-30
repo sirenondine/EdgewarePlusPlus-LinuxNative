@@ -124,8 +124,15 @@ def handle_gamification(settings: Settings, pack: Pack, state: State) -> None:
 
     from features import gamification
 
+    def companion_say(event: str, detail: str) -> None:
+        # Let the companion comment on milestones (no-op if not enabled).
+        companion = getattr(state, "companion", None)
+        if companion:
+            companion.react(event, detail)
+
     def on_level_up(level: int) -> None:
         notify("Edgeware++", f"Level up! You reached level {level}.", icon=pack.icon)
+        companion_say("level_up", f"the user just reached level {level}")
 
     def reward() -> None:
         if getattr(settings, "gamification_rewards", False):
@@ -135,10 +142,12 @@ def handle_gamification(settings: Settings, pack: Pack, state: State) -> None:
     def on_achievement(ach) -> None:
         notify(f"Achievement unlocked: {ach.name}", ach.description, icon=pack.icon)
         reward()
+        companion_say("achievement", f"the user unlocked the achievement '{ach.name}'")
 
     def on_quest_complete(quest) -> None:
         notify("Quest complete", f"{quest.desc}  ·  +{quest.reward} XP", icon=pack.icon)
         reward()
+        companion_say("quest_complete", f"the user completed a quest: {quest.desc}")
 
     gamification.set_level_up_callback(on_level_up)
     gamification.set_achievement_callback(on_achievement)

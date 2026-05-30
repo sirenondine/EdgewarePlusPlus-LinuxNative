@@ -32,6 +32,7 @@ import logging
 import gi
 
 gi.require_version("Gtk", "4.0")
+gi.require_version("Gdk", "4.0")
 gi.require_version("Gtk4LayerShell", "1.0")
 from gi.repository import GLib, Gtk
 from gi.repository import Gtk4LayerShell as LayerShell
@@ -47,16 +48,19 @@ def _ensure_css() -> None:
         return
     from gi.repository import Gdk
     css = Gtk.CssProvider()
+    # Follow the active GTK theme (light/dark + accent) like the gamification
+    # HUD, so the companion bubble reads as native chrome.
     css.load_from_string("""
         window.companion-window { background: transparent; }
         .companion-bg {
-            background: rgba(0,0,0,0.82);
-            border: 1px solid rgba(255,255,255,0.45);
+            background-color: alpha(@theme_bg_color, 0.94);
+            color: @theme_fg_color;
+            border: 1px solid @borders;
             border-radius: 14px;
             padding: 12px;
+            box-shadow: 0 1px 4px rgba(0,0,0,0.35);
         }
-        .companion-name { color: #ff9ed8; font-weight: bold; text-shadow: 0 0 3px black; }
-        .companion-bubble { color: white; text-shadow: 0 0 4px black; }
+        .companion-name { color: @theme_selected_bg_color; font-weight: bold; }
         .companion-avatar { border-radius: 10px; }
     """)
     Gtk.StyleContext.add_provider_for_display(
