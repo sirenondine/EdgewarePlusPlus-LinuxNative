@@ -232,6 +232,9 @@ class StartTab(Adw.PreferencesPage):
         general.add(AdwSwitchRow("Run Edgeware on Save &amp; Exit", vars.run_on_save_quit))
         general.add(AdwSwitchRow("Create Desktop Icons", vars.desktop_icons))
         general.add(AdwSwitchRow(
+            "Pause When Screen Locks", vars.pause_on_lock,
+            subtitle="Stop spawning popups while the session is locked; resume on unlock."))
+        general.add(AdwSwitchRow(
             "Warn if \"Dangerous\" Settings Active", vars.safe_mode,
             subtitle="Asks you to confirm before saving if certain settings are enabled."))
         general.add(AdwSwitchRow("Disable Config Help Messages", vars.message_off))

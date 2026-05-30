@@ -21,6 +21,26 @@ from dataclasses import dataclass
 
 from config.settings import Settings
 
+# Soft-pause flag. When set, roll_targets is a no-op so no new popups spawn,
+# but the timer loop keeps running so resume is instant. Toggled over the panic
+# socket (pause/resume/toggle) and from the tray.
+_paused = False
+
+
+def set_paused(value: bool) -> None:
+    global _paused
+    _paused = value
+
+
+def is_paused() -> bool:
+    return _paused
+
+
+def toggle_paused() -> bool:
+    global _paused
+    _paused = not _paused
+    return _paused
+
 
 @dataclass
 class RollTarget:
@@ -33,6 +53,8 @@ class RollTarget:
 
 
 def roll_targets(settings: Settings, targets: list[RollTarget]) -> None:
+    if _paused:
+        return
     if settings.single_mode:
         try:
             function = random.choices(list(map(lambda target: target.function, targets)), list(map(lambda target: target.chance(), targets)), k=1)[0]

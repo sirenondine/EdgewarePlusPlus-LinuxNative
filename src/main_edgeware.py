@@ -66,6 +66,7 @@ from features.corruption import corruption_danger_check, handle_corruption
 from features.drive import fill_drive, replace_images
 from features.hibernate import main_hibernate, start_main_hibernate
 from features.image_popup import ImagePopup
+from features.lockscreen import handle_lock_screen
 from features.misc import (
     handle_discord,
     handle_keyboard,
@@ -84,14 +85,15 @@ from features.subliminal_popup import SubliminalPopup
 from features.video_popup import VideoPopup
 from pack import Pack
 from panic import start_panic_listener
-from roll import RollTarget, roll_targets
+from roll import RollTarget, is_paused, roll_targets
 from scripting import run_script
 from state import State
 
 
 def main(settings: Settings, pack: Pack, state: State, targets: list[RollTarget]) -> None:
-    roll_targets(settings, targets)
-    Thread(target=lambda: fill_drive(settings, pack, state), daemon=True).start()  # Thread for performance reasons
+    roll_targets(settings, targets)  # self-gates on pause
+    if not is_paused():
+        Thread(target=lambda: fill_drive(settings, pack, state), daemon=True).start()  # Thread for performance reasons
     utils.after(settings.delay, lambda: main(settings, pack, state, targets))
 
 
@@ -136,6 +138,7 @@ if __name__ == "__main__":
             handle_corruption(settings, pack, state)
             handle_discord(settings, pack)
             handle_sextoy(settings, state)
+            handle_lock_screen(settings, state)
             handle_panic_lockout(settings, state)
             handle_mitosis_mode(settings, pack, state)
             run_script(settings, pack, state)

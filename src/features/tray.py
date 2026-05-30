@@ -184,12 +184,13 @@ class DBusMenu:
 
 
 class StatusNotifierItem:
-    def __init__(self, icon_name: str, tooltip: str, on_panic: Callable[[], None], on_skip_hibernate: Callable[[], None] | None = None, on_open_config: Callable[[], None] | None = None, on_quit: Callable[[], None] | None = None) -> None:
+    def __init__(self, icon_name: str, tooltip: str, on_panic: Callable[[], None], on_skip_hibernate: Callable[[], None] | None = None, on_open_config: Callable[[], None] | None = None, on_toggle_pause: Callable[[], None] | None = None, on_quit: Callable[[], None] | None = None) -> None:
         self._icon_name = icon_name
         self._tooltip = tooltip
         self._on_panic = on_panic
         self._on_skip_hibernate = on_skip_hibernate
         self._on_open_config = on_open_config
+        self._on_toggle_pause = on_toggle_pause
         self._on_quit = on_quit
         self._reg_id = 0
         self._menu = None
@@ -202,6 +203,8 @@ class StatusNotifierItem:
 
         # Build the right-click menu model.
         self._menu_items: list[tuple[str, Callable[[], None]]] = [("Panic", on_panic)]
+        if on_toggle_pause:
+            self._menu_items.append(("Pause / Resume Popups", on_toggle_pause))
         if on_skip_hibernate:
             self._menu_items.append(("Skip to Hibernate", on_skip_hibernate))
         if on_open_config:

@@ -202,6 +202,7 @@ CONFIG_ITEMS = {
     "mpv_subprocess": Item("mpvSubprocess", BOOLEAN, VAR, bool, block=True),
     "video_hardware_acceleration": Item("videoHardwareAcceleration", BOOLEAN, VAR, bool),
     "panic_key": Item("panicButton", STRING, VAR, str, block=True),
+    "pause_on_lock": Item("pauseOnLock", BOOLEAN, VAR, bool, block=True),
 
     # Sex toys (Intiface/Buttplug). "sextoys" maps a device-index string to a
     # dict of per-event vibration settings; stored verbatim as JSON. The inner

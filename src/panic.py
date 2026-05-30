@@ -28,6 +28,9 @@ from state import State
 
 AUTHKEY = b"Edgeware++"
 PANIC_MESSAGE = "panic"
+PAUSE_MESSAGE = "pause"
+RESUME_MESSAGE = "resume"
+TOGGLE_MESSAGE = "toggle"
 
 
 def _socket_path() -> str:
@@ -89,26 +92,55 @@ def start_panic_listener(settings: Settings, state: State) -> None:
             pass
 
         try:
+            import roll
             with Listener(address=path, family="AF_UNIX", authkey=AUTHKEY) as listener:
                 while True:
                     with listener.accept() as connection:
                         message = connection.recv()
                         if message == PANIC_MESSAGE:
                             panic(settings, state, disable=False)
+                        elif message == PAUSE_MESSAGE:
+                            roll.set_paused(True)
+                        elif message == RESUME_MESSAGE:
+                            roll.set_paused(False)
+                        elif message == TOGGLE_MESSAGE:
+                            roll.toggle_paused()
         except OSError as e:
             logging.warning(f"Failed to start panic listener: {e}")
 
     Thread(target=listen, daemon=True).start()
 
 
-def send_panic() -> None:
+def _send(message: str) -> bool:
+    """Send a control message to a running runtime. Returns False if none."""
     path = _socket_path()
     try:
         with Client(address=path, family="AF_UNIX", authkey=AUTHKEY) as connection:
-            connection.send(PANIC_MESSAGE)
+            connection.send(message)
+        return True
     except (FileNotFoundError, ConnectionRefusedError):
-        logging.info("No running Edgeware++ instance to panic (socket absent).")
+        logging.info(f"No running Edgeware++ instance for '{message}' (socket absent).")
+        return False
+
+
+def send_panic() -> None:
+    _send(PANIC_MESSAGE)
+
+
+def send_pause() -> bool:
+    return _send(PAUSE_MESSAGE)
+
+
+def send_resume() -> bool:
+    return _send(RESUME_MESSAGE)
+
+
+def send_toggle_pause() -> bool:
+    return _send(TOGGLE_MESSAGE)
 
 
 if __name__ == "__main__":
-    send_panic()
+    import sys
+    _send({"pause": PAUSE_MESSAGE, "resume": RESUME_MESSAGE,
+           "toggle": TOGGLE_MESSAGE}.get(sys.argv[1] if len(sys.argv) > 1 else "",
+                                         PANIC_MESSAGE))

@@ -116,6 +116,10 @@ def make_tray_icon(
         import sys
         subprocess.Popen([sys.executable, Process.CONFIG])
 
+    def toggle_pause() -> None:
+        import roll
+        roll.toggle_paused()
+
     try:
         state.tray = StatusNotifierItem(
             icon_name=os_utils.APP_ID,
@@ -123,6 +127,7 @@ def make_tray_icon(
             on_panic=lambda: panic(settings, state),
             on_skip_hibernate=skip_hibernate if settings.hibernate_mode else None,
             on_open_config=open_config,
+            on_toggle_pause=toggle_pause,
             on_quit=lambda: panic(settings, state),
         )
         logging.info("Created StatusNotifierItem tray icon (D-Bus, with menu)")
