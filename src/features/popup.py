@@ -179,7 +179,10 @@ class Popup(Gtk.Window):
             vibrate_event(self.vibration_open_event, self.settings, self.state.sextoy)
 
     def compute_geometry(self, source_width: int, source_height: int) -> None:
-        self.monitor = utils.random_monitor(self.settings)
+        # Monitor may be pre-selected on the main thread (e.g. ImagePopup, which
+        # then sizes on a worker thread where GDK/screeninfo are unsafe).
+        if getattr(self, "monitor", None) is None:
+            self.monitor = utils.random_monitor(self.settings)
 
         source_size = max(source_width, source_height) / min(self.monitor.width, self.monitor.height)
         target_size = (random.randint(30, 70) if not self.settings.lowkey_mode else random.randint(20, 50)) / 100

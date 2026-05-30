@@ -23,6 +23,7 @@ from typing import Callable
 
 from gi.repository import GLib, Gtk
 
+import utils
 from config.settings import Settings
 from features.gtk_media import pil_to_pixbuf, stop_media, video_widget
 from features.popup import Popup
@@ -44,6 +45,18 @@ class ImagePopup(Popup):
             return
         super().__init__(settings, pack, state, on_close)
 
+        self._media_file = None
+        # Pick the monitor on the main thread (GDK / screeninfo are not
+        # thread-safe). Everything expensive — the optional booru network
+        # fetch, decode and resize — runs on a worker thread so it never
+        # hitches the main loop; the widget is built + presented back on main.
+        self.monitor = utils.random_monitor(settings)
+        denial_filter = self.try_denial_filter()
+        Thread(target=self._prepare, args=(denial_filter,), daemon=True).start()
+
+    def _acquire_image(self) -> Image.Image:
+        """Worker-thread image source: booru network fetch (when enabled) or the
+        local pack image. Network I/O must stay off the main thread."""
         # TODO: Better booru integration
         if self.settings.booru_download and roll(50):
             try:
@@ -55,30 +68,21 @@ class ImagePopup(Popup):
                 gel = booru.Gelbooru()
                 result = booru.resolve(asyncio.run(gel.search_image(query=self.settings.booru_tags, limit=1)))
                 data = requests.get(result[0], stream=True)
-                image = Image.open(data.raw)
+                return Image.open(data.raw)
             except Exception:
                 logging.error(f'No results for tags "{self.settings.booru_tags}" on Gelbooru')
-                image = Image.open(self.media)
-        else:
-            image = Image.open(self.media)
-        self.compute_geometry(image.width, image.height)
+        return Image.open(self.media)
 
-        self._media_file = None
-
-        if getattr(image, "n_frames", 0) > 1:
-            # Animated image — play natively via GStreamer
-            video, self._media_file = video_widget(self.media, self.width, self.height, loop=True, muted=True, blur=self.denial, hardware_acceleration=self.settings.video_hardware_acceleration)
-            self.set_media_widget(video)
-            self.init_finish()
-        else:
-            # Decode + resize (the expensive part) on a worker thread so it
-            # doesn't hitch the main loop; PIL releases the GIL during these
-            # ops. Build the widget and present back on the main thread.
-            denial_filter = self.try_denial_filter()
-            Thread(target=self._prepare_still, args=(image, denial_filter), daemon=True).start()
-
-    def _prepare_still(self, image: Image.Image, denial_filter) -> None:
+    def _prepare(self, denial_filter) -> None:
         try:
+            image = self._acquire_image()
+            src_w, src_h = image.width, image.height
+            if getattr(image, "n_frames", 0) > 1:
+                # Animated — must build the GStreamer widget on the main thread.
+                GLib.idle_add(self._finish_animated, src_w, src_h)
+                return
+            # Geometry is pure math now that the monitor is already chosen.
+            self.compute_geometry(src_w, src_h)
             # draft() lets the JPEG loader decode at a reduced scale near the
             # target (big win for multi-megapixel sources); no-op for PNG/GIF.
             try:
@@ -98,6 +102,13 @@ class ImagePopup(Popup):
             GLib.idle_add(self.close)  # release the slot + destroy the empty window
             return
         GLib.idle_add(self._finish_still, pixbuf)
+
+    def _finish_animated(self, src_w: int, src_h: int) -> bool:
+        self.compute_geometry(src_w, src_h)
+        video, self._media_file = video_widget(self.media, self.width, self.height, loop=True, muted=True, blur=self.denial, hardware_acceleration=self.settings.video_hardware_acceleration)
+        self.set_media_widget(video)
+        self.init_finish()
+        return False
 
     def _finish_still(self, pixbuf) -> bool:
         picture = Gtk.Picture.new_for_pixbuf(pixbuf)

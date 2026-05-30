@@ -137,6 +137,8 @@ if __name__ == "__main__":
         ]
 
         def start_main() -> None:
+            import perf
+            perf.watchdog()
             make_tray_icon(settings, pack, state, lambda: main_hibernate(settings, pack, state, targets))
             make_desktop_icons(settings)
             handle_keyboard(settings, state)

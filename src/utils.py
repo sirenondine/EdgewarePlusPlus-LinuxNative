@@ -121,8 +121,25 @@ def focused_monitor() -> Monitor | None:
     return None
 
 
+_monitor_cache: tuple[float, list[Monitor]] | None = None
+_MONITOR_TTL = 2.0  # seconds; long enough to coalesce popup bursts, short enough to notice hotplug
+
+
+def cached_monitors() -> list[Monitor]:
+    """get_monitors() (~5-8ms each) cached briefly so a burst of popups doesn't
+    re-query the display once per popup."""
+    global _monitor_cache
+    now = time.monotonic()
+    if _monitor_cache and now - _monitor_cache[0] < _MONITOR_TTL:
+        return _monitor_cache[1]
+    monitors = get_monitors()
+    _monitor_cache = (now, monitors)
+    return monitors
+
+
 def random_monitor(settings: Settings) -> Monitor:
-    enabled_monitors = [m for m in get_monitors() if m.name not in settings.disabled_monitors]
+    _all = cached_monitors()
+    enabled_monitors = [m for m in _all if m.name not in settings.disabled_monitors]
 
     if getattr(settings, "spawn_on_active_monitor", False):
         focused = focused_monitor()
