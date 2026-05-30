@@ -72,6 +72,20 @@ def handle_sextoy(settings: Settings, state: State) -> None:
     if not BUTTPLUG_AVAILABLE or not getattr(settings, "sextoys", None):
         return
     state.sextoy = Sextoy(settings)
+
+    def on_status(connected: bool) -> None:
+        # Fired from the asyncio thread — marshal UI work to the main thread.
+        from gi.repository import GLib
+
+        def update() -> None:
+            notify("Edgeware++", "Toy connected." if connected else "Toy disconnected. Reconnect from the tray menu.")
+            if state.tray and hasattr(state.tray, "set_toy_status"):
+                state.tray.set_toy_status(connected)
+            return False
+
+        GLib.idle_add(update)
+
+    state.sextoy.on_status_change = on_status
     state.sextoy.connect()
 
 
@@ -122,6 +136,11 @@ def make_tray_icon(
         if state.tray and hasattr(state.tray, "set_pause_label"):
             state.tray.set_pause_label(paused)
 
+    # Offer a reconnect entry only when toy support is actually usable.
+    from features.sextoy import BUTTPLUG_AVAILABLE
+    toy_configured = BUTTPLUG_AVAILABLE and getattr(settings, "sextoys", None)
+    on_reconnect_toy = (lambda: state.sextoy and state.sextoy.reconnect()) if toy_configured else None
+
     try:
         state.tray = StatusNotifierItem(
             icon_name=os_utils.APP_ID,
@@ -130,6 +149,7 @@ def make_tray_icon(
             on_skip_hibernate=skip_hibernate if settings.hibernate_mode else None,
             on_open_config=open_config,
             on_toggle_pause=toggle_pause,
+            on_reconnect_toy=on_reconnect_toy,
             on_quit=lambda: request_panic(settings, state),
         )
         logging.info("Created StatusNotifierItem tray icon (D-Bus, with menu)")
