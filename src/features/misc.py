@@ -109,6 +109,23 @@ def handle_companion(settings: Settings, pack: Pack, state: State) -> None:
         state.companion_window = window
         if getattr(settings, "companion_greet_on_start", False):
             companion.greet()
+
+        # Optional timer-driven observation, on a cadence instead of on focus
+        # changes: screen-aware -> look at the screen; otherwise idle chatter.
+        interval = getattr(settings, "companion_observe_interval", 0)
+        if interval > 0:
+            from gi.repository import GLib
+
+            def observe_tick() -> bool:
+                import roll
+                if state.companion and not roll.is_paused():
+                    if getattr(settings, "companion_screenshot_awareness", False):
+                        state.companion.observe()
+                    else:
+                        state.companion.idle_chatter()
+                return True
+
+            GLib.timeout_add_seconds(interval, observe_tick)
     except Exception as e:
         logging.warning(f"Failed to start AI companion: {e}")
         state.companion = None

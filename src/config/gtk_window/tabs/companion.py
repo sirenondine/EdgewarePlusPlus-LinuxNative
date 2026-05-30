@@ -68,13 +68,16 @@ class CompanionTab(Adw.PreferencesPage):
             description="Override the pack's companion. Leave blank to use the pack's companion.json (or the built-in default).")
         self.add(persona)
         persona.add(AdwEntryRow("Name", vars.companion_name))
-        persona.add(self._prompt_editor(vars))
+        persona.add(self._text_editor("System prompt", vars.companion_system_prompt))
+        persona.add(self._text_editor("Memory / about the user", vars.companion_memory))
 
         behaviour = Adw.PreferencesGroup(title="Behaviour")
         self.add(behaviour)
         behaviour.add(AdwSliderRow("Idle Chatter Chance", vars.companion_chatter_chance, 0, 100))
         behaviour.add(AdwSliderRow("Reaction Chance", vars.companion_react_chance, 0, 100,
                                    subtitle="How often the companion reacts to popups and denials."))
+        behaviour.add(AdwSliderRow("Observe Interval", vars.companion_observe_interval, 0, 300,
+                                   subtitle="Seconds between timed check-ins (0 = react to focus changes instead)."))
         behaviour.add(AdwSwitchRow("Greet on Start", vars.companion_greet_on_start))
         behaviour.add(AdwSwitchRow(
             "Window Awareness", vars.companion_window_awareness, subtitle=PRIVACY_TEXT))
@@ -100,10 +103,10 @@ class CompanionTab(Adw.PreferencesPage):
         self._reply.set_margin_bottom(4)
         test_group.add(self._reply)
 
-    def _prompt_editor(self, vars: Vars) -> Gtk.Widget:
-        """A multiline editor for the system prompt, bound to the config var."""
+    def _text_editor(self, label_text, variable) -> Gtk.Widget:
+        """A multiline editor bound to a ConfigVar."""
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
-        label = Gtk.Label(label="System prompt", xalign=0)
+        label = Gtk.Label(label=label_text, xalign=0)
         label.add_css_class("dim-label")
         box.append(label)
 
@@ -113,10 +116,10 @@ class CompanionTab(Adw.PreferencesPage):
         view.set_left_margin(6)
         view.set_right_margin(6)
         buf = view.get_buffer()
-        buf.set_text(str(vars.companion_system_prompt.get() or ""))
+        buf.set_text(str(variable.get() or ""))
 
         def on_changed(b) -> None:
-            vars.companion_system_prompt.set(b.get_text(b.get_start_iter(), b.get_end_iter(), False))
+            variable.set(b.get_text(b.get_start_iter(), b.get_end_iter(), False))
         buf.connect("changed", on_changed)
 
         # Reflect external changes (preset / pack apply) without looping.
@@ -124,7 +127,7 @@ class CompanionTab(Adw.PreferencesPage):
             text = str(value or "")
             if buf.get_text(buf.get_start_iter(), buf.get_end_iter(), False) != text:
                 buf.set_text(text)
-        vars.companion_system_prompt.trace_add(on_var)
+        variable.trace_add(on_var)
 
         scroller = Gtk.ScrolledWindow()
         scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)

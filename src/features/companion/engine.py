@@ -94,7 +94,49 @@ class Companion:
 
     def _messages(self, user_text: str) -> list[dict]:
         system = self.persona.system_prompt or _DEFAULT_SYSTEM
-        return [{"role": "system", "content": system}, *self._history, {"role": "user", "content": user_text}]
+        messages = [{"role": "system", "content": system}]
+        context = self._context_block()
+        if context:
+            messages.append({"role": "system", "content": context})
+        messages.extend(self._history)
+        messages.append({"role": "user", "content": user_text})
+        return messages
+
+    def _context_block(self) -> str:
+        """Background facts that give the companion insight into the user and
+        the current pack. Rebuilt each turn (cheap) so live values like the
+        gamification level stay current."""
+        lines: list[str] = []
+
+        info = getattr(self.pack, "info", None)
+        if info:
+            desc = (getattr(info, "description", "") or "").strip()
+            if desc and desc != "No description set.":
+                lines.append(f"Pack theme: \"{info.name}\" — {desc}")
+
+        # Where this pack sends the user (domains only, not full URLs).
+        try:
+            from urllib.parse import urlparse
+            domains = sorted({urlparse(w.url).netloc for w in self.pack.find_list("web") if getattr(w, "url", "")})
+            if domains:
+                lines.append("The user gets sent to sites like: " + ", ".join(domains[:8]))
+        except Exception:
+            pass
+
+        memory = (getattr(self.settings, "companion_memory", "") or "").strip()
+        if memory:
+            lines.append(f"What you know about the user: {memory}")
+
+        try:
+            if getattr(self.settings, "gamification", False):
+                from features import gamification
+                lines.append(f"The user is at progression level {gamification.progress().level}.")
+        except Exception:
+            pass
+
+        if not lines:
+            return ""
+        return "Background for flavour (do not recite verbatim):\n" + "\n".join(lines)
 
     # ------------------------------------------------------------------
     def say(self, user_text: str, image_b64: str | None = None) -> None:

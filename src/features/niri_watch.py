@@ -40,8 +40,11 @@ def handle_niri_watch(settings, state) -> None:
     want_casts = bool(getattr(settings, "pause_on_screenshare", False))
     pause_apps = _parse_apps(getattr(settings, "pause_apps", "") or "")
     companion_on = getattr(settings, "companion_enabled", False)
+    # A non-zero observe interval means a timer drives screen observation instead
+    # of focus changes (see handle_companion), so don't also fire it here.
+    timer_observe = bool(getattr(settings, "companion_observe_interval", 0))
     want_app_react = bool(companion_on and getattr(settings, "companion_window_awareness", False))
-    want_screenshot = bool(companion_on and getattr(settings, "companion_screenshot_awareness", False))
+    want_screenshot = bool(companion_on and getattr(settings, "companion_screenshot_awareness", False) and not timer_observe)
     want_companion = want_app_react or want_screenshot
     if not want_casts and not pause_apps and not want_companion:
         return  # nothing to watch
