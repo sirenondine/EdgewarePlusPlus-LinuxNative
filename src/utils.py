@@ -64,6 +64,43 @@ def primary_monitor() -> Monitor | None:
     return next((m for m in monitors if m.is_primary), monitors[0] if monitors else None)
 
 
+def gdk_monitor_for(monitor) -> object | None:
+    """Map a screeninfo Monitor to the matching Gdk.Monitor by geometry origin."""
+    from gi.repository import Gdk
+    display = Gdk.Display.get_default()
+    if not display:
+        return None
+    monitors = display.get_monitors()
+    best = None
+    for i in range(monitors.get_n_items()):
+        gdk_mon = monitors.get_item(i)
+        geo = gdk_mon.get_geometry()
+        if geo.x == monitor.x and geo.y == monitor.y:
+            return gdk_mon
+        if best is None:
+            best = gdk_mon
+    return best
+
+
+def after(delay_ms: int, callback) -> int:
+    """One-shot GLib timer — equivalent to Tkinter root.after(). Returns source ID."""
+    from gi.repository import GLib
+    def _run():
+        callback()
+        return GLib.SOURCE_REMOVE
+    return GLib.timeout_add(delay_ms, _run)
+
+
+def after_cancel(source_id: int | None) -> None:
+    """Cancel a GLib timer by source ID."""
+    from gi.repository import GLib
+    if source_id is not None:
+        try:
+            GLib.source_remove(source_id)
+        except Exception:
+            pass
+
+
 def random_monitor(settings: Settings) -> Monitor:
     enabled_monitors = [m for m in get_monitors() if m.name not in settings.disabled_monitors]
     return random.choice(enabled_monitors or primary_monitor())

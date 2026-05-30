@@ -19,9 +19,9 @@ import logging
 import random
 from collections.abc import Callable
 from threading import Thread
-from tkinter import Tk
 
 import os_utils
+import utils
 from config.settings import Settings
 from features.drive import fill_drive
 from features.misc import handle_wallpaper
@@ -38,15 +38,15 @@ def reset_wallpaper(settings: Settings, state: State) -> None:
     os_utils.set_wallpaper(CustomAssets.panic_wallpaper())
 
 
-def spaced(root: Tk, settings: Settings, targets: list[RollTarget], run: Callable[[], bool]) -> None:
+def spaced(settings: Settings, targets: list[RollTarget], run: Callable[[], bool]) -> None:
     if not run():
         return
 
     roll_targets(settings, targets)
-    root.after(settings.delay, lambda: spaced(root, settings, targets, run))
+    utils.after(settings.delay, lambda: spaced(settings, targets, run))
 
 
-def glitch(root: Tk, settings: Settings, targets: list[RollTarget], run: Callable[[], bool]) -> None:
+def glitch(settings: Settings, targets: list[RollTarget], run: Callable[[], bool]) -> None:
     def loop(n: int = 0) -> None:
         if not run() or n >= settings.hibernate_activity:
             return
@@ -57,19 +57,19 @@ def glitch(root: Tk, settings: Settings, targets: list[RollTarget], run: Callabl
         modifier = random.randint(2, 4)
 
         delay = random.choice([0, base, base // modifier, base * modifier])
-        root.after(delay, lambda: loop(n + 1))
+        utils.after(delay, lambda: loop(n + 1))
 
     loop()
 
 
-def ramp(root: Tk, settings: Settings, targets: list[RollTarget], run: Callable[[], bool]) -> None:
+def ramp(settings: Settings, targets: list[RollTarget], run: Callable[[], bool]) -> None:
     halfway = False
 
     def reached_halfway() -> None:
         nonlocal halfway
         halfway = True
 
-    root.after(settings.hibernate_activity_length // 2, reached_halfway)
+    utils.after(settings.hibernate_activity_length // 2, reached_halfway)
 
     def loop(delay_modifier: float = settings.hibernate_activity_length // 4, accelerate: float = 1, n: int = 0) -> None:
         if not run() or n >= settings.hibernate_activity:
@@ -85,13 +85,13 @@ def ramp(root: Tk, settings: Settings, targets: list[RollTarget], run: Callable[
             delay_modifier = delay_modifier / accelerate
             delay = int(settings.delay + delay_modifier)
 
-        root.after(delay, lambda: loop(delay_modifier, accelerate, n))
+        utils.after(delay, lambda: loop(delay_modifier, accelerate, n))
 
     loop()
 
 
 def activity_loop(
-    root: Tk, settings: Settings, targets: list[RollTarget], callback: Callable[[], None], activity: Callable[[Tk, Settings, list[RollTarget], bool], None]
+    settings: Settings, targets: list[RollTarget], callback: Callable[[], None], activity: Callable[[Settings, list[RollTarget], Callable[[], bool]], None]
 ) -> None:
     run = True
 
@@ -100,27 +100,27 @@ def activity_loop(
         run = False
         callback()
 
-    root.after(settings.hibernate_activity_length, end)
-    activity(root, settings, targets, lambda: run)
+    utils.after(settings.hibernate_activity_length, end)
+    activity(settings, targets, lambda: run)
 
 
-def hibernate(root: Tk, settings: Settings, pack: Pack, state: State, targets: list[RollTarget]) -> None:
+def hibernate(settings: Settings, pack: Pack, state: State, targets: list[RollTarget]) -> None:
     delay = random.randint(settings.hibernate_delay_min, settings.hibernate_delay_max)
-    state.hibernate_id = root.after(delay, lambda: main_hibernate(root, settings, pack, state, targets))
+    state.hibernate_id = utils.after(delay, lambda: main_hibernate(settings, pack, state, targets))
 
 
-def main_hibernate(root: Tk, settings: Settings, pack: Pack, state: State, targets: list[RollTarget]) -> None:
+def main_hibernate(settings: Settings, pack: Pack, state: State, targets: list[RollTarget]) -> None:
     def on_end() -> None:
         state.hibernate_active = False
         state.pump_scare = False
-        hibernate(root, settings, pack, state, targets)
+        hibernate(settings, pack, state, targets)
 
     state.hibernate_active = True
     type = settings.hibernate_type if settings.hibernate_type != "Chaos" else random.choice(["Original", "Spaced", "Glitch", "Ramp", "Pump-Scare"])
 
-    Thread(target=lambda: fill_drive(root, settings, pack, state), daemon=True).start()  # Thread for performance reasons
+    Thread(target=lambda: fill_drive(settings, pack, state), daemon=True).start()  # Thread for performance reasons
     if settings.hibernate_fix_wallpaper:
-        handle_wallpaper(root, settings, pack, state)
+        handle_wallpaper(settings, pack, state)
 
     match type:
         case "Original":
@@ -128,11 +128,11 @@ def main_hibernate(root: Tk, settings: Settings, pack: Pack, state: State, targe
                 roll_targets(settings, targets)
             on_end()
         case "Spaced":
-            activity_loop(root, settings, targets, on_end, spaced)
+            activity_loop(settings, targets, on_end, spaced)
         case "Glitch":
-            activity_loop(root, settings, targets, on_end, glitch)
+            activity_loop(settings, targets, on_end, glitch)
         case "Ramp":
-            activity_loop(root, settings, targets, on_end, ramp)
+            activity_loop(settings, targets, on_end, ramp)
         case "Pump-Scare":
             state.pump_scare = True
             targets[0].function()  # Image popup
@@ -142,12 +142,12 @@ def main_hibernate(root: Tk, settings: Settings, pack: Pack, state: State, targe
             logging.error(f"Unknown hibernate type {type}.")
 
 
-def start_main_hibernate(root: Tk, settings: Settings, pack: Pack, state: State, targets: list[RollTarget]) -> None:
+def start_main_hibernate(settings: Settings, pack: Pack, state: State, targets: list[RollTarget]) -> None:
     if not settings.hibernate_fix_wallpaper:
-        handle_wallpaper(root, settings, pack, state)
+        handle_wallpaper(settings, pack, state)
 
     observer = lambda: reset_wallpaper(settings, state)  # noqa: E731
     state._popup_number.attach(observer)
     state._hibernate_active.attach(observer)
 
-    hibernate(root, settings, pack, state, targets)
+    hibernate(settings, pack, state, targets)

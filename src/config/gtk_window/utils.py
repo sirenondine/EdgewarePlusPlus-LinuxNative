@@ -27,7 +27,7 @@ from threading import Thread
 from gi import require_version
 
 require_version("Gtk", "4.0")
-from gi.repository import Gtk
+from gi.repository import GLib, Gtk
 
 import os_utils
 import utils
@@ -41,10 +41,47 @@ config = load_config()
 log_file = utils.init_logging("config")
 
 
+def _get_parent_window():
+    from gi.repository import Gio
+    app = Gio.Application.get_default()
+    if app:
+        return app.get_active_window()
+    return None
+
+
+def dialog_run(dialog: Gtk.Dialog) -> Gtk.ResponseType:
+    """GTK4-compatible blocking dialog using a nested GLib main loop."""
+    loop = GLib.MainLoop()
+    result = [Gtk.ResponseType.DELETE_EVENT]
+
+    def on_response(_d, r):
+        result[0] = r
+        if loop.is_running():
+            loop.quit()
+
+    def on_close(_d):
+        if loop.is_running():
+            loop.quit()
+        return False
+
+    dialog.connect("response", on_response)
+    dialog.connect("close-request", on_close)
+    loop.run()
+    return result[0]
+
+
 def keyboard_listener(connection: Connection) -> None:
+    # pynput uses evdev on Wayland — requires read access to /dev/input/event*
+    # (user must be in the 'input' group or session must grant access)
+    if os.environ.get("WAYLAND_DISPLAY") and "PYNPUT_BACKEND" not in os.environ:
+        os.environ["PYNPUT_BACKEND"] = "evdev"
     with keyboard.Listener(on_release=lambda key: connection.send(str(key))) as listener:
         connection.send("focus")
         listener.join()
+
+
+def _is_wayland() -> bool:
+    return bool(os.environ.get("WAYLAND_DISPLAY")) or os.environ.get("XDG_SESSION_TYPE", "").lower() == "wayland"
 
 
 def request_global_panic_key(button: Gtk.Button, var: ConfigVar) -> None:
@@ -52,7 +89,15 @@ def request_global_panic_key(button: Gtk.Button, var: ConfigVar) -> None:
     window.set_default_size(250, 250)
     window.set_resizable(False)
     window.set_modal(True)
-    label = Gtk.Label(label="Press any key or close")
+    window.set_transient_for(button.get_root())
+
+    if _is_wayland():
+        label = Gtk.Label(
+            label="Press any key or close\n\n(Wayland: requires 'input' group\nor evdev access)",
+            wrap=True,
+        )
+    else:
+        label = Gtk.Label(label="Press any key or close")
     label.set_vexpand(True)
     label.set_hexpand(True)
     window.set_child(label)
@@ -84,6 +129,7 @@ def request_legacy_panic_key(button: Gtk.Button, var: ConfigVar) -> None:
     window.set_default_size(250, 250)
     window.set_resizable(False)
     window.set_modal(True)
+    window.set_transient_for(button.get_root())
     label = Gtk.Label(label="Press any key or close")
     label.set_vexpand(True)
     label.set_hexpand(True)
@@ -111,14 +157,15 @@ def confirm_overwrite(path: Path) -> bool:
     delete = shutil.rmtree if path.is_dir() else os.remove
 
     dialog = Gtk.Dialog(title="Confirm Overwrite")
+    dialog.set_transient_for(_get_parent_window())
     dialog.add_button("Cancel", Gtk.ResponseType.NO)
     dialog.add_button("Delete", Gtk.ResponseType.YES)
     dialog.get_content_area().append(Gtk.Label(
         label=f'Path "{path}" already exists.\n\nThis {path_type} will be permanently deleted. Proceed?',
-        wrap=True, margin=12,
+        wrap=True, margin_start=12, margin_end=12, margin_top=12, margin_bottom=12,
     ))
     dialog.present()
-    response = dialog.run()
+    response = dialog_run(dialog)
     dialog.destroy()
     if response == Gtk.ResponseType.YES:
         delete(path)
@@ -161,12 +208,21 @@ def write_save(vars: Vars, exit_at_end: bool = False) -> None:
         file.write(json.dumps(temp))
         logging.info(f"wrote config file: {json.dumps(temp)}")
 
+    window = _get_parent_window()
+    if window and hasattr(window, "clear_dirty"):
+        window.clear_dirty()
+
     if not (len(sys.argv) > 1 and sys.argv[1] == "--first-launch-configure") and vars.run_on_save_quit.get() and exit_at_end:
         subprocess.Popen([sys.executable, Process.MAIN])
 
     if exit_at_end:
         logging.info("exiting config")
-        sys.exit()
+        from gi.repository import Gio
+        app = Gio.Application.get_default()
+        if app:
+            app.quit()
+        else:
+            sys.exit()
     else:
         from config.gtk_window.toast import toast
         toast("Settings saved")
@@ -196,14 +252,15 @@ def safe_check(vars: Vars) -> bool:
         return True
 
     dialog = Gtk.Dialog(title="Dangerous Settings Detected!")
+    dialog.set_transient_for(_get_parent_window())
     dialog.add_button("Cancel", Gtk.ResponseType.NO)
     dialog.add_button("Save Anyway", Gtk.ResponseType.YES)
     dialog.get_content_area().append(Gtk.Label(
         label=f"{danger_num} potentially dangerous setting(s) detected! Save anyway?{warnings}",
-        wrap=True, margin=12,
+        wrap=True, margin_start=12, margin_end=12, margin_top=12, margin_bottom=12,
     ))
     dialog.present()
-    response = dialog.run()
+    response = dialog_run(dialog)
     dialog.destroy()
     return response == Gtk.ResponseType.YES
 
@@ -214,18 +271,20 @@ def clear_launches(confirmation: bool) -> None:
             os.remove(Data.CORRUPTION_LAUNCHES)
             if confirmation:
                 d = Gtk.Dialog(title="Cleaning Completed")
+                d.set_transient_for(_get_parent_window())
                 d.add_button("_Close", Gtk.ResponseType.OK)
-                d.get_content_area().append(Gtk.Label(label="The file that manages corruption launches has been deleted, and will be remade next time you start Edgeware with corruption on!", wrap=True, margin=12))
+                d.get_content_area().append(Gtk.Label(label="The file that manages corruption launches has been deleted, and will be remade next time you start Edgeware with corruption on!", wrap=True, margin_start=12, margin_end=12, margin_top=12, margin_bottom=12))
                 d.present()
-                d.run()
+                dialog_run(d)
                 d.destroy()
         else:
             if confirmation:
                 d = Gtk.Dialog(title="No launches file!")
+                d.set_transient_for(_get_parent_window())
                 d.add_button("_Close", Gtk.ResponseType.OK)
-                d.get_content_area().append(Gtk.Label(label="There is no launches file to delete!\n\nThe launches file is used for the launch transition mode, and is automatically deleted when you load a new pack.", wrap=True, margin=12))
+                d.get_content_area().append(Gtk.Label(label="There is no launches file to delete!\n\nThe launches file is used for the launch transition mode, and is automatically deleted when you load a new pack.", wrap=True, margin_start=12, margin_end=12, margin_top=12, margin_bottom=12))
                 d.present()
-                d.run()
+                dialog_run(d)
                 d.destroy()
     except Exception as e:
         print(f"failed to clear launches. {e}")

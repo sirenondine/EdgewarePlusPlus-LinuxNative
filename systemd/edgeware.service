@@ -1,0 +1,15 @@
+[Unit]
+Description=Edgeware++
+Documentation=https://github.com/sirenondine/EdgewarePlusPlus-LinuxNative
+# Tie to the graphical session so it starts with the desktop and stops on logout.
+After=graphical-session.target
+PartOf=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=%h/.local/share/edgeware/edgeware.sh
+# Panic exits the process on purpose, so do not auto-restart.
+Restart=no
+
+[Install]
+WantedBy=graphical-session.target

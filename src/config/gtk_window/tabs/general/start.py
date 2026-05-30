@@ -113,18 +113,16 @@ class StartTab(Gtk.ScrolledWindow):
 
         github_lbl = Gtk.Label(label=f"Edgeware++ Github Version:\n{live_version}")
         github_lbl.set_xalign(0)
-        if local_version != live_version:
+        if live_version and local_version != live_version:
             github_lbl.add_css_class("version-mismatch")
         col2.append(github_lbl)
 
         # Pack preset
-        pack_section = Gtk.Frame(css_classes=["config-section"])
-        pack_vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=PAD)
-        pack_section.set_child(pack_vbox)
+        pack_section = ConfigSection("Pack Configuration")
         vbox.append(pack_section)
 
         pack_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=PAD)
-        pack_vbox.append(pack_row)
+        pack_section.append(pack_row)
 
         pack_col1 = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=PAD)
         pack_row.append(pack_col1)
@@ -170,7 +168,10 @@ class StartTab(Gtk.ScrolledWindow):
             label=f"Set Global\nPanic Key\n<{vars.global_panic_key.get()}>"
         )
         self.global_panic_btn.set_tooltip_text(
-            "This is a global key that does not require focus to activate."
+            "Global panic key that does not require focus.\n"
+            "On Wayland this is a preferred hint: compositors using the GlobalShortcuts "
+            "portal (KDE/GNOME) may let you rebind it in system settings; otherwise "
+            "Edgeware falls back to evdev (requires your user to be in the 'input' group)."
         )
         self.global_panic_btn.connect(
             "clicked",
@@ -179,7 +180,7 @@ class StartTab(Gtk.ScrolledWindow):
         panic_row.append(self.global_panic_btn)
 
         panic_btn = Gtk.Button(label="Perform Panic")
-        panic_btn.connect("clicked", lambda _: self._perform_panic())
+        panic_btn.connect("clicked", self._on_perform_panic)
         panic_row.append(panic_btn)
 
         # Other settings
@@ -255,6 +256,27 @@ class StartTab(Gtk.ScrolledWindow):
 
         if self._presets_found:
             self._update_preset_description(preset_list[0])
+
+    def _on_perform_panic(self, btn: Gtk.Button) -> None:
+        popover = Gtk.Popover()
+        vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        vbox.set_margin_start(12)
+        vbox.set_margin_end(12)
+        vbox.set_margin_top(12)
+        vbox.set_margin_bottom(12)
+        vbox.append(Gtk.Label(label="Stop Edgeware and revert wallpaper?"))
+        btn_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        confirm_btn = Gtk.Button(label="Panic")
+        confirm_btn.add_css_class("destructive-action")
+        confirm_btn.connect("clicked", lambda _: (popover.popdown(), self._perform_panic()))
+        cancel_btn = Gtk.Button(label="Cancel")
+        cancel_btn.connect("clicked", lambda _: popover.popdown())
+        btn_row.append(confirm_btn)
+        btn_row.append(cancel_btn)
+        vbox.append(btn_row)
+        popover.set_child(vbox)
+        popover.set_parent(btn)
+        popover.popup()
 
     @staticmethod
     def _perform_panic() -> None:

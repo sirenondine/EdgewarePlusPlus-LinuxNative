@@ -18,9 +18,9 @@
 import logging
 import sys
 import time
-from tkinter import Tk, messagebox
 
 import os_utils
+import utils
 from config.items import CONFIG_DANGER, CORRUPTION_BLOCK, DangerLevel
 from config.settings import Settings
 from pack import Pack
@@ -28,6 +28,8 @@ from pack.data import MoodSet
 from paths import Data
 from roll import roll
 from state import State
+
+
 
 
 def corruption_danger_check(settings: Settings, pack: Pack) -> None:
@@ -62,11 +64,11 @@ def corruption_danger_check(settings: Settings, pack: Pack) -> None:
             warnings += f"\n\n{level.value.capitalize()}{''.join(dangers)}"
 
     if danger_num:
-        proceed = messagebox.askyesno(
+        from gtk_dialog import ask_yes_no
+        proceed = ask_yes_no(
             "Corruption Config Warning",
             "You are using corruption in full permission mode, meaning your pack is capable of changing Edgeware's settings.\n\n"
             f"Your pack changes {danger_num} setting(s) which may be dangerous. Are you sure you want to proceed? {warnings}",
-            icon="warning",
         )
         if not proceed:
             sys.exit()
@@ -141,10 +143,10 @@ def corruption_level_progress(settings: Settings, state: State) -> float:
             return 0
 
 
-def timed(root: Tk, settings: Settings, pack: Pack, state: State) -> None:
+def timed(settings: Settings, pack: Pack, state: State) -> None:
     update_corruption_level(settings, pack, state)
     state.corruption_time_start = time.time()
-    root.after(settings.corruption_time, lambda: timed(root, settings, pack, state))
+    utils.after(settings.corruption_time, lambda: timed(settings, pack, state))
 
 
 def popup(settings: Settings, pack: Pack, state: State) -> None:
@@ -185,7 +187,7 @@ def launch(settings: Settings, pack: Pack, state: State) -> None:
             f.truncate()
 
 
-def handle_corruption(root: Tk, settings: Settings, pack: Pack, state: State) -> None:
+def handle_corruption(settings: Settings, pack: Pack, state: State) -> None:
     if not settings.corruption_mode:
         return
 
@@ -199,7 +201,7 @@ def handle_corruption(root: Tk, settings: Settings, pack: Pack, state: State) ->
         case "Timed":
             apply_corruption_level(settings, pack, state)
             state.corruption_time_start = time.time()
-            root.after(settings.corruption_time, lambda: timed(root, settings, pack, state))
+            utils.after(settings.corruption_time, lambda: timed(settings, pack, state))
         case "Popup":
             apply_corruption_level(settings, pack, state)
             popup(settings, pack, state)

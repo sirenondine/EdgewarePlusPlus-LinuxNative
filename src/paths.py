@@ -15,11 +15,31 @@
 # You should have received a copy of the GNU General Public License
 # along with Edgeware++.  If not, see <https://www.gnu.org/licenses/>.
 
+import os
 from dataclasses import dataclass
 from pathlib import Path
 
 PATH = Path(__file__).parent.parent
 DEFAULT_PACK_PATH = PATH / "resource"
+
+
+def _xdg(env: str, default: str) -> Path:
+    return Path(os.environ.get(env) or os.path.expanduser(default))
+
+
+# Backward compat: existing installs keep everything under <repo>/data (portable).
+# Fresh installs follow the XDG Base Directory spec.
+_LEGACY_DATA = PATH / "data"
+_PORTABLE = _LEGACY_DATA.exists()
+
+if _PORTABLE:
+    _DATA_ROOT = _LEGACY_DATA
+    _CONFIG_ROOT = _LEGACY_DATA
+    _STATE_ROOT = _LEGACY_DATA
+else:
+    _DATA_ROOT = _xdg("XDG_DATA_HOME", "~/.local/share") / "edgeware"
+    _CONFIG_ROOT = _xdg("XDG_CONFIG_HOME", "~/.config") / "edgeware"
+    _STATE_ROOT = _xdg("XDG_STATE_HOME", "~/.local/state") / "edgeware"
 
 
 @dataclass
@@ -29,8 +49,6 @@ class Process:
     CONFIG = ROOT / "main_config.py"
     MAIN = ROOT / "main_edgeware.py"
     PANIC = ROOT / "panic.py"
-
-    MPV = ROOT / "features" / "mpv_subprocess.py"
 
 
 @dataclass
@@ -53,11 +71,6 @@ class Assets:
     DEFAULT_STARTUP_SPLASH = ROOT / "default_loading_splash.png"
     DEFAULT_THEME_DEMO = ROOT / "default_theme_demo.png"
 
-    # Denial mode mpv shaders
-    SHADERS = ROOT / "shaders"
-    SHADER_GAUSSIAN_BLUR = SHADERS / "gaussian_blur.glsl"
-    SHADER_PIXELIZE = SHADERS / "pixelize.glsl"
-
     # Tutorial pages
     TUTORIAL = ROOT / "tutorial"
     TUTORIAL_UNDERCONSTRUCTION = TUTORIAL / "construction.html"
@@ -69,19 +82,19 @@ class Assets:
 
 @dataclass
 class Data:
-    ROOT = PATH / "data"
+    ROOT = _DATA_ROOT
 
     # Directories
-    BACKUPS = ROOT / "backups"
-    LOGS = ROOT / "logs"
-    MOODS = ROOT / "moods"
-    PACKS = ROOT / "packs"
-    PRESETS = ROOT / "presets"
-    BLACKLIST = ROOT / "blacklist"
+    BACKUPS = _DATA_ROOT / "backups"
+    LOGS = _STATE_ROOT / "logs"
+    MOODS = _DATA_ROOT / "moods"
+    PACKS = _DATA_ROOT / "packs"
+    PRESETS = _DATA_ROOT / "presets"
+    BLACKLIST = _DATA_ROOT / "blacklist"
 
     # Files
-    CONFIG = ROOT / "config.json"
-    CORRUPTION_LAUNCHES = ROOT / "corruption_launches.dat"
+    CONFIG = _CONFIG_ROOT / "config.json"
+    CORRUPTION_LAUNCHES = _DATA_ROOT / "corruption_launches.dat"
 
     # Changed defaults
     CONFIG_ICON = ROOT / "config_icon.ico"

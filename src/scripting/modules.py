@@ -17,9 +17,9 @@
 
 import logging
 from pathlib import Path
-from tkinter import Tk
 from typing import Callable
 
+import utils
 from config.settings import Settings
 from features.audio import play_audio
 from features.corruption import update_corruption_level
@@ -56,20 +56,20 @@ def close_popups(state: State) -> None:
         popup.close()
 
 
-def edgeware_v0(root: Tk, settings: Settings, pack: Pack, state: State) -> Callable:
+def edgeware_v0(settings: Settings, pack: Pack, state: State) -> Callable:
     from scripting import ReturnValue
 
     edgeware_v0_global = {
         "print": lambda _env, *args: print(*args),
-        "after": lambda env, ms, callback: root.after(ms, lambda: callback(env)),
+        "after": lambda env, ms, callback: utils.after(ms, lambda: callback(env)),
         "roll": lambda _env, chance: ReturnValue(roll(chance)),
         "corrupt": lambda _env: update_corruption_level(settings, pack, state),
-        "panic": lambda _env: panic(root, settings, state, disable=False),
+        "panic": lambda _env: panic(settings, state, disable=False),
         "close_popups": lambda _env: close_popups(state),
         "set_popup_close_text": lambda _env, text: pack.index.default.__setattr__("popup_close", text),
-        "image": lambda _env, image: ImagePopup(root, settings, pack, state, resource(pack.paths.image, image)),
-        "video": lambda _env, video: VideoPopup(root, settings, pack, state, resource(pack.paths.video, video)),
-        "audio": lambda env, audio, on_stop: play_audio(root, settings, pack, state, resource(pack.paths.audio, audio), callback(env, on_stop)),
+        "image": lambda _env, image: ImagePopup(settings, pack, state, resource(pack.paths.image, image)),
+        "video": lambda _env, video: VideoPopup(settings, pack, state, resource(pack.paths.video, video)),
+        "audio": lambda env, audio, on_stop: play_audio(settings, pack, state, resource(pack.paths.audio, audio), callback(env, on_stop)),
         "prompt": lambda env, prompt, on_close: Prompt(settings, pack, state, prompt, callback(env, on_close)),
         "web": lambda _env, web: open_web(pack, web),
         "subliminal": lambda _env, subliminal: SubliminalPopup(settings, pack, subliminal),
@@ -78,7 +78,7 @@ def edgeware_v0(root: Tk, settings: Settings, pack: Pack, state: State) -> Calla
     return lambda env: assign_globals(env, edgeware_v0_global)
 
 
-def edgeware_v1(root: Tk, settings: Settings, pack: Pack, state: State) -> Callable:
+def edgeware_v1(settings: Settings, pack: Pack, state: State) -> Callable:
     from scripting import ReturnValue
 
     def set_active_moods(_env: Environment, moods: dict) -> None:
@@ -119,13 +119,13 @@ def edgeware_v1(root: Tk, settings: Settings, pack: Pack, state: State) -> Calla
 
     popups = {
         "open_image": lambda env, args={}: ImagePopup(
-            root, settings, pack, state, resource(pack.paths.image, args.get("filename")), callback(env, args.get("on_close"))
+            settings, pack, state, resource(pack.paths.image, args.get("filename")), callback(env, args.get("on_close"))
         ),
         "open_video": lambda env, args={}: VideoPopup(
-            root, settings, pack, state, resource(pack.paths.video, args.get("filename")), callback(env, args.get("on_close"))
+            settings, pack, state, resource(pack.paths.video, args.get("filename")), callback(env, args.get("on_close"))
         ),
         "play_audio": lambda env, args={}: play_audio(
-            root, settings, pack, state, resource(pack.paths.audio, args.get("filename")), callback(env, args.get("on_stop"))
+            settings, pack, state, resource(pack.paths.audio, args.get("filename")), callback(env, args.get("on_stop"))
         ),
         "open_prompt": lambda env, args={}: Prompt(settings, pack, state, args.get("text"), callback(env, args.get("on_close"))),
         "open_web": lambda _env, args={}: open_web(pack, args.get("url")),
@@ -134,9 +134,9 @@ def edgeware_v1(root: Tk, settings: Settings, pack: Pack, state: State) -> Calla
     }
 
     edgeware_v1_local = {
-        "after": lambda env, ms, callback: root.after(ms, lambda: callback(env)),
+        "after": lambda env, ms, callback: utils.after(ms, lambda: callback(env)),
         "roll": lambda _env, chance: ReturnValue(roll(chance)),
-        "panic": lambda _env: panic(root, settings, state, disable=False),
+        "panic": lambda _env: panic(settings, state, disable=False),
         "close_popups": lambda _env: close_popups(state),
         "set_active_moods": set_active_moods,
         "enable_mood": enable_mood,
@@ -150,13 +150,13 @@ def edgeware_v1(root: Tk, settings: Settings, pack: Pack, state: State) -> Calla
     return lambda _env: edgeware_v1_local
 
 
-def get_modules(root: Tk, settings: Settings, pack: Pack, state: State) -> dict:
+def get_modules(settings: Settings, pack: Pack, state: State) -> dict:
     basic_v1_global = {
         "print": lambda _env, *args: print(*args),
     }
 
     return {
-        "edgeware_v0": edgeware_v0(root, settings, pack, state),
-        "edgeware_v1": edgeware_v1(root, settings, pack, state),
+        "edgeware_v0": edgeware_v0(settings, pack, state),
+        "edgeware_v1": edgeware_v1(settings, pack, state),
         "basic_v1": lambda env: assign_globals(env, basic_v1_global),
     }

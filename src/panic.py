@@ -15,89 +15,93 @@
 # You should have received a copy of the GNU General Public License
 # along with Edgeware++.  If not, see <https://www.gnu.org/licenses/>.
 
-if __name__ == "__main__":
-    import os
-
-    from paths import Data
-
-    # Fix scaling on high resolution displays
-    try:
-        from ctypes import windll
-
-        windll.shcore.SetProcessDpiAwareness(
-            0
-        )  # Tell Windows that you aren't DPI aware.
-    except Exception:
-        pass  # Fails on non-Windows systems or if shcore is not available
-
-    # Add mpv to PATH
-    os.environ["PATH"] += os.pathsep + str(Data.ROOT)
-
 import logging
+import os
+import tempfile
 from multiprocessing.connection import Client, Listener
 from threading import Thread
-from tkinter import Tk, simpledialog
-
-import pyglet
 
 from config.settings import Settings
 from os_utils import set_wallpaper
 from paths import CustomAssets
 from state import State
 
-ADDRESS = ("localhost", 6000)
 AUTHKEY = b"Edgeware++"
 PANIC_MESSAGE = "panic"
 
 
-def panic(
-    root: Tk,
-    settings: Settings,
-    state: State,
-    condition: bool = True,
-    disable: bool = True,
-) -> None:
+def _socket_path() -> str:
+    # XDG_RUNTIME_DIR is per-user, mode 0700, and cleared on logout — ideal for
+    # an IPC socket. Falls back to a temp dir if it isn't set.
+    runtime = os.environ.get("XDG_RUNTIME_DIR") or tempfile.gettempdir()
+    return os.path.join(runtime, "edgeware-panic.sock")
+
+
+def panic(settings: Settings, state: State, condition: bool = True, disable: bool = True) -> None:
     def do_panic() -> None:
         if (disable and settings.panic_disabled) or not condition:
             return
 
         if settings.panic_lockout and state.panic_lockout_active:
-            password = simpledialog.askstring("Panic", "Enter Panic Password")
+            from gtk_dialog import ask_password
+            password = ask_password("Panic — Safeword Required", "Enter safeword to unlock panic:")
             if password != settings.panic_lockout_password:
                 return
 
         set_wallpaper(CustomAssets.panic_wallpaper())
-        state.keyboard_process.terminate()
+
+        if state.keyboard_process:
+            state.keyboard_process.terminate()
+
         if state.tray and hasattr(state.tray, "stop"):
             state.tray.stop()
-        pyglet.app.exit()
-        root.destroy()
 
-    # Make sure panic code is executed in the main thread, otherwise
-    # simpledialog will not work from most panic sources
-    root.after(0, do_panic)
+        for player in state.audio_players.copy():
+            try:
+                player.stop()
+            except Exception:
+                pass
+
+        from gi.repository import Gio
+        app = Gio.Application.get_default()
+        if app:
+            app.quit()
+
+    from gi.repository import GLib
+    GLib.idle_add(do_panic)
 
 
-def start_panic_listener(root: Tk, settings: Settings, state: State) -> None:
+def start_panic_listener(settings: Settings, state: State) -> None:
+    path = _socket_path()
+
     def listen() -> None:
+        # Remove a stale socket left behind by a previous crash.
         try:
-            with Listener(address=ADDRESS, authkey=AUTHKEY) as listener:
+            if os.path.exists(path):
+                os.unlink(path)
+        except OSError:
+            pass
+
+        try:
+            with Listener(address=path, family="AF_UNIX", authkey=AUTHKEY) as listener:
                 while True:
                     with listener.accept() as connection:
                         message = connection.recv()
                         if message == PANIC_MESSAGE:
-                            panic(root, settings, state, disable=False)
+                            panic(settings, state, disable=False)
         except OSError as e:
-            logging.warning(
-                f"Failed to start panic listener, some panic sources may not be functional. Reason: {e}"
-            )
+            logging.warning(f"Failed to start panic listener: {e}")
 
     Thread(target=listen, daemon=True).start()
 
 
 def send_panic() -> None:
-    with Client(address=ADDRESS, authkey=AUTHKEY) as connection:
-        connection.send(PANIC_MESSAGE)
+    path = _socket_path()
+    try:
+        with Client(address=path, family="AF_UNIX", authkey=AUTHKEY) as connection:
+            connection.send(PANIC_MESSAGE)
+    except (FileNotFoundError, ConnectionRefusedError):
+        logging.info("No running Edgeware++ instance to panic (socket absent).")
 
 
 if __name__ == "__main__":

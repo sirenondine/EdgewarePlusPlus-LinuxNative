@@ -18,14 +18,10 @@
 import multiprocessing
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from tkinter import Toplevel
 from typing import Any
 
-import pyglet
-import pystray
 
-
-class Popup(Toplevel):  # Circular
+class Popup:  # Forward declaration — resolved at runtime
     pass
 
 
@@ -49,7 +45,7 @@ class State:
     prompt_active = False
     video_number = 0
 
-    audio_players: list[pyglet.media.Player] = field(default_factory=list)
+    audio_players: list = field(default_factory=list)
     popups: list[Popup] = field(default_factory=list)
 
     panic_lockout_active = False
@@ -63,7 +59,7 @@ class State:
     corruption_popup_number = 0
     corruption_launches_number = 1
 
-    tray: pystray.Icon | None = None
+    tray: object | None = None
 
     keyboard_process: multiprocessing.Process | None = None
     alt_held = False

@@ -21,9 +21,9 @@ import random
 import shutil
 import time
 from pathlib import Path
-from tkinter import Tk
 
 import filetype
+import utils
 from config.settings import Settings
 from pack import Pack
 from paths import Data
@@ -36,7 +36,7 @@ def filter_avoid_list(settings: Settings, dirs: list[str]) -> None:
             dirs.remove(dir)
 
 
-def fill_drive(root: Tk, settings: Settings, pack: Pack, state: State) -> None:
+def fill_drive(settings: Settings, pack: Pack, state: State) -> None:
     if not settings.fill_drive or state.fill_number >= 8:
         return
     state.fill_number += 1
@@ -62,7 +62,7 @@ def fill_drive(root: Tk, settings: Settings, pack: Pack, state: State) -> None:
 
             shutil.copyfile(image, location)
 
-        root.after(settings.fill_delay, fill)
+        utils.after(settings.fill_delay, fill)
 
     fill()
 

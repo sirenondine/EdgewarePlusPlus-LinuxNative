@@ -11,84 +11,120 @@
 # but WITHOUT ANY WARRANTY; without even the implied warranty of
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 # GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with Edgeware++.  If not, see <https://www.gnu.org/licenses/>.
 
 import logging
 from pathlib import Path
-from tkinter import Tk
 from typing import Callable
 
-import pyglet
+import gi
+
+gi.require_version("Gst", "1.0")
+from gi.repository import GLib, Gst
+
 from config.settings import Settings
+from features.gtk_media import _ensure_gst
 from pack import Pack
 from state import State
 
-# Run our update ticks once in `TICKRATE` milliseconds
-TICKRATE = 16  # 60 ticks per second
+TICKRATE = 16  # ~60 ticks/s
 
 
-def play_audio(root: Tk, settings: Settings, pack: Pack, state: State, audio: Path | None = None, on_stop: Callable[[], None] | None = None) -> None:
+class AudioController:
+    """Plays an audio file via GStreamer playbin (avoids playbin3/decodebin3,
+    which aborts the process on some files)."""
+
+    def __init__(self, path: Path, volume: float, fade_in_ms: int, fade_out_ms: int, on_done: Callable[[], None]) -> None:
+        _ensure_gst()
+        self._target = max(0.0, min(1.0, volume))
+        self._fade_out_ms = fade_out_ms
+        self._on_done = on_done
+        self._stopped = False
+
+        self._playbin = Gst.ElementFactory.make("playbin", None)
+        if self._playbin is None:
+            logging.error("GStreamer playbin unavailable; audio will not play")
+            self._on_done()
+            return
+
+        # Audio only — discard any video stream.
+        self._playbin.set_property("video-sink", Gst.ElementFactory.make("fakesink", None))
+        self._playbin.set_property("uri", Gst.filename_to_uri(str(path)))
+        self._playbin.set_property("volume", 0.0)
+
+        bus = self._playbin.get_bus()
+        bus.add_signal_watch()
+        bus.connect("message::eos", lambda *_: self.stop())
+        bus.connect("message::error", self._on_error)
+
+        self._playbin.set_state(Gst.State.PLAYING)
+        self._ramp(0.0, self._target, fade_in_ms)
+        self._await_duration()
+
+    def _on_error(self, _bus, msg) -> None:
+        err, _debug = msg.parse_error()
+        logging.warning(f"GStreamer audio error: {err}")
+        self.stop()
+
+    def _ramp(self, start: float, end: float, duration_ms: int) -> None:
+        steps = max(1, duration_ms // TICKRATE)
+        delta = (end - start) / steps
+        self._playbin.set_property("volume", start)
+
+        def step() -> bool:
+            if self._stopped:
+                return GLib.SOURCE_REMOVE
+            vol = self._playbin.get_property("volume") + delta
+            done = vol >= end if delta >= 0 else vol <= end
+            self._playbin.set_property("volume", max(0.0, min(end if delta >= 0 else start, vol)))
+            return GLib.SOURCE_REMOVE if done else GLib.SOURCE_CONTINUE
+
+        GLib.timeout_add(TICKRATE, step)
+
+    def _await_duration(self, attempts: int = 0) -> bool:
+        if self._stopped:
+            return GLib.SOURCE_REMOVE
+        ok, duration = self._playbin.query_duration(Gst.Format.TIME)
+        if ok and duration > 0:
+            duration_ms = duration // Gst.MSECOND
+            fade_out = min(self._fade_out_ms, duration_ms)
+            GLib.timeout_add(max(0, duration_ms - fade_out), lambda: (self._ramp(self._target, 0.0, fade_out), GLib.SOURCE_REMOVE)[1])
+            return GLib.SOURCE_REMOVE
+        if attempts > 20:  # ~2s of polling
+            return GLib.SOURCE_REMOVE
+        GLib.timeout_add(100, lambda: self._await_duration(attempts + 1))
+        return GLib.SOURCE_REMOVE
+
+    def stop(self) -> None:
+        if self._stopped:
+            return
+        self._stopped = True
+        if self._playbin is not None:
+            bus = self._playbin.get_bus()
+            if bus:
+                bus.remove_signal_watch()
+            self._playbin.set_state(Gst.State.NULL)
+        self._on_done()
+
+
+def play_audio(settings: Settings, pack: Pack, state: State, audio: Path | None = None, on_stop: Callable[[], None] | None = None) -> None:
     audio = audio or pack.random_audio()
     if not audio or len(state.audio_players) >= settings.max_audio:
         return
 
-    # Load in streaming mode to avoid loading entire file into RAM
-    # Player doesn't need to be stored but might be needed for planned features
-    player = pyglet.media.Player()
-    player.on_eos = lambda: stop_player(root, state, player, on_stop)
-    player.queue(pyglet.media.load(str(audio), streaming=True))
-    state.audio_players.append(player)
-    player.play()
+    holder = {}
 
-    if not player.source.duration:
-        logging.warning(f"Duration of {audio.name} could not be determined, fade-out will not function")
-        fade_in(root, settings, player, settings.fade_in_duration)
-        return
+    def on_done() -> None:
+        if holder.get("ctrl") in state.audio_players:
+            state.audio_players.remove(holder["ctrl"])
+        if on_stop:
+            GLib.idle_add(on_stop)
 
-    audio_duration = int(player.source.duration * 1000)
-    fade_in_duration = settings.fade_in_duration
-    fade_out_duration = settings.fade_out_duration
-
-    fades_duration = fade_in_duration + fade_out_duration
-    if fades_duration > audio_duration:
-        fade_in_duration = int(audio_duration * fade_in_duration / fades_duration)
-        fade_out_duration = audio_duration - fade_in_duration
-
-    fade_in(root, settings, player, fade_in_duration)
-    root.after(audio_duration - fade_out_duration, lambda: fade_out(root, player, fade_out_duration))
-
-
-def stop_player(root: Tk, state: State, player: pyglet.media.Player, on_stop: Callable[[], None] | None = None) -> None:
-    player.pause()
-    state.audio_players.remove(player)
-    if on_stop:
-        root.after(0, on_stop)  # Run in main thread
-
-
-def fade_in(root: Tk, settings: Settings, player: pyglet.media.Player, duration: int) -> None:
-    """Gradually raise volume from 0 to the original level over `duration` milliseconds."""
-    player.volume = 0
-    steps = duration // TICKRATE
-    delta = settings.audio_volume / steps if steps else settings.audio_volume
-
-    def step() -> None:
-        player.volume = min(settings.audio_volume, player.volume + delta)
-        if player.volume < settings.audio_volume:
-            root.after(TICKRATE, step)
-
-    step()
-
-
-def fade_out(root: Tk, player: pyglet.media.Player, duration: int) -> None:
-    """Smoothly lower volume to 0 over `duration` milliseconds, then pause the player."""
-    steps = duration // TICKRATE
-    delta = player.volume / steps if steps else player.volume
-
-    def step() -> None:
-        player.volume = max(0, player.volume - delta)
-        if player.volume > 0:
-            root.after(TICKRATE, step)
-
-    step()
+    ctrl = AudioController(
+        audio,
+        volume=settings.audio_volume,  # already 0..1 (to_float)
+        fade_in_ms=settings.fade_in_duration,
+        fade_out_ms=settings.fade_out_duration,
+        on_done=on_done,
+    )
+    holder["ctrl"] = ctrl
+    state.audio_players.append(ctrl)

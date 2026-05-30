@@ -16,67 +16,84 @@
 # along with Edgeware++.  If not, see <https://www.gnu.org/licenses/>.
 
 from collections.abc import Callable
-from tkinter import Label, Toplevel
 
-import os_utils
+import gi
+
+gi.require_version("Gtk", "4.0")
+gi.require_version("Gtk4LayerShell", "1.0")
+from gi.repository import GLib, Gtk
+from gi.repository import Gtk4LayerShell as LayerShell
+
 import utils
 from config.settings import Settings
-from features.video_player import VideoPlayer
+from features.gtk_media import picture_from_pil, stop_media, video_widget
 from pack import Pack
-from PIL import Image, ImageTk
+from PIL import Image
 
 
-class StartupSplash(Toplevel):
+class StartupSplash(Gtk.Window):
     def __init__(self, settings: Settings, pack: Pack, callback: Callable[[], None]) -> None:
-        super().__init__(bg="black")
+        super().__init__()
 
         self.callback = callback
-        self.opacity = 0
+        self.opacity = 0.0
+        self._media_file = None
 
-        self.attributes("-topmost", True)
-        os_utils.set_borderless(self)
+        self.set_decorated(False)
+        self.set_opacity(0)
 
         monitor = utils.primary_monitor()
 
         image = Image.open(pack.startup_splash)
 
-        # TODO: Better scaling
-        scale = 0.6
-        width = int(image.width * scale)
-        height = int(image.height * scale)
-        x = monitor.x + (monitor.width - width) // 2
-        y = monitor.y + (monitor.height - height) // 2
-
-        self.geometry(f"{width}x{height}+{x}+{y}")
+        # Scale splash to ~25% of the shorter monitor dimension
+        target = min(monitor.width, monitor.height) * 0.25
+        scale = target / max(image.width, image.height)
+        width = max(int(image.width * scale), 1)
+        height = max(int(image.height * scale), 1)
+        self.set_default_size(width, height)
 
         if getattr(image, "n_frames", 0) > 1:
-            self.player = VideoPlayer(self, settings, width, height)
-            self.player.play(pack.startup_splash)
+            video, self._media_file = video_widget(pack.startup_splash, width, height, loop=True, muted=True)
+            self.set_child(video)
         else:
-            label = Label(self, width=width, height=height)
-            label.pack()
+            self.set_child(picture_from_pil(image.resize((width, height), Image.LANCZOS), width, height))
 
-            resized = image.resize((width, height), Image.LANCZOS).convert("RGBA")
-            self.photo_image = ImageTk.PhotoImage(resized)
-            label.config(image=self.photo_image)
+        LayerShell.init_for_window(self)
+        LayerShell.set_layer(self, LayerShell.Layer.OVERLAY)
+        LayerShell.set_namespace(self, "edgeware-splash")
+        gdk_mon = utils.gdk_monitor_for(monitor)
+        if gdk_mon:
+            LayerShell.set_monitor(self, gdk_mon)
 
+        self.present()
         self.fade_in()
 
     def fade_in(self) -> None:
-        if self.opacity < 1:
-            self.opacity += 0.01
-            self.attributes("-alpha", self.opacity)
-            self.after(10, self.fade_in)
-        else:
-            self.after(2000, self.fade_out)
+        def step() -> bool:
+            self.opacity += 0.02
+            if self.opacity >= 1:
+                self.set_opacity(1)
+                GLib.timeout_add_seconds(2, self.fade_out)
+                return GLib.SOURCE_REMOVE
+            self.set_opacity(self.opacity)
+            return GLib.SOURCE_CONTINUE
 
-    def fade_out(self) -> None:
-        if self.opacity > 0:
-            self.opacity -= 2 * 0.01
-            self.attributes("-alpha", self.opacity)
-            self.after(10 // 4, self.fade_out)
-        else:
-            if hasattr(self, "player"):
-                self.player.close()
-            self.destroy()
-            self.callback()
+        GLib.timeout_add(10, step)
+
+    def fade_out(self) -> bool:
+        def step() -> bool:
+            self.opacity -= 0.02
+            if self.opacity <= 0:
+                self._finish()
+                return GLib.SOURCE_REMOVE
+            self.set_opacity(max(0.0, self.opacity))
+            return GLib.SOURCE_CONTINUE
+
+        GLib.timeout_add(10, step)
+        return GLib.SOURCE_REMOVE
+
+    def _finish(self) -> None:
+        stop_media(self._media_file)
+        self.destroy()
+        self.callback()

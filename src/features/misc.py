@@ -24,16 +24,15 @@ import webbrowser
 from collections.abc import Callable
 from multiprocessing.connection import Connection
 from threading import Thread
-from tkinter import Tk
 
-import pystray
+import utils
 from desktop_notifier.common import Attachment, Icon
 from desktop_notifier.sync import DesktopNotifierSync
-from PIL import Image
 from pynput import keyboard
 from pypresence import Presence
 
 from config.settings import Settings
+import os_utils
 from os_utils import make_shortcut, set_wallpaper
 from pack import Pack
 from panic import panic
@@ -41,15 +40,22 @@ from paths import CustomAssets, Process
 from roll import roll
 from state import State
 
-try:
-    import gi
 
-    gi.require_version("AppIndicator3", "0.1")
-    from gi.repository import AppIndicator3, Gtk
 
-    APPINDICATOR_AVAILABLE = True
-except ImportError:
-    APPINDICATOR_AVAILABLE = False
+_notifier: DesktopNotifierSync | None = None
+
+
+def notify(title: str, message: str, icon=None, attachment=None) -> None:
+    """Send a desktop notification through a single shared notifier."""
+    global _notifier
+    if _notifier is None:
+        _notifier = DesktopNotifierSync(app_name="Edgeware++")
+    _notifier.send(
+        title=title,
+        message=message,
+        icon=Icon(icon) if icon else None,
+        attachment=Attachment(attachment) if attachment else None,
+    )
 
 
 def open_web(pack: Pack, web: str | None = None) -> None:
@@ -67,132 +73,63 @@ def send_notification(
         return
 
     image = pack.random_image()
-    notifier = DesktopNotifierSync(app_name="Edgeware++", app_icon=Icon(pack.icon))
-    notifier.send(
-        title=pack.info.name,
-        message=notification,
-        attachment=Attachment(image)
-        if roll(settings.notification_image_chance) and image
-        else None,
-    )
-
-
-def is_wayland() -> bool:
-    """Detect if running on Wayland."""
-    return (
-        os.environ.get("XDG_SESSION_TYPE", "").lower() == "wayland"
-        or os.environ.get("WAYLAND_DISPLAY") is not None
-        or "wayland" in os.environ.get("XDG_SESSION_TYPE", "").lower()
+    notify(
+        pack.info.name,
+        notification,
+        icon=pack.icon,
+        attachment=image if roll(settings.notification_image_chance) and image else None,
     )
 
 
 def make_tray_icon(
-    root: Tk,
     settings: Settings,
     pack: Pack,
     state: State,
     hibernate_activity: Callable[[], None],
 ) -> None:
-    """Create a system tray icon that works on both X11 and Wayland."""
+    """Create a native StatusNotifierItem tray icon (Wayland + X11).
 
-    # Try AppIndicator first (works on both X11 and Wayland)
-    if APPINDICATOR_AVAILABLE:
-        try:
-            _make_appindicator_tray(root, settings, pack, state, hibernate_activity)
-            logging.info(
-                "Created system tray icon using AppIndicator (Wayland-compatible)"
-            )
+    Left click panics; middle click skips to hibernate (when enabled)."""
+    from features.tray import StatusNotifierItem
+
+    def skip_hibernate() -> None:
+        if state.hibernate_active:
             return
-        except Exception as e:
-            logging.warning(f"Failed to create AppIndicator tray icon: {e}")
+        utils.after_cancel(state.hibernate_id)
+        hibernate_activity()
 
-    # Fall back to pystray (X11 only)
-    if not is_wayland():
-        try:
-            _make_pystray_tray(root, settings, pack, state, hibernate_activity)
-            logging.info("Created system tray icon using pystray (X11)")
-            return
-        except Exception as e:
-            logging.warning(f"Failed to create pystray tray icon: {e}")
+    def open_config() -> None:
+        import subprocess
+        import sys
+        subprocess.Popen([sys.executable, Process.CONFIG])
 
-    # No tray icon available
-    logging.info(
-        "System tray icon not available (running on Wayland without AppIndicator support)"
-    )
-    state.tray = None
-
-
-def _make_appindicator_tray(
-    root: Tk,
-    settings: Settings,
-    pack: Pack,
-    state: State,
-    hibernate_activity: Callable[[], None],
-) -> None:
-    """Create tray icon using AppIndicator3 (works on Wayland)."""
-    indicator = AppIndicator3.Indicator.new(
-        "edgeware++", str(pack.icon), AppIndicator3.IndicatorCategory.APPLICATION_STATUS
-    )
-    indicator.set_status(AppIndicator3.IndicatorStatus.ACTIVE)
-
-    # Create menu
-    menu = Gtk.Menu()
-
-    # Panic menu item
-    panic_item = Gtk.MenuItem(label="Panic")
-    panic_item.connect("activate", lambda _: panic(root, settings, state))
-    menu.append(panic_item)
-
-    # Skip to Hibernate menu item (if enabled)
-    if settings.hibernate_mode:
-
-        def skip_hibernate(_) -> None:
-            if state.hibernate_active:
-                return
-            root.after_cancel(state.hibernate_id)
-            hibernate_activity()
-
-        hibernate_item = Gtk.MenuItem(label="Skip to Hibernate")
-        hibernate_item.connect("activate", skip_hibernate)
-        menu.append(hibernate_item)
-
-    menu.show_all()
-    indicator.set_menu(menu)
-
-    state.tray = indicator
-
-
-def _make_pystray_tray(
-    root: Tk,
-    settings: Settings,
-    pack: Pack,
-    state: State,
-    hibernate_activity: Callable[[], None],
-) -> None:
-    """Create tray icon using pystray (X11 only)."""
-    menu = [pystray.MenuItem("Panic", lambda: panic(root, settings, state))]
-    if settings.hibernate_mode:
-
-        def skip_hibernate() -> None:
-            if state.hibernate_active:
-                return
-            root.after_cancel(state.hibernate_id)
-            hibernate_activity()
-
-        menu.append(pystray.MenuItem("Skip to Hibernate", skip_hibernate))
-
-    state.tray = pystray.Icon("Edgeware++", Image.open(pack.icon), "Edgeware++", menu)
-    Thread(target=state.tray.run, daemon=True).start()
+    try:
+        state.tray = StatusNotifierItem(
+            icon_name=os_utils.APP_ID,
+            tooltip="Edgeware++ — click to panic",
+            on_panic=lambda: panic(settings, state),
+            on_skip_hibernate=skip_hibernate if settings.hibernate_mode else None,
+            on_open_config=open_config,
+            on_quit=lambda: panic(settings, state),
+        )
+        logging.info("Created StatusNotifierItem tray icon (D-Bus, with menu)")
+    except Exception as e:
+        logging.warning(f"Failed to create tray icon: {e}")
+        state.tray = None
 
 
 def make_desktop_icons(settings: Settings) -> None:
+    # Always register the app with the desktop (shows in launchers); idempotent.
+    os_utils.install_app_entries()
+
+    # Optional copies on the user's Desktop.
     if settings.desktop_icons:
         make_shortcut("Edgeware++", Process.MAIN, CustomAssets.icon())
         make_shortcut("Edgeware++ Config", Process.CONFIG, CustomAssets.config_icon())
         make_shortcut("Edgeware++ Panic", Process.PANIC, CustomAssets.panic_icon())
 
 
-def handle_wallpaper(root: Tk, settings: Settings, pack: Pack, state: State) -> None:
+def handle_wallpaper(settings: Settings, pack: Pack, state: State) -> None:
     def rotate(previous: str = None) -> None:
         if (
             settings.hibernate_fix_wallpaper
@@ -210,7 +147,7 @@ def handle_wallpaper(root: Tk, settings: Settings, pack: Pack, state: State) -> 
 
         t = settings.wallpaper_timer
         v = settings.wallpaper_variance
-        root.after(t + random.randint(-v, v), lambda: rotate(wallpaper))
+        utils.after(t + random.randint(-v, v), lambda: rotate(wallpaper))
 
     if settings.corruption_mode and settings.corruption_wallpaper:
         return
@@ -237,16 +174,16 @@ def handle_discord(settings: Settings, pack: Pack) -> None:
         logging.warning(f"Setting Discord presence failed. Reason: {e}")
 
 
-def handle_panic_lockout(root: Tk, settings: Settings, state: State) -> None:
+def handle_panic_lockout(settings: Settings, state: State) -> None:
     def panic_lockout_over() -> None:
         state.panic_lockout_active = False
 
     if settings.panic_lockout:
         state.panic_lockout_active = True
-        root.after(settings.panic_lockout_time, panic_lockout_over)
+        utils.after(settings.panic_lockout_time, panic_lockout_over)
 
 
-def mitosis_popup(root: Tk, settings: Settings, pack: Pack, state: State) -> None:
+def mitosis_popup(settings: Settings, pack: Pack, state: State) -> None:
     # Imports done here to avoid circular imports
     from features.image_popup import ImagePopup
     from features.video_popup import VideoPopup
@@ -259,21 +196,25 @@ def mitosis_popup(root: Tk, settings: Settings, pack: Pack, state: State) -> Non
         )[0]
     except ValueError:
         popup = ImagePopup  # Exception thrown when both chances are 0
-    popup(root, settings, pack, state)
+    popup(settings, pack, state)
 
 
-def handle_mitosis_mode(root: Tk, settings: Settings, pack: Pack, state: State) -> None:
+def handle_mitosis_mode(settings: Settings, pack: Pack, state: State) -> None:
     if settings.mitosis_mode:
 
         def observer() -> None:
             if state.popup_number == 0:
-                mitosis_popup(root, settings, pack, state)
+                mitosis_popup(settings, pack, state)
 
         state._popup_number.attach(observer)
-        mitosis_popup(root, settings, pack, state)
+        mitosis_popup(settings, pack, state)
 
 
 def keyboard_listener(connection: Connection) -> None:
+    # pynput uses evdev on Wayland — requires read access to /dev/input/event*
+    if os.environ.get("WAYLAND_DISPLAY") and "PYNPUT_BACKEND" not in os.environ:
+        os.environ["PYNPUT_BACKEND"] = "evdev"
+
     def callback(type: str) -> None:
         return lambda key: connection.send((type, str(key)))
 
@@ -283,13 +224,40 @@ def keyboard_listener(connection: Connection) -> None:
         listener.join()
 
 
-def handle_keyboard(root: Tk, settings: Settings, state: State) -> None:
+def handle_keyboard(settings: Settings, state: State) -> None:
+    # Prefer the GlobalShortcuts portal (Wayland-native, no /dev/input access).
+    # Alt+click blacklisting reads GTK modifiers directly, so the portal path
+    # doesn't need a global keyboard grab at all. If the compositor declines the
+    # binding, fall back to evdev so panic still works.
+    from features import global_shortcuts
+
+    if global_shortcuts.portal_available():
+        try:
+            state._panic_shortcut = global_shortcuts.PanicShortcut(
+                settings.global_panic_key,
+                lambda: panic(settings, state, disable=False),
+                on_failed=lambda: _start_evdev_keyboard(settings, state),
+            )
+            logging.info("Global panic hotkey requested via GlobalShortcuts portal")
+            return
+        except Exception as e:
+            logging.warning(f"GlobalShortcuts portal failed, falling back to evdev: {e}")
+
+    _start_evdev_keyboard(settings, state)
+
+
+def _start_evdev_keyboard(settings: Settings, state: State) -> None:
+    if getattr(state, "keyboard_process", None):
+        return  # already running
+    # pynput (evdev on Wayland — needs the 'input' group).
     alt = [
         str(keyboard.Key.alt),
         str(keyboard.Key.alt_gr),
         str(keyboard.Key.alt_l),
         str(keyboard.Key.alt_r),
     ]
+
+    parent_connection, child_connection = multiprocessing.Pipe()
 
     def receive() -> None:
         while True:
@@ -304,10 +272,9 @@ def handle_keyboard(root: Tk, settings: Settings, state: State) -> None:
                 if key in alt:
                     state.alt_held = False
                 panic(
-                    root, settings, state, condition=(key == settings.global_panic_key)
+                    settings, state, condition=(key == settings.global_panic_key)
                 )
 
-    parent_connection, child_connection = multiprocessing.Pipe()
     state.keyboard_process = multiprocessing.Process(
         target=keyboard_listener, args=(child_connection,)
     )

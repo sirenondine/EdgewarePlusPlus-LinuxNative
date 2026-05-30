@@ -19,7 +19,6 @@
 
 import logging
 from dataclasses import dataclass
-from tkinter import Tk
 from typing import Callable
 
 from config.settings import Settings
@@ -370,11 +369,11 @@ class Block:
             return ReturnValue(self.return_exp.eval(env))
 
 
-def run_script(root: Tk, settings: Settings, pack: Pack, state: State) -> None:
+def run_script(settings: Settings, pack: Pack, state: State) -> None:
     if not pack.paths.script.is_file():
         return
 
-    modules = get_modules(root, settings, pack, state)
+    modules = get_modules(settings, pack, state)
     env = Environment({"require": lambda env, module: ReturnValue(modules[module](env))})
 
     with open(pack.paths.script, "r") as f:

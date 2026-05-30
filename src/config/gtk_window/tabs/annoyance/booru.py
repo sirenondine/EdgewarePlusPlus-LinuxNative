@@ -49,9 +49,10 @@ class BooruTab(Gtk.ScrolledWindow):
         tag_row = ConfigRow()
         section.append(tag_row)
 
-        tags = config.get("tagList", "").split(">")
+        tags = [t for t in config.get("tagList", "").split(">") if t]
         self._tag_store = Gtk.StringList.new(tags)
-        self._tag_list = Gtk.ListView.new(Gtk.SingleSelection.new(self._tag_store))
+        self._tag_selection = Gtk.SingleSelection.new(self._tag_store)
+        self._tag_list = Gtk.ListView.new(self._tag_selection)
         self._tag_list.set_vexpand(True)
         factory = Gtk.SignalListItemFactory()
         factory.connect("setup", lambda f, i: i.set_child(Gtk.Label(xalign=0, wrap=True)))
@@ -66,9 +67,11 @@ class BooruTab(Gtk.ScrolledWindow):
         add_btn.connect("clicked", self._on_add)
         btn_col.append(add_btn)
 
-        remove_btn = Gtk.Button(label="Remove Tag")
-        remove_btn.connect("clicked", self._on_remove)
-        btn_col.append(remove_btn)
+        self._tag_remove_btn = Gtk.Button(label="Remove Tag")
+        self._tag_remove_btn.connect("clicked", self._on_remove)
+        self._tag_remove_btn.set_sensitive(False)
+        self._tag_selection.connect("notify::selected", self._update_remove_btn)
+        btn_col.append(self._tag_remove_btn)
 
         reset_btn = Gtk.Button(label="Reset Tags")
         reset_btn.connect("clicked", self._on_reset)
@@ -82,15 +85,19 @@ class BooruTab(Gtk.ScrolledWindow):
         config["tagList"] = f"{current}>{tag}" if current else tag
         self._tag_store.append(tag)
 
+    def _update_remove_btn(self, selection, _param=None) -> None:
+        pos = selection.get_selected()
+        self._tag_remove_btn.set_sensitive(
+            pos != Gtk.INVALID_LIST_POSITION and pos > 0
+        )
+
     def _on_remove(self, _btn: Gtk.Button) -> None:
-        selection = self._tag_list.get_model()
-        if isinstance(selection, Gtk.SingleSelection):
-            pos = selection.get_selected()
-            if pos != Gtk.INVALID_LIST_POSITION and pos > 0:
-                tag = self._tag_store.get_string(pos)
-                current = config.get("tagList", "")
-                config["tagList"] = current.replace(f">{tag}", "")
-                self._tag_store.remove(pos)
+        pos = self._tag_selection.get_selected()
+        if pos != Gtk.INVALID_LIST_POSITION and pos > 0:
+            tag = self._tag_store.get_string(pos)
+            current = config.get("tagList", "")
+            config["tagList"] = current.replace(f">{tag}", "")
+            self._tag_store.remove(pos)
 
     def _on_reset(self, _btn: Gtk.Button) -> None:
         while self._tag_store.get_n_items() > 0:

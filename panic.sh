@@ -1,2 +1,2 @@
 #!/bin/bash
-.venv/bin/python3 src/panic.py
+cd ~/.local/share/edgeware && .venv/bin/python3 src/panic.py

@@ -53,6 +53,10 @@ class DangerousSettingsTab(Gtk.ScrolledWindow):
         self.set_vexpand(True)
 
         vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        vbox.set_margin_start(8)
+        vbox.set_margin_end(8)
+        vbox.set_margin_top(8)
+        vbox.set_margin_bottom(8)
         self.set_child(vbox)
 
         # Panic lockout
@@ -67,6 +71,7 @@ class DangerousSettingsTab(Gtk.ScrolledWindow):
         lockout_row.append(safeword_box)
         safeword_box.append(Gtk.Label(label="Emergency Safeword"))
         safeword_entry = Gtk.PasswordEntry()
+        safeword_entry.set_show_peek_icon(True)
         safeword_entry.set_text(str(vars.panic_lockout_password.get()))
         safeword_entry.connect("changed", lambda e: vars.panic_lockout_password.set(e.get_text()))
         safeword_box.append(safeword_entry)
@@ -89,9 +94,10 @@ class DangerousSettingsTab(Gtk.ScrolledWindow):
         drive_frame.append(bl_frame)
         bl_frame.append(Gtk.Label(label="Folder Name Blacklist"))
 
-        avoid_list = config.get("avoidList", "Edgeware>AppData").split(">")
+        avoid_list = [t for t in config.get("avoidList", "Edgeware>AppData").split(">") if t]
         self._bl_store = Gtk.StringList.new(avoid_list)
-        self._bl_list = Gtk.ListView.new(Gtk.SingleSelection.new(self._bl_store))
+        self._bl_selection = Gtk.SingleSelection.new(self._bl_store)
+        self._bl_list = Gtk.ListView.new(self._bl_selection)
         self._bl_list.set_vexpand(True)
         factory = Gtk.SignalListItemFactory()
         factory.connect("setup", lambda f, i: i.set_child(Gtk.Label(xalign=0, wrap=True)))
@@ -106,9 +112,11 @@ class DangerousSettingsTab(Gtk.ScrolledWindow):
         add_btn.connect("clicked", self._on_add_blacklist)
         bl_btn_col.append(add_btn)
 
-        remove_btn = Gtk.Button(label="Remove Name")
-        remove_btn.connect("clicked", self._on_remove_blacklist)
-        bl_btn_col.append(remove_btn)
+        self._bl_remove_btn = Gtk.Button(label="Remove Name")
+        self._bl_remove_btn.connect("clicked", self._on_remove_blacklist)
+        self._bl_remove_btn.set_sensitive(False)
+        self._bl_selection.connect("notify::selected", self._update_bl_remove_btn)
+        bl_btn_col.append(self._bl_remove_btn)
 
         reset_btn = Gtk.Button(label="Reset")
         reset_btn.connect("clicked", self._on_reset_blacklist)
@@ -171,15 +179,19 @@ class DangerousSettingsTab(Gtk.ScrolledWindow):
         config["avoidList"] = f"{current}>{name}"
         self._bl_store.append(name)
 
+    def _update_bl_remove_btn(self, selection, _param=None) -> None:
+        pos = selection.get_selected()
+        self._bl_remove_btn.set_sensitive(
+            pos != Gtk.INVALID_LIST_POSITION and pos > 0
+        )
+
     def _on_remove_blacklist(self, _btn: Gtk.Button) -> None:
-        selection = self._bl_list.get_model()
-        if isinstance(selection, Gtk.SingleSelection):
-            pos = selection.get_selected()
-            if pos != Gtk.INVALID_LIST_POSITION and pos > 0:
-                name = self._bl_store.get_string(pos)
-                current = config.get("avoidList", "")
-                config["avoidList"] = current.replace(f">{name}", "")
-                self._bl_store.remove(pos)
+        pos = self._bl_selection.get_selected()
+        if pos != Gtk.INVALID_LIST_POSITION and pos > 0:
+            name = self._bl_store.get_string(pos)
+            current = config.get("avoidList", "")
+            config["avoidList"] = current.replace(f">{name}", "")
+            self._bl_store.remove(pos)
 
     def _on_reset_blacklist(self, _btn: Gtk.Button) -> None:
         while self._bl_store.get_n_items() > 0:

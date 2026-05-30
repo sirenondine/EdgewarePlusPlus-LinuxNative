@@ -17,30 +17,38 @@
 
 if __name__ == "__main__":
     import os
-    from threading import Thread
+    import sys
 
-    from paths import Data
+    # gtk4-layer-shell must be loaded before libwayland-client, which PyGObject
+    # would otherwise pull in first. Re-exec ourselves with it LD_PRELOAD-ed.
+    if "gtk4-layer-shell" not in os.environ.get("LD_PRELOAD", ""):
+        import ctypes.util
+        import glob
 
-    # Fix scaling on high resolution displays
-    try:
-        from ctypes import windll
+        lib = ctypes.util.find_library("gtk4-layer-shell")
+        if not lib:
+            candidates = glob.glob("/usr/lib*/libgtk4-layer-shell.so*") + glob.glob("/usr/lib/*/libgtk4-layer-shell.so*")
+            lib = candidates[0] if candidates else None
+        if lib:
+            os.environ["LD_PRELOAD"] = (os.environ.get("LD_PRELOAD", "") + " " + lib).strip()
+            os.execv(sys.executable, [sys.executable, *sys.argv])
 
-        windll.shcore.SetProcessDpiAwareness(0)  # Tell Windows that you aren't DPI aware.
-    except Exception:
-        pass  # Fails on non-Windows systems or if shcore is not available
+    # Prefer native Wayland; fall back to X11. Must precede GTK import.
+    if "GDK_BACKEND" not in os.environ:
+        os.environ["GDK_BACKEND"] = "wayland,x11"
 
-    # Add mpv to PATH
-    os.environ["PATH"] += os.pathsep + str(Data.ROOT)
-
-    def pyglet_run() -> None:
-        import pyglet
-
-        pyglet.app.run()
-
-    Thread(target=pyglet_run, daemon=True).start()  # Required for pyglet events
+    # Use the GL renderer — the Vulkan renderer spams VK_SUBOPTIMAL_KHR warnings
+    # as popups spawn/resize. Must precede GTK import.
+    if "GSK_RENDERER" not in os.environ:
+        os.environ["GSK_RENDERER"] = "gl"
 
 from threading import Thread
-from tkinter import Tk
+
+import gi
+
+gi.require_version("Gtk", "4.0")
+gi.require_version("Gtk4LayerShell", "1.0")
+from gi.repository import Gio, Gtk
 
 import utils
 from config import first_launch_configure
@@ -72,10 +80,10 @@ from scripting import run_script
 from state import State
 
 
-def main(root: Tk, settings: Settings, pack: Pack, targets: list[RollTarget]) -> None:
+def main(settings: Settings, pack: Pack, state: State, targets: list[RollTarget]) -> None:
     roll_targets(settings, targets)
-    Thread(target=lambda: fill_drive(root, settings, pack, state), daemon=True).start()  # Thread for performance reasons
-    root.after(settings.delay, lambda: main(root, settings, pack, targets))
+    Thread(target=lambda: fill_drive(settings, pack, state), daemon=True).start()  # Thread for performance reasons
+    utils.after(settings.delay, lambda: main(settings, pack, state, targets))
 
 
 if __name__ == "__main__":
@@ -83,47 +91,55 @@ if __name__ == "__main__":
 
     first_launch_configure()
 
-    root = Tk()
-    root.withdraw()
     settings = Settings()
     pack = Pack(settings.pack_path)
     state = State()
 
     settings.corruption_mode = settings.corruption_mode and pack.corruption_levels
-    corruption_danger_check(settings, pack)
 
-    # TODO: Use a dict?
-    targets = [
-        RollTarget(lambda: ImagePopup(root, settings, pack, state), lambda: settings.image_chance if not settings.mitosis_mode else 0),
-        RollTarget(lambda: VideoPopup(root, settings, pack, state), lambda: settings.video_chance if not settings.mitosis_mode else 0),
-        RollTarget(lambda: SubliminalPopup(settings, pack), lambda: settings.subliminal_chance),
-        RollTarget(lambda: Prompt(settings, pack, state), lambda: settings.prompt_chance),
-        RollTarget(lambda: play_audio(root, settings, pack, state), lambda: settings.audio_chance),
-        RollTarget(lambda: open_web(pack), lambda: settings.web_chance),
-        RollTarget(lambda: send_notification(settings, pack), lambda: settings.notification_chance),
-    ]
+    app = Gtk.Application(
+        application_id="io.github.sirenondine.EdgewarePlusPlusRuntime",
+        flags=Gio.ApplicationFlags.NON_UNIQUE,
+    )
 
-    def start_main() -> None:
-        make_tray_icon(root, settings, pack, state, lambda: main_hibernate(root, settings, pack, state, targets))
-        make_desktop_icons(settings)
-        handle_keyboard(root, settings, state)
-        start_panic_listener(root, settings, state)
-        Thread(target=lambda: replace_images(settings, pack), daemon=True).start()  # Thread for performance reasons
-        handle_corruption(root, settings, pack, state)
-        handle_discord(settings, pack)
-        handle_panic_lockout(root, settings, state)
-        handle_mitosis_mode(root, settings, pack, state)
-        run_script(root, settings, pack, state)
+    def on_activate(app: Gtk.Application) -> None:
+        app.hold()  # Keep the main loop alive — popups are standalone layer-shell windows
 
-        if settings.hibernate_mode:
-            start_main_hibernate(root, settings, pack, state, targets)
+        corruption_danger_check(settings, pack)
+
+        # TODO: Use a dict?
+        targets = [
+            RollTarget(lambda: ImagePopup(settings, pack, state), lambda: settings.image_chance if not settings.mitosis_mode else 0),
+            RollTarget(lambda: VideoPopup(settings, pack, state), lambda: settings.video_chance if not settings.mitosis_mode else 0),
+            RollTarget(lambda: SubliminalPopup(settings, pack), lambda: settings.subliminal_chance),
+            RollTarget(lambda: Prompt(settings, pack, state), lambda: settings.prompt_chance),
+            RollTarget(lambda: play_audio(settings, pack, state), lambda: settings.audio_chance),
+            RollTarget(lambda: open_web(pack), lambda: settings.web_chance),
+            RollTarget(lambda: send_notification(settings, pack), lambda: settings.notification_chance),
+        ]
+
+        def start_main() -> None:
+            make_tray_icon(settings, pack, state, lambda: main_hibernate(settings, pack, state, targets))
+            make_desktop_icons(settings)
+            handle_keyboard(settings, state)
+            start_panic_listener(settings, state)
+            Thread(target=lambda: replace_images(settings, pack), daemon=True).start()  # Thread for performance reasons
+            handle_corruption(settings, pack, state)
+            handle_discord(settings, pack)
+            handle_panic_lockout(settings, state)
+            handle_mitosis_mode(settings, pack, state)
+            run_script(settings, pack, state)
+
+            if settings.hibernate_mode:
+                start_main_hibernate(settings, pack, state, targets)
+            else:
+                handle_wallpaper(settings, pack, state)
+                main(settings, pack, state, targets)
+
+        if settings.startup_splash:
+            StartupSplash(settings, pack, start_main)
         else:
-            handle_wallpaper(root, settings, pack, state)
-            main(root, settings, pack, targets)
+            start_main()
 
-    if settings.startup_splash:
-        StartupSplash(settings, pack, start_main)
-    else:
-        start_main()
-
-    root.mainloop()
+    app.connect("activate", on_activate)
+    app.run(None)

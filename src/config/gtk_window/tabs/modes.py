@@ -86,6 +86,7 @@ class BasicModesTab(Gtk.ScrolledWindow):
                     "Pump-Scare": "Spawns a popup briefly, then quickly deletes it.",
                     "Chaos": "Every time hibernate activates, a random type is selected.",
                 },
+                label="Hibernate Type",
             )
         )
 

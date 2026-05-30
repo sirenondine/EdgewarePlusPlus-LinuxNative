@@ -44,10 +44,9 @@ type ConfigVarType = ConfigVar
 
 
 class Vars:
-    entries: dict[str, ConfigVar] = {}
-
     def __init__(self, config: dict) -> None:
         self.config = config
+        self.entries: dict[str, ConfigVar] = {}
         default_config = load_default_config()
 
         self.config["packPath"] = self.config["packPath"] or "default"
@@ -65,4 +64,6 @@ class Vars:
                 )
                 value = default_value
 
-            setattr(self, name, ConfigVar(value))
+            var = ConfigVar(value)
+            setattr(self, name, var)
+            self.entries[item.key] = var

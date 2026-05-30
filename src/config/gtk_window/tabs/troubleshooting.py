@@ -60,10 +60,6 @@ class TroubleshootingTab(Gtk.ScrolledWindow):
             ConfigToggle("Disable Connection to GitHub", vars.toggle_internet,
                 tooltip="Disables all connections to GitHub on future launches.")
         )
-        row2.append(
-            ConfigToggle("Run mpv in a Subprocess", vars.mpv_subprocess,
-                tooltip="Fixes a crash when closing mpv on Linux/Windows.")
-        )
 
         row3 = ConfigRow()
         ts_section.append(row3)
@@ -140,18 +136,20 @@ class TroubleshootingTab(Gtk.ScrolledWindow):
         return len(os.listdir(Data.LOGS)) if os.path.exists(Data.LOGS) else 0
 
     def _on_delete_logs(self) -> None:
+        from config.gtk_window.utils import dialog_run, _get_parent_window
         dialog = Gtk.Dialog(title="Confirm Delete")
+        dialog.set_transient_for(_get_parent_window())
         dialog.add_button("_Cancel", Gtk.ResponseType.NO)
         dialog.add_button("_Delete", Gtk.ResponseType.YES)
         dialog.get_content_area().append(Gtk.Label(
             label=f"Delete all logs? ({self._get_log_number()} total)",
-            wrap=True, margin=12,
+            wrap=True, margin_start=12, margin_end=12, margin_top=12, margin_bottom=12,
         ))
         dialog.present()
-        if dialog.run() != Gtk.ResponseType.YES:
-            dialog.destroy()
-            return
+        response = dialog_run(dialog)
         dialog.destroy()
+        if response != Gtk.ResponseType.YES:
+            return
 
         if not (os.path.exists(Data.LOGS) and os.listdir(Data.LOGS)):
             return

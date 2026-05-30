@@ -15,44 +15,53 @@
 # You should have received a copy of the GNU General Public License
 # along with Edgeware++.  If not, see <https://www.gnu.org/licenses/>.
 
-from tkinter import Label, Toplevel
+import gi
 
-import os_utils
+gi.require_version("Gtk", "4.0")
+gi.require_version("Gtk4LayerShell", "1.0")
+from gi.repository import GLib, Gtk
+from gi.repository import Gtk4LayerShell as LayerShell
+
 import utils
 from config.settings import Settings
 from pack import Pack
 
 
-class SubliminalPopup(Toplevel):
+class SubliminalPopup(Gtk.Window):
     def __init__(self, settings: Settings, pack: Pack, subliminal: str | None = None) -> None:
         self.subliminal = subliminal or pack.random_subliminal()
         if not self.should_init():
             return
         super().__init__()
 
-        self.attributes("-topmost", True)
-        os_utils.set_borderless(self)
-        self.attributes("-alpha", settings.subliminal_opacity)
-        if os_utils.is_windows():
-            self.wm_attributes("-transparentcolor", settings.theme.transparent_bg)
+        self.set_decorated(False)
+        self.set_opacity(settings.subliminal_opacity)
 
         monitor = utils.random_monitor(settings)
+        font_px = min(monitor.width, monitor.height) // 10
 
-        label = Label(
-            self,
-            text=self.subliminal,
-            font=(settings.theme.font, min(monitor.width, monitor.height) // 10),
-            wraplength=monitor.width / 1.5,
-            fg=settings.theme.fg,
-            bg=(settings.theme.transparent_bg if os_utils.is_windows() else settings.theme.bg),
+        label = Gtk.Label(label=self.subliminal, wrap=True)
+        label.set_max_width_chars(30)
+        label.set_justify(Gtk.Justification.CENTER)
+        label.add_css_class("subliminal-text")
+        self.set_child(label)
+
+        provider = Gtk.CssProvider()
+        provider.load_from_string(
+            ".subliminal-text { color: white; text-shadow: 0 0 6px black; font-size: %dpx; font-weight: bold; }" % font_px
         )
-        label.pack()
+        label.get_style_context().add_provider(provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
 
-        x = monitor.x + (monitor.width - label.winfo_reqwidth()) // 2
-        y = monitor.y + (monitor.height - label.winfo_reqheight()) // 2
+        LayerShell.init_for_window(self)
+        LayerShell.set_layer(self, LayerShell.Layer.OVERLAY)
+        LayerShell.set_namespace(self, "edgeware-subliminal")
+        gdk_mon = utils.gdk_monitor_for(monitor)
+        if gdk_mon:
+            LayerShell.set_monitor(self, gdk_mon)
+        # No edge anchors → compositor centers the window on the monitor
 
-        self.geometry(f"+{x}+{y}")
-        self.after(settings.subliminal_timeout, self.destroy)
+        self.present()
+        GLib.timeout_add(settings.subliminal_timeout, lambda: (self.destroy(), GLib.SOURCE_REMOVE)[1])
 
     def should_init(self) -> bool:
         return self.subliminal

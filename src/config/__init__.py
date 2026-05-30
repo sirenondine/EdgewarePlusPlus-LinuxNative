@@ -30,7 +30,7 @@ def first_launch_configure() -> None:
 
 def load_config() -> dict:
     if not Data.CONFIG.is_file():
-        Data.ROOT.mkdir(parents=True, exist_ok=True)
+        Data.CONFIG.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(Assets.DEFAULT_CONFIG, Data.CONFIG)
 
     default_config = load_default_config()

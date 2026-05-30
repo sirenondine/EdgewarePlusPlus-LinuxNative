@@ -14,8 +14,9 @@
 
 from gi import require_version
 
+require_version("Gdk", "4.0")
 require_version("Gtk", "4.0")
-from gi.repository import Gtk
+from gi.repository import Gdk, Gtk
 
 from config.vars import ConfigVar
 
@@ -39,12 +40,13 @@ class ConfigSection(Gtk.Frame):
         title_label.set_hexpand(True)
         title_row.append(title_label)
 
-        if message:
-            icon = Gtk.Image.new_from_icon_name("help-info-symbolic")
-            icon.set_tooltip_text(message)
-            title_row.append(icon)
-
         vbox.append(title_row)
+
+        if message:
+            msg_lbl = Gtk.Label(label=message, wrap=True)
+            msg_lbl.set_xalign(0)
+            msg_lbl.add_css_class("dim-label")
+            vbox.append(msg_lbl)
 
         self._content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
         vbox.append(self._content)
@@ -61,8 +63,11 @@ class ConfigMessage(Gtk.Box):
     def __init__(self, text: str) -> None:
         super().__init__(orientation=Gtk.Orientation.HORIZONTAL, spacing=PAD)
         icon = Gtk.Image.new_from_icon_name("help-info-symbolic")
-        icon.set_tooltip_text(text)
         self.append(icon)
+        lbl = Gtk.Label(label=text, wrap=True)
+        lbl.set_xalign(0)
+        lbl.add_css_class("dim-label")
+        self.append(lbl)
 
 
 class ConfigRow(Gtk.Box):
@@ -89,11 +94,20 @@ class ConfigScale(Gtk.Box):
         self._variable = variable
         self._enabled = enabled
 
+        label_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+        label_row.set_margin_start(PAD)
+        label_row.set_margin_end(PAD)
+
         self._label_widget = Gtk.Label(label=label, css_classes=["config-scale-label"])
         self._label_widget.set_xalign(0)
-        self._label_widget.set_margin_start(PAD)
-        self._label_widget.set_margin_end(PAD)
-        self.append(self._label_widget)
+        self._label_widget.set_hexpand(True)
+        label_row.append(self._label_widget)
+
+        range_lbl = Gtk.Label(label=f"({from_}–{to})")
+        range_lbl.add_css_class("dim-label")
+        label_row.append(range_lbl)
+
+        self.append(label_row)
 
         inner = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=PAD)
         inner.set_margin_start(PAD)
@@ -101,59 +115,25 @@ class ConfigScale(Gtk.Box):
         inner.set_margin_top(PAD)
         inner.set_margin_bottom(PAD)
 
-        self._scale = Gtk.Scale(
-            orientation=Gtk.Orientation.HORIZONTAL,
-            adjustment=Gtk.Adjustment(value=variable.get(), lower=from_, upper=to, step_increment=1),
-        )
+        adj = Gtk.Adjustment(value=variable.get(), lower=from_, upper=to, step_increment=1)
+        adj.connect("value-changed", self._on_adj_changed)
+
+        self._scale = Gtk.Scale(orientation=Gtk.Orientation.HORIZONTAL, adjustment=adj)
         self._scale.set_hexpand(True)
         self._scale.set_digits(0)
-        self._scale.set_value_pos(Gtk.PositionType.TOP)
-        self._scale.connect("value-changed", self._on_value_changed)
+        self._scale.set_draw_value(False)
         inner.append(self._scale)
 
-        manual_btn = Gtk.Button(label="Manual")
-        manual_btn.connect("clicked", self._on_manual)
-        inner.append(manual_btn)
+        spin = Gtk.SpinButton(adjustment=adj, climb_rate=1, digits=0)
+        spin.set_numeric(True)
+        spin.set_valign(Gtk.Align.CENTER)
+        inner.append(spin)
 
         self.append(inner)
 
-    def _on_value_changed(self, scale: Gtk.Scale) -> None:
-        self._variable.set(int(scale.get_value()))
+    def _on_adj_changed(self, adj: Gtk.Adjustment) -> None:
+        self._variable.set(int(adj.get_value()))
 
-    def _on_manual(self, _btn: Gtk.Button) -> None:
-        dialog = Gtk.Dialog(title=f"Set {self._label_widget.get_text()}")
-        dialog.set_default_size(300, 100)
-        entry = Gtk.Entry()
-        entry.set_valign(Gtk.Align.CENTER)
-        entry.set_halign(Gtk.Align.CENTER)
-
-        adj = self._scale.get_adjustment()
-        entry.set_text(str(int(self._variable.get())))
-
-        content = dialog.get_content_area()
-        content.append(entry)
-        dialog.add_button("_Cancel", Gtk.ResponseType.CANCEL)
-        dialog.add_button("_Apply", Gtk.ResponseType.OK)
-
-        entry.connect("activate", lambda _: dialog.response(Gtk.ResponseType.OK))
-
-        dialog.connect("response", lambda d, r: self._on_dialog_response(d, r, entry, adj))
-        dialog.present()
-
-    def _on_dialog_response(self, dialog: Gtk.Dialog, response: Gtk.ResponseType, entry: Gtk.Entry, adj: Gtk.Adjustment) -> None:
-        if response == Gtk.ResponseType.OK:
-            try:
-                value = int(entry.get_text())
-                value = max(int(adj.get_lower()), min(value, int(adj.get_upper())))
-                self._variable.set(value)
-                self._scale.set_value(value)
-            except ValueError:
-                pass
-        dialog.destroy()
-
-    @property
-    def label_widget(self) -> Gtk.Label:
-        return self._label_widget
 
 
 class ConfigToggle(Gtk.Box):
@@ -183,7 +163,12 @@ class ConfigToggle(Gtk.Box):
 
         label = Gtk.Label(label=text, css_classes=["config-toggle-label"])
         label.set_xalign(0)
+        label.set_cursor(Gdk.Cursor.new_from_name("pointer"))
         self.append(label)
+
+        gesture = Gtk.GestureClick.new()
+        gesture.connect("released", lambda _g, _n, _x, _y: self._switch.set_active(not self._switch.get_active()))
+        label.add_controller(gesture)
 
         if tooltip:
             self.set_tooltip_text(tooltip)
@@ -201,9 +186,10 @@ class ConfigDropdown(Gtk.Box):
         self,
         variable: ConfigVar,
         items: dict[str, str],
+        label: str | None = None,
         enabled: bool | None = None,
     ) -> None:
-        super().__init__(orientation=Gtk.Orientation.HORIZONTAL, spacing=PAD)
+        super().__init__(orientation=Gtk.Orientation.VERTICAL if label else Gtk.Orientation.HORIZONTAL, spacing=PAD)
         self._variable = variable
         self._items = items
 
@@ -212,6 +198,14 @@ class ConfigDropdown(Gtk.Box):
         self.set_margin_top(PAD)
         self.set_margin_bottom(PAD)
         self.set_valign(Gtk.Align.CENTER)
+
+        if label:
+            lbl = Gtk.Label(label=label)
+            lbl.set_xalign(0)
+            self.append(lbl)
+
+        inner = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=PAD)
+        self.append(inner)
 
         keys = list(items.keys())
         string_list = Gtk.StringList.new(keys)
@@ -222,12 +216,12 @@ class ConfigDropdown(Gtk.Box):
             self._dropdown.set_selected(keys.index(current))
 
         self._dropdown.connect("notify::selected", self._on_selected)
-        self.append(self._dropdown)
+        inner.append(self._dropdown)
 
         self._desc = Gtk.Label(label=items.get(str(current), ""), wrap=True, css_classes=["config-dropdown-desc"])
         self._desc.set_xalign(0)
         self._desc.set_hexpand(True)
-        self.append(self._desc)
+        inner.append(self._desc)
 
     def _on_selected(self, dropdown: Gtk.DropDown, _param) -> None:
         keys = list(self._items.keys())

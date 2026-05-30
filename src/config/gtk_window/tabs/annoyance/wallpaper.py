@@ -72,7 +72,8 @@ class WallpaperTab(Gtk.ScrolledWindow):
         rot_row.append(rot_toggle)
 
         self._wallpaper_store = Gtk.StringList.new(list(config.get("wallpaperDat", {}).keys()))
-        self._wallpaper_list = Gtk.ListView.new(Gtk.SingleSelection.new(self._wallpaper_store))
+        self._wallpaper_selection = Gtk.SingleSelection.new(self._wallpaper_store)
+        self._wallpaper_list = Gtk.ListView.new(self._wallpaper_selection)
         self._wallpaper_list.set_vexpand(True)
         factory = Gtk.SignalListItemFactory()
         factory.connect("setup", self._on_list_item_setup)
@@ -87,9 +88,11 @@ class WallpaperTab(Gtk.ScrolledWindow):
         add_btn.connect("clicked", self._on_add)
         btn_row.append(add_btn)
 
-        remove_btn = Gtk.Button(label="Remove Wallpaper")
-        remove_btn.connect("clicked", self._on_remove)
-        btn_row.append(remove_btn)
+        self._wall_remove_btn = Gtk.Button(label="Remove Wallpaper")
+        self._wall_remove_btn.connect("clicked", self._on_remove)
+        self._wall_remove_btn.set_sensitive(False)
+        self._wallpaper_selection.connect("notify::selected", self._update_remove_btn)
+        btn_row.append(self._wall_remove_btn)
 
         auto_wall_btn = Gtk.Button(label="Auto Import")
         auto_wall_btn.connect("clicked", self._on_auto_import)
@@ -169,17 +172,20 @@ class WallpaperTab(Gtk.ScrolledWindow):
             self._wallpaper_store.append(name)
             self._pending_path = None
 
+    def _update_remove_btn(self, selection, _param=None) -> None:
+        self._wall_remove_btn.set_sensitive(
+            selection.get_selected() != Gtk.INVALID_LIST_POSITION
+        )
+
     def _on_remove(self, _btn: Gtk.Button) -> None:
-        selection = self._wallpaper_list.get_model()
-        if isinstance(selection, Gtk.SingleSelection):
-            pos = selection.get_selected()
-            if pos != Gtk.INVALID_LIST_POSITION and pos > 0:
-                name = self._wallpaper_store.get_string(pos)
-                wallpaper_dat = config.get("wallpaperDat", {})
-                if name in wallpaper_dat:
-                    del wallpaper_dat[name]
-                    config["wallpaperDat"] = wallpaper_dat
-                self._wallpaper_store.remove(pos)
+        pos = self._wallpaper_selection.get_selected()
+        if pos != Gtk.INVALID_LIST_POSITION:
+            name = self._wallpaper_store.get_string(pos)
+            wallpaper_dat = config.get("wallpaperDat", {})
+            if name in wallpaper_dat:
+                del wallpaper_dat[name]
+                config["wallpaperDat"] = wallpaper_dat
+            self._wallpaper_store.remove(pos)
 
     def _on_auto_import(self, _btn: Gtk.Button) -> None:
         while self._wallpaper_store.get_n_items() > 0:
@@ -190,6 +196,7 @@ class WallpaperTab(Gtk.ScrolledWindow):
                 name = os.path.splitext(f)[0]
                 self._wallpaper_store.append(name)
                 config["wallpaperDat"][name] = f
+        self._update_remove_btn(self._wallpaper_selection)
 
     @staticmethod
     def _on_list_item_setup(_factory, item) -> None:

@@ -49,6 +49,5 @@ class Settings:
         self.pack_path = Data.PACKS / self.pack_path if self.pack_path else DEFAULT_PACK_PATH
         self.hibernate_fix_wallpaper = self.hibernate_fix_wallpaper and self.hibernate_mode
 
-        import os_utils  # Circular import
-
-        self.clickthrough_enabled = self.clickthrough_enabled and os_utils.is_windows()
+        # Clickthrough was a Windows-only feature; unavailable on LinuxNative.
+        self.clickthrough_enabled = False

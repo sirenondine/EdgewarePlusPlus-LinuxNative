@@ -17,8 +17,7 @@ from gi import require_version
 require_version("Gtk", "4.0")
 from gi.repository import Gtk
 
-import os_utils
-from config.gtk_window.widgets import ConfigMessage, ConfigRow, ConfigScale, ConfigSection, ConfigToggle
+from config.gtk_window.widgets import ConfigRow, ConfigScale, ConfigSection, ConfigToggle
 from config.gtk_window.utils import config
 from config.vars import Vars
 from screeninfo import get_monitors
@@ -37,9 +36,6 @@ MISC_TEXT = (
     "\"Popup Opacity\" affects the transparency of all popups."
 )
 TIMEOUT_TEXT = "After a certain time, popups will fade out and delete themselves."
-CLICKTHROUGH_TEXT = (
-    "When turned on, all popups will have their buttons removed, and you will be unable to click on them."
-)
 
 
 class MonitorToggle(Gtk.Box):
@@ -60,7 +56,9 @@ class MonitorToggle(Gtk.Box):
         self.append(lbl)
 
     def _on_toggled(self, switch: Gtk.Switch, _param) -> None:
-        disabled = config.get("disabledMonitors", [])
+        if "disabledMonitors" not in config:
+            config["disabledMonitors"] = []
+        disabled = config["disabledMonitors"]
         if switch.get_active():
             if self._monitor.name in disabled:
                 disabled.remove(self._monitor.name)
@@ -77,6 +75,10 @@ class PopupTweaksTab(Gtk.ScrolledWindow):
         self.set_vexpand(True)
 
         vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        vbox.set_margin_start(8)
+        vbox.set_margin_end(8)
+        vbox.set_margin_top(8)
+        vbox.set_margin_bottom(8)
         self.set_child(vbox)
 
         # Captions
@@ -101,13 +103,6 @@ class PopupTweaksTab(Gtk.ScrolledWindow):
         op_row = ConfigRow()
         opacity_section.append(op_row)
         op_row.append(ConfigScale("Popup Opacity (%)", vars.opacity, 5, 100))
-        opacity_section.append(ConfigMessage(CLICKTHROUGH_TEXT))
-
-        ct_row = ConfigRow()
-        opacity_section.append(ct_row)
-        ct_toggle = ConfigToggle("Clickthrough Popups (Windows Only)", vars.clickthrough_enabled)
-        ct_toggle.set_sensitive(os_utils.is_windows())
-        ct_row.append(ct_toggle)
 
         # Timeout
         timeout_section = ConfigSection("Popup Timeout", TIMEOUT_TEXT)

@@ -18,60 +18,137 @@
 import os
 import random
 import shutil
-import time
 from pathlib import Path
-from threading import Thread
-from tkinter import Button, Label, TclError, Tk, Toplevel
 from typing import Callable
+
+import gi
+
+gi.require_version("Gtk", "4.0")
+gi.require_version("Gtk4LayerShell", "1.0")
+from gi.repository import Gdk, GLib, Gtk
+from gi.repository import Gtk4LayerShell as LayerShell
 
 import utils
 from config.settings import Settings
-from desktop_notifier.common import Icon
-from desktop_notifier.sync import DesktopNotifierSync
 from features.misc import mitosis_popup, open_web
-from os_utils import set_borderless, set_clickthrough
 from pack import Pack
-from panic import panic
-from paths import Assets, Data
 from PIL import ImageFilter
+from paths import Data
 from roll import roll
 from state import State
 
+_CSS_LOADED = False
 
-class Popup(Toplevel):
+
+def _ensure_css() -> None:
+    global _CSS_LOADED
+    if _CSS_LOADED:
+        return
+    css = Gtk.CssProvider()
+    css.load_from_string("""
+        .popup-text {
+            color: white;
+            text-shadow: 0 0 4px black, 0 0 4px black;
+            font-weight: bold;
+        }
+        .popup-close {
+            font-weight: bold;
+            color: white;
+            background: rgba(0,0,0,0.78);
+            border: 1px solid rgba(255,255,255,0.55);
+            border-radius: 8px;
+            padding: 4px 14px;
+            text-shadow: 0 0 3px black;
+        }
+        .popup-close:hover { background: rgba(0,0,0,0.92); }
+        .popup-close:active { background: rgba(40,40,40,0.95); }
+        .popup-bg { background: rgba(0,0,0,0.85); }
+    """)
+    from gi.repository import Gdk
+    Gtk.StyleContext.add_provider_for_display(
+        Gdk.Display.get_default(), css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
+    )
+    _CSS_LOADED = True
+
+
+class Popup(Gtk.Window):
     media: Path  # Defined by subclasses
 
-    def __init__(self, root: Tk, settings: Settings, pack: Pack, state: State, on_close: Callable[[], None] | None = None) -> None:
+    def __init__(self, settings: Settings, pack: Pack, state: State, on_close: Callable[[], None] | None = None) -> None:
+        super().__init__()
+        _ensure_css()
+
         state.popup_number += 1
         state.popups.append(self)
-        super().__init__(bg="black")
 
-        self.root = root
         self.settings = settings
         self.pack = pack
         self.state = state
         self.on_close = on_close
 
-        self.theme = settings.theme
         self.denial = roll(self.settings.denial_chance)
-
-        self.bind("<KeyPress>", lambda event: panic(self.root, self.settings, self.state, condition=(event.keysym == self.settings.panic_key)))
-        self.attributes("-topmost", True)
-        set_borderless(self)
-
         self.opacity = self.settings.opacity
-        self.attributes("-alpha", self.opacity)
+        self._move_id: int | None = None
+        self._timeout_id: int | None = None
+
+        # Geometry defaults; subclasses call compute_geometry to refine
+        self.width = 300
+        self.height = 300
+        self.x = 0
+        self.y = 0
+
+        # Overlay stacks media (set by subclass via set_media_widget) with text/buttons
+        self._overlay = Gtk.Overlay()
+        self.set_child(self._overlay)
+        self.set_decorated(False)
+        self.set_resizable(False)
+        self.set_opacity(self.opacity)
+
+        # Layer-shell: float as an overlay on the chosen monitor, positioned by margins
+        LayerShell.init_for_window(self)
+        LayerShell.set_layer(self, LayerShell.Layer.OVERLAY)
+        LayerShell.set_anchor(self, LayerShell.Edge.TOP, True)
+        LayerShell.set_anchor(self, LayerShell.Edge.LEFT, True)
+        LayerShell.set_namespace(self, "edgeware-popup")
+
+        # Record whether Alt was held at click-time (for alt+click blacklist) —
+        # capture phase so it fires before the button/buttonless handler.
+        self._alt_at_click = False
+        alt_capture = Gtk.GestureClick.new()
+        alt_capture.set_button(0)
+        alt_capture.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
+        alt_capture.connect("pressed", self._record_modifiers)
+        self.add_controller(alt_capture)
+
+    def _record_modifiers(self, gesture: Gtk.GestureClick, _n: int, _x: float, _y: float) -> None:
+        self._alt_at_click = bool(gesture.get_current_event_state() & Gdk.ModifierType.ALT_MASK)
+
+    def set_media_widget(self, widget: Gtk.Widget) -> None:
+        widget.set_size_request(self.width, self.height)
+        self._overlay.set_child(widget)
+
+    def _apply_position(self) -> None:
+        gdk_mon = utils.gdk_monitor_for(self.monitor)
+        if gdk_mon:
+            LayerShell.set_monitor(self, gdk_mon)
+        # Layer-shell margins are monitor-local
+        local_x = self.x - self.monitor.x
+        local_y = self.y - self.monitor.y
+        LayerShell.set_margin(self, LayerShell.Edge.LEFT, max(0, local_x))
+        LayerShell.set_margin(self, LayerShell.Edge.TOP, max(0, local_y))
+        self.set_default_size(self.width, self.height)
 
     def init_finish(self) -> None:
+        self._apply_position()
         self.try_denial_text()
         self.try_caption()
         self.try_corruption_dev()
         self.try_button()
-        self.try_move()
         self.try_multi_click()
+        self.present()
+        self.try_move()
         self.try_timeout()
         self.try_pump_scare()
-        self.try_clickthrough()
 
     def compute_geometry(self, source_width: int, source_height: int) -> None:
         self.monitor = utils.random_monitor(self.settings)
@@ -93,169 +170,114 @@ class Popup(Toplevel):
             self.x = self.monitor.x + (self.monitor.width - self.width if right else 0)
             self.y = self.monitor.y + (self.monitor.height - self.height if bottom else 0)
         else:
-            positions = []
-            weights = []
+            self.x = self.monitor.x + random.randint(0, max(0, self.monitor.width - self.width))
+            self.y = self.monitor.y + random.randint(0, max(0, self.monitor.height - self.height))
 
-            # Divide the area of possible coordinates with respect to the
-            # monitor and popup sizes into a grid of side * side squares.
-            # Considering each pixel individually is unnecessary and too slow.
-            side = 50
-            area_width = self.monitor.width - self.width
-            area_height = self.monitor.height - self.height
-            for x_index in range(area_width // side):
-                for y_index in range(area_height // side):
-                    # Possible coordinates for this popup
-                    sx = x_index * side + self.monitor.x
-                    sy = y_index * side + self.monitor.y
-                    sw = self.width
-                    sh = self.height
-
-                    # Compute the weight for this position, preferring positions
-                    # that reduce popup overlap and clustering
-                    weight = float("inf") if self.state.popup_number > 1 else 1
-                    for popup in self.state.popups.copy():
-                        if popup is self:
-                            continue
-
-                        w, h, x, y = map(int, popup.geometry().replace("x", "+").split("+"))
-                        intersection = max(0, min(sx + sw, x + w) - max(sx, x)) * max(0, min(sy + sh, y + h) - max(sy, y))
-                        nonoverlap = 1 - intersection / (sw * sh)
-                        distance_squared = (sx + sw / 2 - (x + w / 2)) ** 2 + (sy + sh / 2 - (y + h / 2)) ** 2
-                        weight = min(2 ** (32 * nonoverlap) + distance_squared, weight)
-
-                    positions.append((sx, sy))
-                    weights.append(weight)
-
-            # Select a position inside the chosen square randomly
-            min_x, min_y = random.choices(positions, weights)[0]
-
-            # In case the area can't be neatly divided into squares
-            max_x = min_x + side
-            max_x += (area_width % side if area_width - max_x < side else 0) - 1
-            max_y = min_y + side
-            max_y += (area_height % side if area_height - max_y < side else 0) - 1
-
-            self.x = random.randint(min_x, max_x)
-            self.y = random.randint(min_y, max_y)
-
-        self.geometry(f"{self.width}x{self.height}+{self.x}+{self.y}")
-
-    def try_clickthrough(self) -> None:
-        if self.settings.clickthrough_enabled:
-            if not hasattr(self, "player"):
-                self.wait_visibility()
-            set_clickthrough(self)
-
-    def try_denial_filter(self, mpv: bool) -> ImageFilter.Filter | str:
+    def try_denial_filter(self) -> ImageFilter.Filter | str:
+        """Pick a denial filter for still images. Video denial uses a GStreamer
+        gaussianblur instead (see gtk_media.VideoController)."""
         if not self.denial:
             return ""
 
-        if mpv:
-            mpv_filters = [str(Assets.SHADER_GAUSSIAN_BLUR), str(Assets.SHADER_PIXELIZE)]
-            return random.choice(mpv_filters)
-        else:
-            image_filters = [ImageFilter.GaussianBlur(5), ImageFilter.GaussianBlur(10), ImageFilter.GaussianBlur(20), "resizeblur"]
-            weights = [1, 1, 1, 3]  # Make resize blur the same probability as choosing a gaussian blur.
-            return random.choices(image_filters, weights=weights)[0]
+        image_filters = [ImageFilter.GaussianBlur(5), ImageFilter.GaussianBlur(10), ImageFilter.GaussianBlur(20), "resizeblur"]
+        weights = [1, 1, 1, 3]
+        return random.choices(image_filters, weights=weights)[0]
+
+    def _add_text(self, text: str, halign: Gtk.Align, valign: Gtk.Align) -> None:
+        label = Gtk.Label(label=text, wrap=True)
+        label.add_css_class("popup-text")
+        label.set_halign(halign)
+        label.set_valign(valign)
+        label.set_max_width_chars(40)
+        label.set_margin_start(6)
+        label.set_margin_end(6)
+        label.set_margin_top(6)
+        label.set_margin_bottom(6)
+        self._overlay.add_overlay(label)
 
     def try_denial_text(self) -> None:
         if self.denial:
-            label = Label(
-                self, text=self.pack.random_denial(), wraplength=self.width, fg=self.theme.fg, bg=self.theme.bg, font=(self.theme.font, self.theme.font_size)
-            )
-            label.place(relx=0.5, rely=0.5, anchor="c")
+            self._add_text(self.pack.random_denial(), Gtk.Align.CENTER, Gtk.Align.CENTER)
 
     def try_caption(self) -> None:
         caption = self.pack.random_caption(self.media)
         if self.settings.captions_in_popups and caption:
-            label = Label(self, text=caption, wraplength=self.width, fg=self.theme.fg, bg=self.theme.bg, font=(self.theme.font, self.theme.font_size))
-            label.place(x=5, y=5)
+            self._add_text(caption, Gtk.Align.START, Gtk.Align.START)
 
     def try_corruption_dev(self) -> None:
         if self.settings.corruption_dev_mode:
-            levels = []
             mood = self.pack.index.media_moods.get(self.media.name, None)
-            for level in self.pack.corruption_levels:
-                if mood in level.moods:
-                    levels.append(self.pack.corruption_levels.index(level) + 1)
-
-            label_mood = Label(self, text=f"Popup mood: {mood}", fg=self.theme.fg, bg=self.theme.bg, font=(self.theme.font, self.theme.font_size))
-            label_level = Label(self, text=f"Valid Levels: {levels}", fg=self.theme.fg, bg=self.theme.bg, font=(self.theme.font, self.theme.font_size))
-            label_current_level = Label(
-                self, text=f"Current Level: {self.state.corruption_level}", fg=self.theme.fg, bg=self.theme.bg, font=(self.theme.font, self.theme.font_size)
-            )
-
-            label_mood.place(x=5, y=(self.height // 2))
-            label_level.place(x=5, y=(self.height // 2 + label_mood.winfo_reqheight() + 2))
-            label_current_level.place(x=5, y=(self.height // 2 + label_mood.winfo_reqheight() + label_level.winfo_reqheight() + 4))
+            levels = [self.pack.corruption_levels.index(level) + 1
+                      for level in self.pack.corruption_levels if mood in level.moods]
+            text = f"Popup mood: {mood}\nValid Levels: {levels}\nCurrent Level: {self.state.corruption_level}"
+            self._add_text(text, Gtk.Align.START, Gtk.Align.CENTER)
 
     def try_button(self) -> None:
         if self.settings.buttonless:
-            self.bind("<ButtonRelease-1>", lambda _: self.click())
-        elif not self.settings.clickthrough_enabled:
-            button = Button(
-                self,
-                text=self.pack.index.default.popup_close,
-                command=self.click,
-                fg=self.theme.fg,
-                bg=self.theme.bg,
-                activeforeground=self.theme.fg,
-                activebackground=self.theme.bg,
-                font=(self.theme.font, self.theme.font_size),
-            )
-            button.place(x=-10, y=-10, relx=1, rely=1, anchor="se")
+            gesture = Gtk.GestureClick.new()
+            gesture.connect("released", lambda *_: self.click())
+            self._overlay.add_controller(gesture)
+        else:
+            button = Gtk.Button(label=self.pack.index.default.popup_close)
+            button.add_css_class("popup-close")
+            button.set_halign(Gtk.Align.END)
+            button.set_valign(Gtk.Align.END)
+            button.set_margin_end(10)
+            button.set_margin_bottom(10)
+            button.connect("clicked", lambda _: self.click())
+            self._overlay.add_overlay(button)
 
     def try_move(self) -> None:
-        def move() -> None:
-            speed_x = 0 if self.settings.moving_chance else self.settings.moving_speed
-            speed_y = 0 if self.settings.moving_chance else self.settings.moving_speed
-            while speed_x == 0 and speed_y == 0:
-                speed_x = random.randint(-self.settings.moving_speed, self.settings.moving_speed)
-                speed_y = random.randint(-self.settings.moving_speed, self.settings.moving_speed)
+        if not roll(self.settings.moving_chance):
+            return
 
-            try:
-                while True:
-                    self.x += speed_x
-                    self.y += speed_y
+        speed = self.settings.moving_speed
+        sx = sy = 0
+        while sx == 0 and sy == 0:
+            sx = random.randint(-speed, speed)
+            sy = random.randint(-speed, speed)
+        self._speed = [sx, sy]
 
-                    left = self.x <= self.monitor.x
-                    right = self.x + self.width >= self.monitor.x + self.monitor.width
-                    if left or right:
-                        speed_x = -speed_x
+        def move() -> bool:
+            self.x += self._speed[0]
+            self.y += self._speed[1]
 
-                    top = self.y <= self.monitor.y
-                    bottom = self.y + self.height >= self.monitor.y + self.monitor.height
-                    if top or bottom:
-                        speed_y = -speed_y
+            if self.x <= self.monitor.x or self.x + self.width >= self.monitor.x + self.monitor.width:
+                self._speed[0] = -self._speed[0]
+            if self.y <= self.monitor.y or self.y + self.height >= self.monitor.y + self.monitor.height:
+                self._speed[1] = -self._speed[1]
 
-                    self.geometry(f"{self.width}x{self.height}+{self.x}+{self.y}")
-                    time.sleep(0.01)
-            except TclError:
-                pass  # Exception thrown when closing
+            local_x = max(0, self.x - self.monitor.x)
+            local_y = max(0, self.y - self.monitor.y)
+            LayerShell.set_margin(self, LayerShell.Edge.LEFT, local_x)
+            LayerShell.set_margin(self, LayerShell.Edge.TOP, local_y)
+            return GLib.SOURCE_CONTINUE
 
-        if roll(self.settings.moving_chance):
-            Thread(target=move, daemon=True).start()
+        self._move_id = GLib.timeout_add(10, move)
 
     def try_multi_click(self) -> None:
         self.clicks_to_close = self.pack.random_clicks_to_close(self.media) if self.settings.multi_click_popups else 1
 
     def try_timeout(self) -> None:
-        def fade_out() -> None:
-            try:
-                while self.opacity > 0:
-                    self.opacity -= 0.01
-                    self.attributes("-alpha", self.opacity)
-                    time.sleep(0.015)
-                self.close()
-            except TclError:
-                pass  # Exception thrown when manually closed during fade out
+        if not (self.settings.timeout_enabled and not self.state.pump_scare):
+            return
 
-        if self.settings.timeout_enabled and not self.state.pump_scare:
-            self.after(self.settings.timeout, Thread(target=fade_out, daemon=True).start)
+        def begin_fade() -> bool:
+            def fade() -> bool:
+                self.opacity -= 0.01
+                if self.opacity <= 0:
+                    self.close()
+                    return GLib.SOURCE_REMOVE
+                self.set_opacity(self.opacity)
+                return GLib.SOURCE_CONTINUE
+            GLib.timeout_add(15, fade)
+            return GLib.SOURCE_REMOVE
+
+        self._timeout_id = GLib.timeout_add(self.settings.timeout, begin_fade)
 
     def try_pump_scare(self) -> None:
         if self.state.pump_scare:
-            self.after(2500, self.close)
+            GLib.timeout_add(2500, lambda: (self.close(), GLib.SOURCE_REMOVE)[1])
 
     def try_web_open(self) -> None:
         if self.settings.web_on_popup_close and roll((100 - self.settings.web_chance) / 2):
@@ -263,13 +285,13 @@ class Popup(Toplevel):
 
     def try_mitosis(self) -> None:
         if self.settings.mitosis_mode and not self.settings.lowkey_mode:
-            for n in range(self.settings.mitosis_strength):
-                mitosis_popup(self.root, self.settings, self.pack, self.state)
+            for _ in range(self.settings.mitosis_strength):
+                mitosis_popup(self.settings, self.pack, self.state)
 
     def click(self) -> None:
         self.clicks_to_close -= 1
         if self.clicks_to_close <= 0:
-            if self.state.alt_held:
+            if self._alt_at_click or self.state.alt_held:
                 self.blacklist_media()
             self.close()
             self.try_mitosis()
@@ -280,12 +302,16 @@ class Popup(Toplevel):
         if not os.path.exists(path_blacklist):
             os.makedirs(path_blacklist)
         shutil.move(self.media, path_blacklist)
-        notifier = DesktopNotifierSync(app_name="Edgeware++", app_icon=Icon(self.pack.icon))
-        notifier.send(title=self.pack.info.name, message=f"{filename} has been successfully sent to blacklist")
+        from features.misc import notify
+        notify(self.pack.info.name, f"{filename} has been successfully sent to blacklist", icon=self.pack.icon)
 
     def close(self) -> None:
+        if self._move_id is not None:
+            utils.after_cancel(self._move_id)
+            self._move_id = None
         self.state.popup_number -= 1
-        self.state.popups.remove(self)
+        if self in self.state.popups:
+            self.state.popups.remove(self)
         self.try_web_open()
         self.destroy()
         if self.on_close:

@@ -18,40 +18,30 @@
 import logging
 import os
 import shlex
+import shutil
 import subprocess
 import sys
 from pathlib import Path
-from tkinter import Toplevel
 from urllib.parse import urlparse
 
-import mpv
-
-from config import load_default_config
 from os_utils.linux_utils import (
     find_get_wallpaper_command,
     find_set_wallpaper_commands,
     find_set_wallpaper_function,
     get_desktop_environment,
 )
-from paths import CustomAssets, Process
+from paths import PATH, CustomAssets, Process
+
+APP_ID = "io.github.sirenondine.EdgewarePlusPlus"
 
 
-def close_mpv(player: mpv.MPV) -> None:
-    player.stop()
+def _xdg_data_home() -> Path:
+    return Path(os.environ.get("XDG_DATA_HOME") or os.path.expanduser("~/.local/share"))
 
 
-def set_borderless(window: Toplevel) -> None:
-    desktop = get_desktop_environment()
-    if desktop == "kde":
-        window.overrideredirect(True)
-    elif desktop == "niri":
-        window.overrideredirect(True)
-    else:
-        window.attributes("-type", "splash")
-
-
-def set_clickthrough(window: Toplevel) -> None:
-    pass
+def _launcher(name: str) -> str:
+    """Absolute path to a launcher script (edgeware.sh / config.sh / panic.sh)."""
+    return str(PATH / f"{name}.sh")
 
 
 def get_wallpaper() -> Path | None:
@@ -103,25 +93,97 @@ def open_directory(url: str) -> None:
     subprocess.Popen(["xdg-open", url])
 
 
-def make_shortcut(
-    title: str, process: Path, icon: Path, location: Path | None = None
-) -> None:
-    default_config = load_default_config()
-
-    filename = f"{title}.desktop"
-    file = (location if location else Path(os.path.expanduser("~/Desktop"))) / filename
-    content = [
+def _desktop_entry(name: str, exec_cmd: str, icon: str, wm_class: str | None = None, no_display: bool = False, mime_type: str | None = None) -> str:
+    lines = [
         "[Desktop Entry]",
-        f"Version={default_config['versionplusplus']}",
-        f"Name={title}",
-        f"Exec={shlex.join([str(sys.executable), str(process)])}",
+        "Version=1.0",  # freedesktop Desktop Entry spec version, not the app version
+        f"Name={name}",
+        f"Exec={exec_cmd}",
         f"Icon={icon}",
         "Terminal=false",
         "Type=Application",
-        "Categories=Application;",
+        "Categories=Utility;",
     ]
+    if wm_class:
+        lines.append(f"StartupWMClass={wm_class}")
+    if no_display:
+        lines.append("NoDisplay=true")
+    if mime_type:
+        lines.append(f"MimeType={mime_type}")
+    return "\n".join(lines) + "\n"
 
-    file.write_text("\n".join(content))
+
+def _install_themed_icon() -> str:
+    """Render the .ico app icon to a themed PNG under hicolor. Returns icon name."""
+    try:
+        from PIL import Image
+
+        icon_dir = _xdg_data_home() / "icons" / "hicolor" / "256x256" / "apps"
+        icon_dir.mkdir(parents=True, exist_ok=True)
+        target = icon_dir / f"{APP_ID}.png"
+        img = Image.open(CustomAssets.icon()).convert("RGBA")
+        img.thumbnail((256, 256))
+        img.save(target)
+        return APP_ID
+    except Exception as e:
+        logging.warning(f"Failed to install themed icon, falling back to file path: {e}")
+        return str(CustomAssets.icon())
+
+
+def install_app_entries() -> None:
+    """Install XDG desktop entries to the applications dir so Edgeware++ shows
+    up in app launchers. Idempotent."""
+    icon = _install_themed_icon()
+    apps_dir = _xdg_data_home() / "applications"
+    apps_dir.mkdir(parents=True, exist_ok=True)
+
+    entries = {
+        f"{APP_ID}.desktop": _desktop_entry(
+            "Edgeware++", _launcher("edgeware"), icon, wm_class=f"{APP_ID}Runtime"
+        ),
+        f"{APP_ID}.Config.desktop": _desktop_entry(
+            "Edgeware++ Config", _launcher("config"), icon, wm_class=APP_ID
+        ),
+        f"{APP_ID}.Panic.desktop": _desktop_entry(
+            "Edgeware++ Panic", _launcher("panic"), icon
+        ),
+        # "Open With" handler for pack zips — advertises the zip MIME so file
+        # managers offer it, but NoDisplay keeps it out of app launchers and it
+        # is never set as the default zip handler.
+        f"{APP_ID}.Import.desktop": _desktop_entry(
+            "Import as Edgeware++ Pack", f"{_launcher('config')} --import %f", icon,
+            no_display=True, mime_type="application/zip",
+        ),
+    }
+    for filename, content in entries.items():
+        (apps_dir / filename).write_text(content)
+
+    # Refresh caches (best-effort; harmless if the tools are missing).
+    for cmd in (["update-desktop-database", str(apps_dir)],
+                ["gtk-update-icon-cache", "-q", "-t", str(_xdg_data_home() / "icons" / "hicolor")]):
+        try:
+            subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except FileNotFoundError:
+            pass
+
+
+def make_shortcut(
+    title: str, process: Path, icon: Path, location: Path | None = None
+) -> None:
+    """Write a single .desktop launcher (used for ~/Desktop copies and autostart)."""
+    name_map = {
+        Process.MAIN: "edgeware",
+        Process.CONFIG: "config",
+        Process.PANIC: "panic",
+    }
+    launcher = name_map.get(process)
+    exec_cmd = _launcher(launcher) if launcher else shlex.join([str(sys.executable), str(process)])
+    icon_name = _install_themed_icon()
+
+    file = (location if location else Path(os.path.expanduser("~/Desktop"))) / f"{title}.desktop"
+    file.parent.mkdir(parents=True, exist_ok=True)
+    file.write_text(_desktop_entry(title, exec_cmd, icon_name, wm_class=APP_ID))
+    file.chmod(0o755)
     if get_desktop_environment() == "gnome":
         subprocess.run(
             f"gio set {shlex.quote(str(file.absolute()))} metadata::trusted true",
@@ -135,3 +197,24 @@ def toggle_run_at_startup(state: bool) -> None:
         make_shortcut("Edgeware++", Process.MAIN, CustomAssets.icon(), autostart_path)
     else:
         (autostart_path / "Edgeware++.desktop").unlink(missing_ok=True)
+
+
+def install_systemd_unit() -> bool:
+    """Install the bundled systemd *user* unit. Opt-in alternative to the XDG
+    autostart .desktop — gives journald logging and graphical-session lifecycle.
+    Returns True on success. Enable with:
+        systemctl --user enable --now edgeware.service
+    """
+    src = PATH / "systemd" / "edgeware.service"
+    if not src.is_file():
+        logging.warning("systemd unit template missing")
+        return False
+    config_home = Path(os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config"))
+    units_dir = config_home / "systemd" / "user"
+    units_dir.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(src, units_dir / "edgeware.service")
+    try:
+        subprocess.run(["systemctl", "--user", "daemon-reload"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except FileNotFoundError:
+        pass
+    return True

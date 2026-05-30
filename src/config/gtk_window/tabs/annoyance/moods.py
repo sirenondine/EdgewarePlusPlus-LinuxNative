@@ -44,15 +44,9 @@ class MoodsTab(Gtk.ScrolledWindow):
         section = ConfigSection("Moods", MOOD_TEXT)
         vbox.append(section)
 
-        scrolled = Gtk.ScrolledWindow()
-        scrolled.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-        self.set_hexpand(True)
-        self.set_vexpand(True)
-        scrolled.set_vexpand(True)
-        section.append(scrolled)
-
         mood_list = Gtk.ListBox(css_classes=["mood-list"])
-        scrolled.set_child(mood_list)
+        mood_list.set_vexpand(True)
+        section.append(mood_list)
 
         active_moods = []
         if not config.get("toggleMoodSet"):
@@ -62,6 +56,7 @@ class MoodsTab(Gtk.ScrolledWindow):
             except Exception as e:
                 logging.warning(f"error reading mood file: {e}")
 
+        self._mood_switches: list[Gtk.Switch] = []
         has_moods = False
         for mood in pack.index.moods:
             assert mood.name is not None
@@ -73,6 +68,7 @@ class MoodsTab(Gtk.ScrolledWindow):
             switch = Gtk.Switch()
             switch.set_active(mood.name in active_moods)
             switch.connect("notify::active", self._make_mood_callback(pack, mood.name))
+            self._mood_switches.append(switch)
             hbox.append(switch)
 
             lbl = Gtk.Label(label=mood.name)
@@ -95,6 +91,20 @@ class MoodsTab(Gtk.ScrolledWindow):
             row = Gtk.ListBoxRow()
             row.set_child(Gtk.Label(label="No moods found in pack!"))
             mood_list.append(row)
+
+        if has_moods:
+            btn_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+            section.append(btn_row)
+            select_all_btn = Gtk.Button(label="Select All")
+            select_all_btn.connect("clicked", lambda _: self._set_all_moods(True))
+            btn_row.append(select_all_btn)
+            deselect_all_btn = Gtk.Button(label="Deselect All")
+            deselect_all_btn.connect("clicked", lambda _: self._set_all_moods(False))
+            btn_row.append(deselect_all_btn)
+
+    def _set_all_moods(self, active: bool) -> None:
+        for switch in self._mood_switches:
+            switch.set_active(active)
 
     @staticmethod
     def _make_mood_callback(pack: Pack, mood_name: str):

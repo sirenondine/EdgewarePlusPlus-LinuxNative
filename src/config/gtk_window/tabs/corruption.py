@@ -86,27 +86,21 @@ class CorruptionModeTab(Gtk.ScrolledWindow):
                     "Launch": "Transitions based on number of launches.",
                     "Script": "Transitions handled by pack scripts.",
                 },
+                label="Trigger Type",
             )
         )
 
         # Fade type
-        fade_frame = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
-        trigger_row.append(fade_frame)
-
-        fade_types = ["Normal", "Abrupt"]
-        fade_strings = Gtk.StringList.new(fade_types)
-        fade_dropdown = Gtk.DropDown(model=fade_strings)
-        current_fade = str(vars.corruption_fade.get())
-        if current_fade in fade_types:
-            fade_dropdown.set_selected(fade_types.index(current_fade))
-        fade_dropdown.connect("notify::selected", lambda d, _: vars.corruption_fade.set(fade_types[d.get_selected()]))
-        fade_frame.append(fade_dropdown)
-
-        self._fade_desc = Gtk.Label(label="Gradually transitions between corruption levels.")
-        self._fade_desc.set_wrap(True)
-        fade_frame.append(self._fade_desc)
-
-        fade_dropdown.connect("notify::selected", self._on_fade_changed)
+        trigger_row.append(
+            ConfigDropdown(
+                vars.corruption_fade,
+                {
+                    "Normal": "Gradually transitions between corruption levels.",
+                    "Abrupt": "Immediately switches to new level upon timer completion.",
+                },
+                label="Fade Type",
+            )
+        )
 
         # Trigger scales
         triggers_row = ConfigRow()
@@ -151,21 +145,38 @@ class CorruptionModeTab(Gtk.ScrolledWindow):
             path_section = ConfigSection("Corruption Path", PATH_TEXT)
             vbox.append(path_section)
 
-            columns = Gtk.ColumnView.new(Gtk.NoSelection.new(Gtk.StringList.new([])))
-            for col_id, title in [("level", "LEVEL"), ("add", "ADD"), ("remove", "REMOVE"), ("wallpaper", "WALLPAPER"), ("config", "CONFIG")]:
-                factory = Gtk.SignalListItemFactory()
-                factory.connect("bind", lambda f, item, c=col_id: item.set_child(Gtk.Label(label="")))
-                col = Gtk.ColumnViewColumn.new(title, factory)
-                columns.append_column(col)
+            grid = Gtk.Grid()
+            grid.set_column_spacing(16)
+            grid.set_row_spacing(4)
+            grid.set_margin_start(4)
+            grid.set_margin_end(4)
+            grid.set_margin_top(4)
+            grid.set_margin_bottom(4)
 
-            path_section.append(columns)
+            headers = ["Level", "Add Moods", "Remove Moods", "Wallpaper", "Config"]
+            for col, title in enumerate(headers):
+                lbl = Gtk.Label(label=title)
+                lbl.add_css_class("heading")
+                lbl.set_xalign(0)
+                grid.attach(lbl, col, 0, 1, 1)
 
-    def _on_fade_changed(self, dropdown: Gtk.DropDown, _param) -> None:
-        fade_types = ["Normal", "Abrupt"]
-        selected = dropdown.get_selected()
-        if 0 <= selected < len(fade_types):
-            key = fade_types[selected]
-            if key == "Normal":
-                self._fade_desc.set_text("Gradually transitions between corruption levels.")
-            else:
-                self._fade_desc.set_text("Immediately switches to new level upon timer completion.")
+            sep = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
+            grid.attach(sep, 0, 1, len(headers), 1)
+
+            for row_idx, level in enumerate(pack.corruption_levels):
+                row = row_idx + 2
+                added = ", ".join(sorted(m for m in level.added_moods if m is not None)) or "—"
+                removed = ", ".join(sorted(m for m in level.removed_moods if m is not None)) or "—"
+                cfg = ", ".join(f"{k}={v}" for k, v in (level.config or {}).items()) or "—"
+
+                for col, text in enumerate([str(row_idx), added, removed, level.wallpaper or "—", cfg]):
+                    lbl = Gtk.Label(label=text)
+                    lbl.set_xalign(0)
+                    lbl.set_wrap(True)
+                    grid.attach(lbl, col, row, 1, 1)
+
+            scrolled = Gtk.ScrolledWindow()
+            scrolled.set_vexpand(True)
+            scrolled.set_child(grid)
+            path_section.append(scrolled)
+

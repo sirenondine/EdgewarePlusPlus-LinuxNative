@@ -15,17 +15,22 @@
 # You should have received a copy of the GNU General Public License
 # along with Edgeware++.  If not, see <https://www.gnu.org/licenses/>.
 
-from tkinter import Button, Label, Text, Toplevel
 from typing import Callable
 
-import os_utils
+import gi
+
+gi.require_version("Gtk", "4.0")
+gi.require_version("Gtk4LayerShell", "1.0")
+from gi.repository import Gtk
+from gi.repository import Gtk4LayerShell as LayerShell
+
 import utils
 from config.settings import Settings
 from pack import Pack
 from state import State
 
 
-class Prompt(Toplevel):
+class Prompt(Gtk.Window):
     def __init__(self, settings: Settings, pack: Pack, state: State, prompt: str | None = None, on_close: Callable[[], None] | None = None) -> None:
         self.prompt = prompt or pack.random_prompt()
         self.state = state
@@ -33,42 +38,60 @@ class Prompt(Toplevel):
             return
         super().__init__()
 
+        self.settings = settings
         self.on_close = on_close
 
-        self.attributes("-topmost", True)
-        os_utils.set_borderless(self)
-        self.configure(background=settings.theme.bg)
+        self.set_decorated(False)
 
         monitor = utils.primary_monitor()
         width = monitor.width // 4
         height = monitor.height // 2
-        x = monitor.x + (monitor.width - width) // 2
-        y = monitor.y + (monitor.height - height) // 2
-        self.geometry(f"{width}x{height}+{x}+{y}")
+        self.set_default_size(width, height)
 
-        Label(
-            self,
-            text="\n" + pack.index.default.prompt_command + "\n",
-            fg=settings.theme.fg,
-            bg=settings.theme.bg,
-            font=(settings.theme.font, settings.theme.font_size),
-        ).pack()
+        vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        vbox.set_margin_start(16)
+        vbox.set_margin_end(16)
+        vbox.set_margin_top(16)
+        vbox.set_margin_bottom(16)
+        self.set_child(vbox)
 
-        Label(self, text=self.prompt, wraplength=width, fg=settings.theme.fg, bg=settings.theme.bg, font=(settings.theme.font, settings.theme.font_size)).pack()
+        command = Gtk.Label(label=pack.index.default.prompt_command)
+        command.add_css_class("title-2")
+        vbox.append(command)
 
-        input = Text(self, fg=settings.theme.text_fg, bg=settings.theme.text_bg)
-        input.pack()
-        button = Button(
-            self,
-            text=pack.index.default.prompt_submit,
-            command=lambda: self.submit(settings.prompt_max_mistakes, self.prompt, input.get(1.0, "end-1c")),
-            fg=settings.theme.fg,
-            bg=settings.theme.bg,
-            activeforeground=settings.theme.fg,
-            activebackground=settings.theme.bg,
-            font=(settings.theme.font, settings.theme.font_size),
-        )
-        button.place(x=-10, y=-10, relx=1, rely=1, anchor="se")
+        prompt_label = Gtk.Label(label=self.prompt, wrap=True)
+        prompt_label.set_selectable(False)
+        vbox.append(prompt_label)
+
+        scrolled = Gtk.ScrolledWindow()
+        scrolled.set_vexpand(True)
+        self._input = Gtk.TextView()
+        self._input.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
+        scrolled.set_child(self._input)
+        vbox.append(scrolled)
+
+        button = Gtk.Button(label=pack.index.default.prompt_submit)
+        button.add_css_class("suggested-action")
+        button.set_halign(Gtk.Align.END)
+        button.connect("clicked", lambda _: self._on_submit())
+        vbox.append(button)
+
+        LayerShell.init_for_window(self)
+        LayerShell.set_layer(self, LayerShell.Layer.OVERLAY)
+        LayerShell.set_namespace(self, "edgeware-prompt")
+        LayerShell.set_keyboard_mode(self, LayerShell.KeyboardMode.EXCLUSIVE)
+        gdk_mon = utils.gdk_monitor_for(monitor)
+        if gdk_mon:
+            LayerShell.set_monitor(self, gdk_mon)
+
+        self.present()
+
+    def _get_text(self) -> str:
+        buffer = self._input.get_buffer()
+        return buffer.get_text(buffer.get_start_iter(), buffer.get_end_iter(), False)
+
+    def _on_submit(self) -> None:
+        self.submit(self.settings.prompt_max_mistakes, self.prompt, self._get_text())
 
     def should_init(self) -> bool:
         if not self.state.prompt_active and self.prompt:
