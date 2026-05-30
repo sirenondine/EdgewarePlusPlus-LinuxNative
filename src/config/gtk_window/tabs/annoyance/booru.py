@@ -52,7 +52,7 @@ class BooruTab(Adw.PreferencesPage):
         # api key + login). Left blank for anonymous access.
         creds = Adw.PreferencesGroup(
             title="Credentials",
-            description="Optional. Some sites need an API key (and a user id or login) for full access or higher limits. Leave blank for anonymous use.")
+            description="Optional for many sites, but Gelbooru and Danbooru now require BOTH an API key AND your user id (Danbooru: login) — an API key alone is ignored. Find them on your account/options page. Leave blank for anonymous sites.")
         self.add(creds)
         creds.add(AdwEntryRow("API key", vars.booru_api_key, password=True))
         creds.add(AdwEntryRow("User ID / Login", vars.booru_user_id))
@@ -135,6 +135,10 @@ class BooruTab(Adw.PreferencesPage):
         site = self._vars.booru_site.get() or booru.DEFAULT_SITE
         api_key = self._vars.booru_api_key.get() or ""
         user_id = self._vars.booru_user_id.get() or ""
+        # Remember whether this site needs credentials we don't fully have, to
+        # give a useful message if it returns nothing.
+        self._needs_creds = site in ("gelbooru", "danbooru") and not (api_key and user_id)
+        self._last_site = site
         tags = config.get("tagList", "").replace(">", " ").strip()
         child = self._flow.get_first_child()
         while child:
@@ -181,8 +185,13 @@ class BooruTab(Adw.PreferencesPage):
     def _preview_done(self, count: int) -> bool:
         self._spinner.stop()
         self._preview_btn.set_sensitive(True)
-        self._status.set_text(
-            f"{count} result(s)." if count else "No results — try different tags or another site.")
+        if count:
+            msg = f"{count} result(s)."
+        elif getattr(self, "_needs_creds", False):
+            msg = f"No results. {self._last_site.capitalize()} requires BOTH an API key and a user id/login — fill both under Credentials."
+        else:
+            msg = "No results — try different tags or another site."
+        self._status.set_text(msg)
         return False
 
     def _on_add(self, btn: Gtk.Button) -> None:
