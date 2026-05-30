@@ -72,6 +72,22 @@ def _make_pack_page(name: str, vars: Vars, pack: Pack,
     raise ValueError(f"Unknown pack page: {name}")
 
 
+def _auto_import_wallpapers(pack: Pack) -> None:
+    """Populate wallpaperDat from the new pack's root directory.
+    Called on every pack switch so the rotating wallpaper list stays
+    in sync with the active pack rather than referencing stale paths."""
+    import os
+    new_dat: dict[str, str] = {}
+    try:
+        for f in os.listdir(pack.paths.root):
+            if f.lower().endswith((".png", ".jpg", ".jpeg")) and f != "wallpaper.png":
+                name = f.rsplit(".", 1)[0]
+                new_dat[name] = f
+    except Exception:
+        pass
+    config["wallpaperDat"] = new_dat
+
+
 def _build_search_index(pages: list[tuple[str, Gtk.Widget]]) -> list[tuple[str, str, str]]:
     """Walk all Adw.PreferencesRow children of each page and return
     (tab_name, title, subtitle) tuples for the search index."""
@@ -420,6 +436,10 @@ class ConfigWindow(Adw.ApplicationWindow):
         # Load new pack
         self._pack = _load_pack(pack_name)
         _ensure_mood_file(self._pack)
+
+        # Auto-populate wallpaperDat from the new pack's root directory.
+        # The old entries referenced the previous pack's files and are now stale.
+        _auto_import_wallpapers(self._pack)
 
         # Rebuild only pack-dependent pages
         for name in _PACK_PAGE_NAMES:
