@@ -81,8 +81,8 @@ class WallpaperTab(Adw.PreferencesPage):
         self._wall_remove_btn.connect("clicked", self._on_remove)
         self._wall_remove_btn.set_sensitive(False)
         rot_actions.append(self._wall_remove_btn)
-        auto_wall_btn = Gtk.Button(icon_name="document-import-symbolic")
-        auto_wall_btn.set_tooltip_text("Import all images from the pack as rotating wallpapers")
+        auto_wall_btn = Gtk.Button(icon_name="insert-image-symbolic")
+        auto_wall_btn.set_tooltip_text("Import all images from the current pack as rotating wallpapers")
         auto_wall_btn.connect("clicked", self._on_auto_import)
         rot_actions.append(auto_wall_btn)
         rot.set_header_suffix(rot_actions)
@@ -219,14 +219,27 @@ class WallpaperTab(Adw.PreferencesPage):
         box.set_margin_top(4)
         box.set_margin_bottom(4)
 
+        # Overlay: Picture for the image, Image icon for missing state
+        overlay = Gtk.Overlay()
+        overlay.set_size_request(96, 54)
+
         thumb = Gtk.Picture()
-        thumb.set_size_request(96, 54)
         thumb.set_content_fit(Gtk.ContentFit.COVER)
         thumb.set_can_shrink(True)
+        overlay.set_child(thumb)
+
+        missing_icon = Gtk.Image.new_from_icon_name("image-missing-symbolic")
+        missing_icon.set_pixel_size(24)
+        missing_icon.add_css_class("error")
+        missing_icon.set_halign(Gtk.Align.CENTER)
+        missing_icon.set_valign(Gtk.Align.CENTER)
+        missing_icon.set_visible(False)
+        overlay.add_overlay(missing_icon)
+
         thumb_frame = Gtk.Frame()
         thumb_frame.add_css_class("card")
         thumb_frame.set_valign(Gtk.Align.CENTER)
-        thumb_frame.set_child(thumb)
+        thumb_frame.set_child(overlay)
         box.append(thumb_frame)
 
         label = Gtk.Label()
@@ -239,7 +252,9 @@ class WallpaperTab(Adw.PreferencesPage):
     def _on_list_item_bind(self, _factory, item) -> None:
         box = item.get_child()
         thumb_frame = box.get_first_child()
-        thumb = thumb_frame.get_child()
+        overlay = thumb_frame.get_child()
+        thumb = overlay.get_first_child()           # Picture (main child)
+        missing_icon = thumb.get_next_sibling()    # Image (overlay child)
         label = thumb_frame.get_next_sibling()
 
         name = item.get_item().get_string()
@@ -249,9 +264,12 @@ class WallpaperTab(Adw.PreferencesPage):
         path = self._pack.paths.root / filename if filename else None
         if path and path.is_file():
             thumb.set_filename(str(path))
-            thumb.set_tooltip_text(None)
-            thumb_frame.remove_css_class("error")
+            missing_icon.set_visible(False)
+            box.set_tooltip_text(None)
         else:
             thumb.set_paintable(None)
-            thumb.set_tooltip_text(f"File not found: {filename}\nRe-add this wallpaper to fix.")
-            thumb_frame.add_css_class("error")
+            missing_icon.set_visible(True)
+            box.set_tooltip_text(
+                f"File not found: {filename}\n"
+                "Remove this entry and re-add the wallpaper file."
+            )
