@@ -35,6 +35,7 @@
   "booruMinScore": -5,
   "desktopIcons": 1,
   "tagList": "all",
+  "booruSite": "gelbooru",
   "downloadEnabled": 0,
   "runOnSaveQuit": 0,
   "timerMode": 0,

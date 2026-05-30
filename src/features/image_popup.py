@@ -57,20 +57,18 @@ class ImagePopup(Popup):
     def _acquire_image(self) -> Image.Image:
         """Worker-thread image source: booru network fetch (when enabled) or the
         local pack image. Network I/O must stay off the main thread."""
-        # TODO: Better booru integration
         if self.settings.booru_download and roll(50):
             try:
-                # Deferred: booru pulls in bs4 + aiohttp + lxml (~135ms) — keep it
-                # off the startup path since downloads are off by default.
-                import asyncio
-                import booru
-                import requests
-                gel = booru.Gelbooru()
-                result = booru.resolve(asyncio.run(gel.search_image(query=self.settings.booru_tags, limit=1)))
-                data = requests.get(result[0], stream=True)
-                return Image.open(data.raw)
-            except Exception:
-                logging.error(f'No results for tags "{self.settings.booru_tags}" on Gelbooru')
+                import io
+
+                from features import booru
+                site = getattr(self.settings, "booru_site", "gelbooru")
+                url = booru.random_image_url(site, self.settings.booru_tags)
+                if url:
+                    return Image.open(io.BytesIO(booru.fetch_bytes(url)))
+                logging.error(f'No results for tags "{self.settings.booru_tags}" on {site}')
+            except Exception as e:
+                logging.error(f"Booru fetch failed: {e}")
         return Image.open(self.media)
 
     def _prepare(self, denial_filter) -> None:

@@ -153,6 +153,7 @@ CONFIG_ITEMS = {
 
     # Booru
     "booru_download": Item("downloadEnabled", BOOLEAN, VAR, bool),
+    "booru_site": Item("booruSite", STRING, VAR, str),
     "booru_tags": Item("tagList", STRING, None, lambda value: value.replace(">", " ")),
     # "min_score": Item("booruMinScore", Schema(int), VAR, int),  # TODO: Unimplemented
 
