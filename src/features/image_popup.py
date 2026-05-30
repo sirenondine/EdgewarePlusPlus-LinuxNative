@@ -34,6 +34,7 @@ from state import State
 class ImagePopup(Popup):
     vibration_open_event = "image_open"
     vibration_close_event = "image_close"
+    vibration_continuous_key = "image"
 
     def __init__(self, settings: Settings, pack: Pack, state: State, media: Path | None = None, on_close: Callable[[], None] | None = None) -> None:
         self.media = media or pack.random_image()

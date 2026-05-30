@@ -62,52 +62,6 @@ class VibrationMixin:
         except Exception as e:
             logging.debug(f"Vibration system error: {e}")
 
-    def start_continuous_vibration(self, event_type: str, settings: Dict[str, Any], sextoy: Any) -> None:
-        """Begin a held vibration for an event (e.g. while a prompt is open)."""
-        try:
-            if not self._check_sextoy_ready(sextoy) or not isinstance(settings, dict):
-                return
-
-            self.active_vibrations.setdefault(event_type, {})
-
-            for device_id, device_settings in settings.items():
-                try:
-                    enabled_key = f"sextoy_{event_type}_enabled"
-                    force_key = f"sextoy_{event_type}_vibration_force"
-                    enabled = self._normalize_bool(
-                        self._get_valid_value(device_settings, enabled_key, False, (bool, int, str)))
-                    force_pct = self._get_valid_value(device_settings, force_key, 0, (int, float))
-                    if not enabled or force_pct <= 0:
-                        continue
-
-                    device_idx = self._safe_get_device_id(device_id)
-                    if device_idx is None or device_idx not in sextoy.devices:
-                        continue
-
-                    force = self._normalize_force(force_pct, device_settings)
-                    sextoy.start_vibration(device_idx, force)
-                    self.active_vibrations[event_type][device_idx] = True
-                except Exception as e:
-                    logging.debug(f"Continuous start error {event_type}/{device_id}: {e}")
-        except Exception as e:
-            logging.debug(f"Continuous vibration system error {event_type}: {e}")
-
-    def stop_continuous_vibration(self, event_type: str, sextoy: Any) -> None:
-        """Stop a previously started held vibration for an event."""
-        try:
-            if not self.active_vibrations.get(event_type):
-                return
-            if not self._check_sextoy_ready(sextoy, require_devices=False):
-                return
-            for device_idx in list(self.active_vibrations[event_type]):
-                try:
-                    sextoy.stop_vibration(device_idx)
-                except Exception as e:
-                    logging.debug(f"Error stopping continuous vib {event_type}/{device_idx}: {e}")
-            self.active_vibrations.pop(event_type, None)
-        except Exception as e:
-            logging.debug(f"Continuous vibration stop error {event_type}: {e}")
-
     # ------------------------------------------------------------------
     def _check_sextoy_ready(self, sextoy: Any, require_devices: bool = True) -> bool:
         if not all(hasattr(sextoy, a) for a in ("connected", "devices", "vibrate")):
@@ -162,19 +116,35 @@ _shared = VibrationMixin()
 
 
 def vibrate_event(event_type: str, settings: Any, sextoy: Any) -> None:
-    """Fire a one-shot vibration for an event. No-op if sextoy is None."""
+    """Fire a one-shot (timed) vibration for an event. No-op if sextoy is None."""
     if sextoy is None:
         return
     _shared.trigger_vibration(event_type, getattr(settings, "sextoys", {}) or {}, sextoy)
 
 
-def start_continuous_event(event_type: str, settings: Any, sextoy: Any) -> None:
+def start_continuous(settings: Any, sextoy: Any, token: str,
+                     enabled_key: str, force_key: str) -> None:
+    """Add a continuous contribution under `token` for every device where
+    `enabled_key` is on and `force_key` > 0. Multiple tokens stack on a device."""
     if sextoy is None:
         return
-    _shared.start_continuous_vibration(event_type, getattr(settings, "sextoys", {}) or {}, sextoy)
+    devices = getattr(settings, "sextoys", {}) or {}
+    for dev_id, ds in devices.items():
+        if not isinstance(ds, dict):
+            continue
+        if not _shared._normalize_bool(ds.get(enabled_key, False)):
+            continue
+        force_pct = _shared._get_valid_value(ds, force_key, 0, (int, float))
+        if force_pct <= 0:
+            continue
+        idx = _shared._safe_get_device_id(dev_id)
+        if idx is None or idx not in getattr(sextoy, "devices", {}):
+            continue
+        sextoy.add_contribution(idx, token, _shared._normalize_force(force_pct, ds))
 
 
-def stop_continuous_event(event_type: str, sextoy: Any) -> None:
+def stop_continuous(token: str, sextoy: Any) -> None:
+    """Remove a continuous contribution token from all devices."""
     if sextoy is None:
         return
-    _shared.stop_continuous_vibration(event_type, sextoy)
+    sextoy.remove_token(token)

@@ -77,6 +77,10 @@ class Popup(Gtk.Window):
     # Sex-toy vibration event names, set by subclasses (e.g. "image_open").
     vibration_open_event: str | None = None
     vibration_close_event: str | None = None
+    # Continuous-mode key (e.g. "image"): if the device has
+    # sextoy_<key>_continuous on, vibrate from open until close (stacking with
+    # other open popups) instead of the timed open/close pulses.
+    vibration_continuous_key: str | None = None
 
     def __init__(self, settings: Settings, pack: Pack, state: State, on_close: Callable[[], None] | None = None) -> None:
         super().__init__()
@@ -160,6 +164,16 @@ class Popup(Gtk.Window):
         self.try_move()
         self.try_timeout()
         self.try_pump_scare()
+        # Sex toy: start continuous contribution first (so the timed pulse below
+        # is auto-suppressed on devices already held continuous), then the
+        # timed open pulse (which fires only on devices in timed mode).
+        if self.vibration_continuous_key:
+            from features.vibration_mixin import start_continuous
+            self._vib_token = f"{self.vibration_continuous_key}:{id(self)}"
+            start_continuous(
+                self.settings, self.state.sextoy, self._vib_token,
+                f"sextoy_{self.vibration_continuous_key}_continuous",
+                f"sextoy_{self.vibration_continuous_key}_continuous_force")
         if self.vibration_open_event:
             from features.vibration_mixin import vibrate_event
             vibrate_event(self.vibration_open_event, self.settings, self.state.sextoy)
@@ -324,9 +338,14 @@ class Popup(Gtk.Window):
         notify(self.pack.info.name, f"{filename} has been successfully sent to blacklist", icon=self.pack.icon)
 
     def close(self) -> None:
+        # Fire the timed close pulse first (suppressed on continuous devices
+        # while the contribution is still held), then drop the contribution.
         if self.vibration_close_event:
             from features.vibration_mixin import vibrate_event
             vibrate_event(self.vibration_close_event, self.settings, self.state.sextoy)
+        if self.vibration_continuous_key and getattr(self, "_vib_token", None):
+            from features.vibration_mixin import stop_continuous
+            stop_continuous(self._vib_token, self.state.sextoy)
         if self._move_id is not None:
             utils.after_cancel(self._move_id)
             self._move_id = None

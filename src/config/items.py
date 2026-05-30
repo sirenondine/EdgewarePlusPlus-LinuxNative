@@ -204,33 +204,11 @@ CONFIG_ITEMS = {
     "panic_key": Item("panicButton", STRING, VAR, str, block=True),
 
     # Sex toys (Intiface/Buttplug). "sextoys" maps a device-index string to a
-    # dict of per-event vibration settings; stored verbatim as JSON.
-    "sextoys": Item("sextoys", Schema({
-        str: Schema({
-            "sextoy_name": STRING,
-            "sextoy_general_vibration_force": PERCENTAGE,
-            "sextoy_image_open_chance": PERCENTAGE,
-            "sextoy_image_open_vibration_force": PERCENTAGE,
-            "sextoy_image_open_vibration_length": FLOAT,
-            "sextoy_image_close_chance": PERCENTAGE,
-            "sextoy_image_close_vibration_force": PERCENTAGE,
-            "sextoy_image_close_vibration_length": FLOAT,
-            "sextoy_video_open_chance": PERCENTAGE,
-            "sextoy_video_open_vibration_force": PERCENTAGE,
-            "sextoy_video_open_vibration_length": FLOAT,
-            "sextoy_video_close_chance": PERCENTAGE,
-            "sextoy_video_close_vibration_force": PERCENTAGE,
-            "sextoy_video_close_vibration_length": FLOAT,
-            "sextoy_caption_chance": PERCENTAGE,
-            "sextoy_caption_vibration_force": PERCENTAGE,
-            "sextoy_caption_vibration_length": FLOAT,
-            "sextoy_display_notification_chance": PERCENTAGE,
-            "sextoy_display_notification_vibration_force": PERCENTAGE,
-            "sextoy_display_notification_vibration_length": FLOAT,
-            "sextoy_prompt_enabled": BOOLEAN,
-            "sextoy_prompt_vibration_force": PERCENTAGE,
-        }),
-    }), VAR, lambda value: value, block=True),
+    # dict of per-event vibration settings; stored verbatim as JSON. The inner
+    # dict is intentionally lenient (just "a dict") so new setting keys can be
+    # added without invalidating existing saved devices; the config tab clamps
+    # individual values via its sliders.
+    "sextoys": Item("sextoys", Schema({str: dict}), VAR, lambda value: value, block=True),
     "intiface_address": Item("intifaceAddress", STRING, VAR, str, block=True),
 }
 # fmt: on

@@ -37,22 +37,30 @@ _GROUPS: dict[str, list[tuple]] = {
     "General": [
         ("sextoy_general_vibration_force", "General Vibration Force (%)", "pct", 0, 100),
     ],
-    "Image Open": [
+    "Image — Continuous Mode": [
+        ("sextoy_image_continuous", "Vibrate while any image popup is open", "bool", 0, 1),
+        ("sextoy_image_continuous_force", "Force added per open popup (%)", "pct", 0, 100),
+    ],
+    "Image Open (timed)": [
         ("sextoy_image_open_chance", "Chance (%)", "pct", 0, 100),
         ("sextoy_image_open_vibration_force", "Force (%)", "pct", 0, 100),
         ("sextoy_image_open_vibration_length", "Length (sec)", "float", 0.5, 3.0),
     ],
-    "Image Close": [
+    "Image Close (timed)": [
         ("sextoy_image_close_chance", "Chance (%)", "pct", 0, 100),
         ("sextoy_image_close_vibration_force", "Force (%)", "pct", 0, 100),
         ("sextoy_image_close_vibration_length", "Length (sec)", "float", 0.5, 3.0),
     ],
-    "Video Open": [
+    "Video — Continuous Mode": [
+        ("sextoy_video_continuous", "Vibrate while any video popup is open", "bool", 0, 1),
+        ("sextoy_video_continuous_force", "Force added per open popup (%)", "pct", 0, 100),
+    ],
+    "Video Open (timed)": [
         ("sextoy_video_open_chance", "Chance (%)", "pct", 0, 100),
         ("sextoy_video_open_vibration_force", "Force (%)", "pct", 0, 100),
         ("sextoy_video_open_vibration_length", "Length (sec)", "float", 0.5, 3.0),
     ],
-    "Video Close": [
+    "Video Close (timed)": [
         ("sextoy_video_close_chance", "Chance (%)", "pct", 0, 100),
         ("sextoy_video_close_vibration_force", "Force (%)", "pct", 0, 100),
         ("sextoy_video_close_vibration_length", "Length (sec)", "float", 0.5, 3.0),
@@ -78,8 +86,10 @@ _GROUPS: dict[str, list[tuple]] = {
 # reduction (50 silently halves everything, which felt "broken").
 _DEFAULTS: dict[str, object] = {
     "sextoy_general_vibration_force": 100,
+    "sextoy_image_continuous": 0, "sextoy_image_continuous_force": 30,
     "sextoy_image_open_chance": 50, "sextoy_image_open_vibration_force": 60, "sextoy_image_open_vibration_length": 0.8,
     "sextoy_image_close_chance": 0, "sextoy_image_close_vibration_force": 50, "sextoy_image_close_vibration_length": 0.5,
+    "sextoy_video_continuous": 0, "sextoy_video_continuous_force": 50,
     "sextoy_video_open_chance": 75, "sextoy_video_open_vibration_force": 70, "sextoy_video_open_vibration_length": 1.5,
     "sextoy_video_close_chance": 0, "sextoy_video_close_vibration_force": 50, "sextoy_video_close_vibration_length": 0.5,
     "sextoy_caption_chance": 25, "sextoy_caption_vibration_force": 50, "sextoy_caption_vibration_length": 0.5,

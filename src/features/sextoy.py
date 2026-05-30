@@ -50,8 +50,10 @@ class Sextoy:
         self._loop = asyncio.new_event_loop()
         Thread(target=self._run_loop, daemon=True).start()
         self._client = Client("EdgewarePP", ProtocolSpec.v3) if BUTTPLUG_AVAILABLE else None
-        # Continuous (held) forces, and per-session one-shot actuator state.
-        self._continuous_forces: dict[int, float] = {}
+        # Continuous contributions: device -> {token: force}. Each open
+        # continuous popup is one token; the device runs at the summed total
+        # (capped at 1.0) so concurrent popups stack. Plus one-shot state.
+        self._contributions: dict[int, dict[str, float]] = {}
         self._active_vibrations: dict[int, dict[int, StoredActuator]] = {}
         self._active_rotations: dict[int, dict[int, StoredActuator]] = {}
         self.vibration_index = 0
@@ -179,8 +181,8 @@ class Sextoy:
             logging.error(f"Sextoy actuator error dev={device_index}: {e}")
 
     async def _vibrate_once(self, device_index: int, speed: float, duration: float) -> None:
-        if device_index in self._continuous_forces:
-            return
+        if self._contributions.get(device_index):
+            return  # a continuous vibration is holding this device
         dev = self._client.devices.get(device_index)
         if not dev:
             logging.warning(f"vibrate_once: device {device_index} not found")
@@ -207,39 +209,41 @@ class Sextoy:
             self._vibrate_once(device_index, speed, duration), self._loop)
 
     # ------------------------------------------------------------------
-    # Continuous (held) vibration
-    async def _send_continuous_start(self, device_index: int, speed: float) -> None:
+    # Continuous (held) vibration — contributions stack into a per-device total
+    async def _apply_total(self, device_index: int) -> None:
         dev = self._client.devices.get(device_index)
         if not dev:
             return
+        total = min(1.0, sum(self._contributions.get(device_index, {}).values()))
         clockwise = bool(random.getrandbits(1))
         for act in dev.actuators:
-            await act.command(speed)
+            await act.command(total)
         for rot in dev.rotatory_actuators:
-            await rot.command(speed, clockwise)
+            await rot.command(total, clockwise)
 
-    def start_vibration(self, device_index: int, speed: float) -> None:
-        if not self.connected or device_index in self._continuous_forces:
+    def add_contribution(self, device_index: int, token: str, force: float) -> None:
+        """Add a named force contribution and re-apply the summed total."""
+        if not self.connected:
             return
-        self._continuous_forces[device_index] = speed
-        asyncio.run_coroutine_threadsafe(
-            self._send_continuous_start(device_index, speed), self._loop)
+        self._contributions.setdefault(device_index, {})[token] = force
+        asyncio.run_coroutine_threadsafe(self._apply_total(device_index), self._loop)
 
-    async def _send_continuous_stop(self, device_index: int) -> None:
-        dev = self._client.devices.get(device_index)
-        if not dev:
+    def remove_contribution(self, device_index: int, token: str) -> None:
+        if not self.connected:
             return
-        for act in dev.actuators:
-            await act.command(0)
-        for rot in dev.rotatory_actuators:
-            await rot.command(0, bool(random.getrandbits(1)))
+        bucket = self._contributions.get(device_index)
+        if not bucket or token not in bucket:
+            return
+        bucket.pop(token, None)
+        if not bucket:
+            self._contributions.pop(device_index, None)
+        asyncio.run_coroutine_threadsafe(self._apply_total(device_index), self._loop)
 
-    def stop_vibration(self, device_index: int) -> None:
-        if not self.connected or device_index not in self._continuous_forces:
-            return
-        self._continuous_forces.pop(device_index, None)
-        asyncio.run_coroutine_threadsafe(
-            self._send_continuous_stop(device_index), self._loop)
+    def remove_token(self, token: str) -> None:
+        """Remove a contribution token from every device (used on popup close
+        when we don't track which device it landed on)."""
+        for device_index in list(self._contributions.keys()):
+            self.remove_contribution(device_index, token)
 
     # ------------------------------------------------------------------
     def list_devices(self) -> None:

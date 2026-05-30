@@ -28,6 +28,7 @@ from state import State
 class VideoPopup(Popup):
     vibration_open_event = "video_open"
     vibration_close_event = "video_close"
+    vibration_continuous_key = "video"
 
     def __init__(self, settings: Settings, pack: Pack, state: State, media: Path | None = None, on_close: Callable[[], None] | None = None) -> None:
         self.media = media or pack.random_video()
