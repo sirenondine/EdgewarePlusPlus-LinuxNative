@@ -18,158 +18,141 @@ import platform
 from gi import require_version
 
 require_version("Gtk", "4.0")
-from gi.repository import Gtk
-
-require_version("Gtk", "4.0")
-from gi.repository import Gtk
+require_version("Adw", "1")
+from gi.repository import Adw, Gtk
 
 from config.gtk_window.toast import name_popover
 from config.gtk_window.utils import config
-from config.gtk_window.widgets import ConfigRow, ConfigScale, ConfigSection, ConfigToggle
+from config.gtk_window.widgets import AdwSliderRow, AdwSwitchRow
 from config.vars import Vars
 
 DRIVE_TEXT = (
-    "\"Fill Drive\" will attempt to fill your computer with as much porn from the currently "
-    "loaded pack as possible.\n\n"
-    "\"Replace Images\" will seek out folders with large numbers of pre-existing images and "
-    "replace ALL of them with images from the currently loaded pack."
-)
-MISC_TEXT = (
-    "Disable Panic Hotkey disables both the panic hotkey and system tray panic.\n"
-    "Launch on PC Startup runs Edgeware when you start your computer.\n"
-    "Show on Discord gives you a status on discord while you run Edgeware."
+    "\"Fill Drive\" attempts to fill your computer with as much content from the "
+    "current pack as possible. \"Replace Images\" seeks folders with large numbers "
+    "of existing images and replaces ALL of them with pack content."
 )
 PANIC_LOCKOUT_TEXT = (
-    "Makes it so you cannot panic for a specified duration.\n"
-    "A safeword can be used to still use panic during this time."
+    "Prevents panic for a set duration. A safeword allows panic during lockout."
+)
+MISC_TEXT = (
+    "Disable Panic Hotkey also disables panic in the system tray. "
+    "Show on Discord displays a status while Edgeware is running."
 )
 
 
-class DangerousSettingsTab(Gtk.ScrolledWindow):
+class DangerousSettingsTab(Adw.PreferencesPage):
     def __init__(self, vars: Vars) -> None:
         super().__init__()
-        self.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-        self.set_hexpand(True)
-        self.set_vexpand(True)
 
-        vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
-        vbox.set_margin_start(8)
-        vbox.set_margin_end(8)
-        vbox.set_margin_top(8)
-        vbox.set_margin_bottom(8)
-        self.set_child(vbox)
+        # ---- Panic lockout -----------------------------------------------
+        lockout = Adw.PreferencesGroup(title="Panic Lockout", description=PANIC_LOCKOUT_TEXT)
+        self.add(lockout)
+        lockout.add(AdwSwitchRow("Enable Panic Lockout", vars.panic_lockout))
 
-        # Panic lockout
-        lockout_section = ConfigSection("Panic Lockout", PANIC_LOCKOUT_TEXT)
-        vbox.append(lockout_section)
+        safeword_row = Adw.ActionRow(title="Emergency Safeword")
+        entry = Gtk.PasswordEntry()
+        entry.set_show_peek_icon(True)
+        entry.set_text(str(vars.panic_lockout_password.get()))
+        entry.set_valign(Gtk.Align.CENTER)
+        entry.connect("changed", lambda e: vars.panic_lockout_password.set(e.get_text()))
+        safeword_row.add_suffix(entry)
+        lockout.add(safeword_row)
+        lockout.add(AdwSliderRow("Lockout Duration (minutes)", vars.panic_lockout_time, 1, 1440))
 
-        lockout_row = ConfigRow()
-        lockout_section.append(lockout_row)
-        lockout_row.append(ConfigToggle("Enable Panic Lockout", vars.panic_lockout))
+        # ---- Misc. dangerous ---------------------------------------------
+        misc = Adw.PreferencesGroup(title="Misc. Dangerous Settings", description=MISC_TEXT)
+        self.add(misc)
+        misc.add(AdwSwitchRow(
+            "Disable Panic Hotkey", vars.panic_disabled,
+            subtitle="Also disables panic in the system tray."))
+        misc.add(AdwSwitchRow("Launch on PC Startup", vars.run_at_startup))
+        misc.add(AdwSwitchRow(
+            "Show on Discord", vars.show_on_discord,
+            subtitle="Displays a lewd status on Discord while Edgeware is running."))
 
-        safeword_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
-        lockout_row.append(safeword_box)
-        safeword_box.append(Gtk.Label(label="Emergency Safeword"))
-        safeword_entry = Gtk.PasswordEntry()
-        safeword_entry.set_show_peek_icon(True)
-        safeword_entry.set_text(str(vars.panic_lockout_password.get()))
-        safeword_entry.connect("changed", lambda e: vars.panic_lockout_password.set(e.get_text()))
-        safeword_box.append(safeword_entry)
+        # ---- Hard drive settings -----------------------------------------
+        drive = Adw.PreferencesGroup(title="Hard Drive Settings", description=DRIVE_TEXT)
+        self.add(drive)
+        drive.add(AdwSwitchRow(
+            "Fill Drive", vars.fill_drive,
+            subtitle="Fills your hard drive with images from the pack."))
+        drive.add(AdwSliderRow("Fill Delay (×10 ms)", vars.fill_delay, 0, 250))
+        drive.add(AdwSwitchRow(
+            "Replace Images", vars.replace_images,
+            subtitle="Replaces existing images in folders that exceed the threshold."))
+        drive.add(AdwSliderRow("Image Threshold", vars.replace_threshold, 1, 1000))
 
-        lockout_time_row = ConfigRow()
-        lockout_section.append(lockout_time_row)
-        lockout_time_row.append(
-            ConfigScale("Panic Lockout Time (minutes)", vars.panic_lockout_time, 1, 1440)
+        # Fill/Replace start folder
+        drive_path = config.get("drivePath", "")
+        if platform.system() == "Linux" and drive_path in ("C:/Users/", "C:\\Users\\"):
+            drive_path = os.path.expanduser("~")
+
+        path_row = Adw.ActionRow(
+            title="Fill/Replace Start Folder",
+            subtitle=drive_path or "Not set",
         )
+        self._path_row = path_row
+        select_btn = Gtk.Button(label="Select…")
+        select_btn.set_valign(Gtk.Align.CENTER)
+        select_btn.connect("clicked", self._on_select_path)
+        path_row.add_suffix(select_btn)
+        path_row.set_activatable_widget(select_btn)
+        drive.add(path_row)
 
-        # Drive
-        drive_section = ConfigSection("Hard Drive Settings", DRIVE_TEXT)
-        vbox.append(drive_section)
-
-        drive_frame = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        drive_section.append(drive_frame)
-
-        # Blacklist
-        bl_frame = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
-        drive_frame.append(bl_frame)
-        bl_frame.append(Gtk.Label(label="Folder Name Blacklist"))
+        # ---- Folder blacklist --------------------------------------------
+        blacklist = Adw.PreferencesGroup(
+            title="Folder Name Blacklist",
+            description="Folder names that Fill Drive and Replace Images will skip.",
+        )
+        self.add(blacklist)
 
         avoid_list = [t for t in config.get("avoidList", "Edgeware>AppData").split(">") if t]
         self._bl_store = Gtk.StringList.new(avoid_list)
         self._bl_selection = Gtk.SingleSelection.new(self._bl_store)
-        self._bl_list = Gtk.ListView.new(self._bl_selection)
-        self._bl_list.set_vexpand(True)
+        self._bl_selection.connect("notify::selected", self._update_bl_btn)
+
         factory = Gtk.SignalListItemFactory()
-        factory.connect("setup", lambda f, i: i.set_child(Gtk.Label(xalign=0, wrap=True)))
-        factory.connect("bind", lambda f, i: i.get_child().set_text(i.get_item().get_string()))
-        self._bl_list.set_factory(factory)
-        bl_frame.append(self._bl_list)
+        factory.connect("setup", self._on_bl_setup)
+        factory.connect("bind", self._on_bl_bind)
+        bl_list = Gtk.ListView.new(self._bl_selection, factory)
 
-        bl_btn_col = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
-        bl_frame.append(bl_btn_col)
+        scroller = Gtk.ScrolledWindow()
+        scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        scroller.set_min_content_height(140)
+        scroller.set_child(bl_list)
+        list_frame = Gtk.Frame()
+        list_frame.add_css_class("card")
+        list_frame.set_child(scroller)
+        blacklist.add(list_frame)
 
-        add_btn = Gtk.Button(label="Add Name")
+        btn_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        add_btn = Gtk.Button(label="Add")
         add_btn.connect("clicked", self._on_add_blacklist)
-        bl_btn_col.append(add_btn)
-
-        self._bl_remove_btn = Gtk.Button(label="Remove Name")
-        self._bl_remove_btn.connect("clicked", self._on_remove_blacklist)
+        btn_row.append(add_btn)
+        self._bl_remove_btn = Gtk.Button(label="Remove")
         self._bl_remove_btn.set_sensitive(False)
-        self._bl_selection.connect("notify::selected", self._update_bl_remove_btn)
-        bl_btn_col.append(self._bl_remove_btn)
-
+        self._bl_remove_btn.connect("clicked", self._on_remove_blacklist)
+        btn_row.append(self._bl_remove_btn)
         reset_btn = Gtk.Button(label="Reset")
         reset_btn.connect("clicked", self._on_reset_blacklist)
-        bl_btn_col.append(reset_btn)
+        btn_row.append(reset_btn)
+        blacklist.set_header_suffix(btn_row)
 
-        # Fill/Replace
-        fr_frame = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
-        drive_frame.append(fr_frame)
+    def _on_select_path(self, _btn) -> None:
+        fd = Gtk.FileDialog.new()
+        fd.set_title("Select Parent Folder")
+        fd.select_folder(self.get_root(), None, self._on_folder_selected, None)
 
-        fill_toggle = ConfigToggle("Fill Drive", vars.fill_drive,
-            tooltip="Attempts to fill your hard drive with images from /resource/img/.")
-        fr_frame.append(fill_toggle)
-
-        fill_scale = ConfigScale("Fill Delay (10ms)", vars.fill_delay, 0, 250)
-        fr_frame.append(fill_scale)
-
-        replace_toggle = ConfigToggle("Replace Images", vars.replace_images,
-            tooltip="Seeks out folders with more images than the threshold value, then replaces all.")
-        fr_frame.append(replace_toggle)
-
-        replace_scale = ConfigScale("Image Threshold", vars.replace_threshold, 1, 1000)
-        fr_frame.append(replace_scale)
-
-        # Path
-        path_frame = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
-        drive_section.append(path_frame)
-        path_frame.append(Gtk.Label(label="Fill/Replace Start Folder"))
-        self._path_entry = Gtk.Entry()
-        drive_path = config.get("drivePath", "")
-        if platform.system() == "Linux" and drive_path in ("C:/Users/", "C:\\Users\\"):
-            drive_path = os.path.expanduser("~")
-        self._path_entry.set_text(drive_path)
-        self._path_entry.set_editable(False)
-        path_frame.append(self._path_entry)
-        select_btn = Gtk.Button(label="Select")
-        select_btn.connect("clicked", self._on_select_path)
-        path_frame.append(select_btn)
-
-        # Misc
-        misc_section = ConfigSection("Misc. Dangerous Settings", MISC_TEXT)
-        vbox.append(misc_section)
-
-        misc_row = ConfigRow()
-        misc_section.append(misc_row)
-        misc_row.append(
-            ConfigToggle("Disable Panic Hotkey", vars.panic_disabled,
-                tooltip="Also disables panic in the system tray.")
-        )
-        misc_row.append(ConfigToggle("Launch on PC Startup", vars.run_at_startup))
-        misc_row.append(
-            ConfigToggle("Show on Discord", vars.show_on_discord,
-                tooltip="Displays a lewd status on discord.")
-        )
+    def _on_folder_selected(self, fd: Gtk.FileDialog, result, _ud) -> None:
+        try:
+            file = fd.select_folder_finish(result)
+            if not file:
+                return
+            path = file.get_path()
+            config["drivePath"] = path
+            self._path_row.set_subtitle(path)
+        except Exception:
+            pass
 
     def _on_add_blacklist(self, btn: Gtk.Button) -> None:
         name_popover(btn, "Folder name to skip", self._add_blacklist_name)
@@ -179,13 +162,13 @@ class DangerousSettingsTab(Gtk.ScrolledWindow):
         config["avoidList"] = f"{current}>{name}"
         self._bl_store.append(name)
 
-    def _update_bl_remove_btn(self, selection, _param=None) -> None:
+    def _update_bl_btn(self, selection, _param=None) -> None:
         pos = selection.get_selected()
         self._bl_remove_btn.set_sensitive(
             pos != Gtk.INVALID_LIST_POSITION and pos > 0
         )
 
-    def _on_remove_blacklist(self, _btn: Gtk.Button) -> None:
+    def _on_remove_blacklist(self, _btn) -> None:
         pos = self._bl_selection.get_selected()
         if pos != Gtk.INVALID_LIST_POSITION and pos > 0:
             name = self._bl_store.get_string(pos)
@@ -193,25 +176,21 @@ class DangerousSettingsTab(Gtk.ScrolledWindow):
             config["avoidList"] = current.replace(f">{name}", "")
             self._bl_store.remove(pos)
 
-    def _on_reset_blacklist(self, _btn: Gtk.Button) -> None:
+    def _on_reset_blacklist(self, _btn) -> None:
         while self._bl_store.get_n_items() > 0:
             self._bl_store.remove(0)
         for item in ["Edgeware", "AppData"]:
             self._bl_store.append(item)
         config["avoidList"] = "Edgeware>AppData"
 
-    def _on_select_path(self, _btn: Gtk.Button) -> None:
-        fd = Gtk.FileDialog.new()
-        fd.set_title("Select Parent Folder")
-        fd.select_folder(None, None, self._on_folder_selected, None)
+    @staticmethod
+    def _on_bl_setup(_factory, item) -> None:
+        lbl = Gtk.Label(xalign=0, wrap=True)
+        lbl.set_margin_start(8)
+        lbl.set_margin_top(4)
+        lbl.set_margin_bottom(4)
+        item.set_child(lbl)
 
-    def _on_folder_selected(self, fd: Gtk.FileDialog, result, _ud) -> None:
-        try:
-            file = fd.select_folder_finish(result)
-            if not file:
-                return
-            path = file.get_path()
-            config["drivePath"] = path
-            self._path_entry.set_text(path)
-        except Exception:
-            pass
+    @staticmethod
+    def _on_bl_bind(_factory, item) -> None:
+        item.get_child().set_text(item.get_item().get_string())

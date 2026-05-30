@@ -15,94 +15,61 @@
 from gi import require_version
 
 require_version("Gtk", "4.0")
-from gi.repository import Gtk
+require_version("Adw", "1")
+from gi.repository import Adw, Gtk
 
-from config.gtk_window.widgets import ConfigDropdown, ConfigRow, ConfigScale, ConfigSection, ConfigToggle
+from config.gtk_window.widgets import AdwComboRow, AdwSliderRow, AdwSwitchRow
 from config.vars import Vars
 
-LOWKEY_TEXT = "Forces popups to spawn in the corner of your screen."
-HIBERNATE_TEXT = "Runs Edgeware++ covertly, without any popups. After a certain time, a barrage spawns."
-MITOSIS_TEXT = "When a popup is closed, more popups will spawn in its place."
+LOWKEY_TEXT = "Forces popups to spawn in one corner of your screen."
+HIBERNATE_TEXT = "Runs Edgeware covertly with no popups. After a set time, a barrage of popups spawns."
+MITOSIS_TEXT = "When a popup is closed, more popups spawn in its place."
+
+_HIBERNATE_TYPES = {
+    "Original": "An immediate quantity of popups on wakeup based on Awaken Activity.",
+    "Spaced": "Popups appear consistently over the hibernate length, based on popup delay.",
+    "Glitch": "Popups appear at random times over the hibernate length.",
+    "Ramp": "A ramping number of popups over the hibernate length.",
+    "Pump-Scare": "A popup spawns briefly then disappears.",
+    "Chaos": "A random type is selected each time hibernate activates.",
+}
+
+_LOWKEY_CORNERS = ["Top Right", "Top Left", "Bottom Left", "Bottom Right", "Random"]
 
 
-class BasicModesTab(Gtk.ScrolledWindow):
+class BasicModesTab(Adw.PreferencesPage):
     def __init__(self, vars: Vars) -> None:
         super().__init__()
-        self.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-        self.set_hexpand(True)
-        self.set_vexpand(True)
 
-        vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
-        self.set_child(vbox)
+        # ---- Lowkey ------------------------------------------------------
+        lowkey = Adw.PreferencesGroup(title="Lowkey Mode", description=LOWKEY_TEXT)
+        self.add(lowkey)
+        lowkey.add(AdwSwitchRow("Enable Lowkey Mode", vars.lowkey_mode))
 
-        # Lowkey
-        lowkey_section = ConfigSection("Lowkey Mode", LOWKEY_TEXT)
-        vbox.append(lowkey_section)
+        corner_row = Adw.ComboRow(title="Corner")
+        corner_row.set_model(Gtk.StringList.new(_LOWKEY_CORNERS))
+        val = vars.lowkey_corner.get()
+        if isinstance(val, int) and 0 <= val < len(_LOWKEY_CORNERS):
+            corner_row.set_selected(val)
+        corner_row.connect("notify::selected", lambda r, _p: vars.lowkey_corner.set(r.get_selected()))
+        lowkey.add(corner_row)
 
-        lowkey_row = ConfigRow()
-        lowkey_section.append(lowkey_row)
-        lowkey_toggle = ConfigToggle("Enable Lowkey Mode", vars.lowkey_mode)
-        lowkey_row.append(lowkey_toggle)
+        # ---- Mitosis -----------------------------------------------------
+        mitosis = Adw.PreferencesGroup(title="Mitosis Mode", description=MITOSIS_TEXT)
+        self.add(mitosis)
+        mitosis.add(AdwSwitchRow("Enable Mitosis Mode", vars.mitosis_mode))
+        mitosis.add(AdwSliderRow("Mitosis Strength", vars.mitosis_strength, 2, 10,
+                                  subtitle="Number of popups spawned per close"))
 
-        lowkey_corners = ["Top Right", "Top Left", "Bottom Left", "Bottom Right", "Random"]
-        strings = Gtk.StringList.new(lowkey_corners)
-        corner_dropdown = Gtk.DropDown(model=strings)
-        corner_value = vars.lowkey_corner.get()
-        if isinstance(corner_value, int) and 0 <= corner_value < len(lowkey_corners):
-            corner_dropdown.set_selected(corner_value)
-        corner_dropdown.connect("notify::selected", lambda d, _: vars.lowkey_corner.set(d.get_selected()))
-        lowkey_row.append(corner_dropdown)
-
-        # Mitosis
-        mitosis_section = ConfigSection("Mitosis Mode", MITOSIS_TEXT)
-        vbox.append(mitosis_section)
-
-        mr1 = ConfigRow()
-        mitosis_section.append(mr1)
-        mr1.append(ConfigToggle("Enable Mitosis Mode", vars.mitosis_mode))
-
-        mr2 = ConfigRow()
-        mitosis_section.append(mr2)
-        mr2.append(ConfigScale("Mitosis Strength (number of popups)", vars.mitosis_strength, 2, 10))
-
-        # Hibernate
-        hib_section = ConfigSection("Hibernate Mode", HIBERNATE_TEXT)
-        vbox.append(hib_section)
-
-        hr1 = ConfigRow()
-        hib_section.append(hr1)
-        hr1.append(ConfigToggle("Enable Hibernate Mode", vars.hibernate_mode))
-
-        hr2 = ConfigRow()
-        hib_section.append(hr2)
-        hr2.append(
-            ConfigDropdown(
-                vars.hibernate_type,
-                {
-                    "Original": "Creates an immediate quantity of popups on wakeup based on the awaken activity.",
-                    "Spaced": "Creates popups consistently over the hibernate length, based on popup delay.",
-                    "Glitch": "Creates popups at random times over the hibernate length.",
-                    "Ramp": "Creates a ramping amount of popups over the hibernate length.",
-                    "Pump-Scare": "Spawns a popup briefly, then quickly deletes it.",
-                    "Chaos": "Every time hibernate activates, a random type is selected.",
-                },
-                label="Hibernate Type",
-            )
-        )
-
-        hr3 = ConfigRow()
-        hib_section.append(hr3)
-        hr3.append(
-            ConfigToggle("Fix Wallpaper", vars.hibernate_fix_wallpaper,
-                tooltip="Reverts wallpaper back to panic wallpaper after hibernate payload.")
-        )
-
-        hr4 = ConfigRow()
-        hib_section.append(hr4)
-        hr4.append(ConfigScale("Minimum Sleep Duration (seconds)", vars.hibernate_delay_min, 1, 7200))
-        hr4.append(ConfigScale("Maximum Sleep Duration (seconds)", vars.hibernate_delay_max, 2, 14400))
-
-        hr5 = ConfigRow()
-        hib_section.append(hr5)
-        hr5.append(ConfigScale("Awaken Activity", vars.hibernate_activity, 1, 50))
-        hr5.append(ConfigScale("Max Activity Length (seconds)", vars.hibernate_activity_length, 5, 300))
+        # ---- Hibernate ---------------------------------------------------
+        hibernate = Adw.PreferencesGroup(title="Hibernate Mode", description=HIBERNATE_TEXT)
+        self.add(hibernate)
+        hibernate.add(AdwSwitchRow("Enable Hibernate Mode", vars.hibernate_mode))
+        hibernate.add(AdwComboRow("Hibernate Type", vars.hibernate_type, _HIBERNATE_TYPES))
+        hibernate.add(AdwSwitchRow(
+            "Fix Wallpaper", vars.hibernate_fix_wallpaper,
+            subtitle="Reverts wallpaper to panic wallpaper after the hibernate payload."))
+        hibernate.add(AdwSliderRow("Minimum Sleep Duration (sec)", vars.hibernate_delay_min, 1, 7200))
+        hibernate.add(AdwSliderRow("Maximum Sleep Duration (sec)", vars.hibernate_delay_max, 2, 14400))
+        hibernate.add(AdwSliderRow("Awaken Activity", vars.hibernate_activity, 1, 50))
+        hibernate.add(AdwSliderRow("Max Activity Length (sec)", vars.hibernate_activity_length, 5, 300))
