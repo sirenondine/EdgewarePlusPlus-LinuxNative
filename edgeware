@@ -1,14 +1,15 @@
 #!/bin/bash
-# Single entry point for Edgeware++ LinuxNative.
+# Single entry point for Edgeware++ LinuxNative. After "edgeware setup" it is
+# symlinked into ~/.local/bin, so it can be run as just "edgeware [command]".
 #
-#   edgeware.sh            start Edgeware
-#   edgeware.sh config     open the configuration window (extra args forwarded)
-#   edgeware.sh setup      install dependencies / (re)create the virtualenv
-#   edgeware.sh panic      stop everything and revert the wallpaper
-#   edgeware.sh pause      stop spawning new popups
-#   edgeware.sh resume     resume
-#   edgeware.sh toggle     flip the pause state
-#   edgeware.sh status     print running / paused / popup count
+#   edgeware            start Edgeware
+#   edgeware config     open the configuration window (extra args forwarded)
+#   edgeware setup      install dependencies / (re)create the virtualenv
+#   edgeware panic      stop everything and revert the wallpaper
+#   edgeware pause      stop spawning new popups
+#   edgeware resume     resume
+#   edgeware toggle     flip the pause state
+#   edgeware status     print running / paused / popup count
 cd ~/.local/share/edgeware || exit 1
 
 do_setup() {
@@ -43,8 +44,18 @@ do_setup() {
 
     python3 -m venv .venv || { echo "Failed to create virtual environment"; exit 1; }
     .venv/bin/python3 -m pip install -r requirements.txt || { echo "Failed to install requirements"; exit 1; }
-    chmod +x edgeware.sh
-    echo "Setup complete. Run 'edgeware.sh config' to configure, then 'edgeware.sh' to start."
+    chmod +x edgeware
+
+    # Put 'edgeware' on PATH so it can be run from anywhere.
+    bindir="${XDG_BIN_HOME:-$HOME/.local/bin}"
+    mkdir -p "$bindir"
+    ln -sf "$HOME/.local/share/edgeware/edgeware" "$bindir/edgeware"
+    case ":$PATH:" in
+        *":$bindir:"*) ;;
+        *) echo "Note: $bindir is not on your PATH. Add it to run 'edgeware' directly." ;;
+    esac
+
+    echo "Setup complete. Run 'edgeware config' to configure, then 'edgeware' to start."
 }
 
 case "$1" in

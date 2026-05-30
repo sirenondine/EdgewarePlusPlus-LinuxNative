@@ -7,7 +7,7 @@ PartOf=graphical-session.target
 
 [Service]
 Type=simple
-ExecStart=%h/.local/share/edgeware/edgeware.sh
+ExecStart=%h/.local/share/edgeware/edgeware
 # Panic exits the process on purpose, so do not auto-restart.
 Restart=no
 

@@ -54,7 +54,7 @@ PRESET_TEXT = (
 
 # Niri doesn't support the GlobalShortcuts portal, so the panic hotkey falls
 # back to evdev (needs the 'input' group) — usually unavailable. Guide users
-# to add a native niri keybind that calls edgeware.sh panic over the socket.
+# to add a native niri keybind that calls edgeware panic over the socket.
 _EDGEWARE_DIR = Path(__file__).resolve().parents[5]  # repo root
 
 
@@ -63,11 +63,11 @@ def _is_niri() -> bool:
 
 
 def _niri_keybind_snippet(key_label: str) -> str:
-    edgeware_sh = _EDGEWARE_DIR / "edgeware.sh"
+    edgeware = _EDGEWARE_DIR / "edgeware"
     return (
         f'// Add to ~/.config/niri/config.kdl:\n'
         f'binds {{\n'
-        f'    {key_label} {{ spawn "{edgeware_sh}" "panic"; }}\n'
+        f'    {key_label} {{ spawn "{edgeware}" "panic"; }}\n'
         f'}}'
     )
 
@@ -95,7 +95,7 @@ def _niri_keybind_row(key_var) -> Adw.ActionRow:
     warn_label = Gtk.Label(wrap=True, xalign=0, hexpand=True)
     warn_label.set_text(
         "Niri doesn't implement the GlobalShortcuts portal, so the global panic "
-        "hotkey above won't fire. Add a native niri keybind that calls edgeware.sh panic "
+        "hotkey above won't fire. Add a native niri keybind that calls edgeware panic "
         "directly over the Unix socket — it always works regardless of portal support:"
     )
     warning_row.append(warn_icon)
@@ -235,7 +235,7 @@ class StartTab(Adw.PreferencesPage):
             "Pause When Screen Locks", vars.pause_on_lock,
             subtitle="Pauses popups while locked (via logind / ScreenSaver). Lockers "
                      "that use ext-session-lock only (Noctalia, swaylock) should call "
-                     "edgeware.sh pause/resume from a lock hook instead."))
+                     "edgeware pause/resume from a lock hook instead."))
         general.add(AdwSwitchRow(
             "Pause During Screen Share", vars.pause_on_screenshare,
             subtitle="Stop spawning popups while a screencast is active (niri only)."))

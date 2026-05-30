@@ -29,10 +29,10 @@ gtk4-layer-shell, and GStreamer with the Rust plugins that provide
 - **Debian/Ubuntu:** `sudo apt install python3 python3-pip python3-gi gir1.2-gtk-4.0 gir1.2-adw-1 libgtk4-layer-shell0 gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-plugins-rs`
 
 Then download/extract Edgeware as a ZIP or clone the repository into
-`~/.local/share/edgeware`, and run `./edgeware.sh setup` in a terminal there. It checks
+`~/.local/share/edgeware`, and run `./edgeware setup` in a terminal there. It checks
 for the required system libraries, creates a Python virtual environment, and installs
-the Python dependencies. `edgeware.sh config` opens the configuration window and
-`edgeware.sh` (no argument) starts Edgeware itself; a tray icon and desktop launchers
+the Python dependencies. `edgeware config` opens the configuration window and
+`edgeware` (no argument) starts Edgeware itself; a tray icon and desktop launchers
 are registered on first run.
 
 The global **panic** hotkey uses the desktop's GlobalShortcuts portal where available
@@ -53,33 +53,33 @@ This fork adds Linux/Wayland-native integration on top of the upstream feature s
   / the ScreenSaver D-Bus interface (GNOME/KDE, or any locker that calls
   `loginctl lock-session`). Lockers that only use the `ext-session-lock` protocol
   (e.g. Noctalia, swaylock) don't emit those signals — point their lock/unlock hook at
-  `edgeware.sh pause` / `edgeware.sh resume` instead.
+  `edgeware pause` / `edgeware resume` instead.
 - **Pause during screen share** — on niri, auto-pauses while a screencast is active so
   content doesn't leak onto a shared screen or recording.
 - **Sex-toy support (Intiface/Buttplug)** — drive a toy on popup events (image/video
   open/close, captions, notifications, prompts) through Intiface Central. Supports timed
   pulses, a continuous mode that stacks intensity across concurrent popups, and
   vibration patterns (pulse/wave/ramp/random). Requires `buttplug-py` (installed by
-  `edgeware.sh setup`) and a running Intiface Central server; configure it in the **Sex Toys** tab.
+  `edgeware setup`) and a running Intiface Central server; configure it in the **Sex Toys** tab.
 
 ### Control commands
 
-`edgeware.sh` doubles as the control entry point: with no argument it starts Edgeware,
+`edgeware` doubles as the control entry point: with no argument it starts Edgeware,
 and with a subcommand it sends a control message to a running instance over the panic
 socket — handy for compositor keybinds and lock hooks:
 
 ```sh
-edgeware.sh           # start Edgeware
-edgeware.sh panic     # stop everything and revert the wallpaper
-edgeware.sh pause     # stop spawning new popups
-edgeware.sh resume    # resume
-edgeware.sh toggle    # flip the pause state
-edgeware.sh status    # print running / paused / popup count
+edgeware           # start Edgeware
+edgeware panic     # stop everything and revert the wallpaper
+edgeware pause     # stop spawning new popups
+edgeware resume    # resume
+edgeware toggle    # flip the pause state
+edgeware status    # print running / paused / popup count
 ```
 
 From there you'll need an actual pack, which can be downloaded online or made yourself. Unfortunately at the time of writing there's really no congregated directory of packs everyone's made, they're all scattered to the four winds... but for a start [the original Edgeware page](https://github.com/PetitTournesol/Edgeware) has a few sample packs, and there's a few more in the "Packs" section of the readme.
 
-After pulling a major update, re-run `./edgeware.sh setup` to refresh the Python dependencies.
+After pulling a major update, re-run `./edgeware setup` to refresh the Python dependencies.
 
 **Any damage you do to your computer with Edgeware is your own responsibility! Please read the "Dangerous" tab in the config window and make backups if you're planning on using the advanced, dangerous settings!**
 

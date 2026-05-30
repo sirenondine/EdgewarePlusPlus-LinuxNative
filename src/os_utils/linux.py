@@ -40,8 +40,8 @@ def _xdg_data_home() -> Path:
 
 
 def _launcher(subcommand: str = "") -> str:
-    """edgeware.sh launch command, optionally with a subcommand (config/panic)."""
-    base = str(PATH / "edgeware.sh")
+    """edgeware launch command, optionally with a subcommand (config/panic)."""
+    base = str(PATH / "edgeware")
     return f"{base} {subcommand}".rstrip()
 
 
