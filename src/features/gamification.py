@@ -259,7 +259,9 @@ class Progress:
         progress bar."""
         base = cumulative_xp(self.level)
         span = cumulative_xp(self.level + 1) - base
-        return self.xp - base, span
+        # Clamp so an inconsistent (e.g. hand-edited) level/xp pair can't show
+        # a negative or overlong bar.
+        return max(0, min(self.xp - base, span)), span
 
     # ------------------------------------------------------------------
     def to_dict(self) -> dict:

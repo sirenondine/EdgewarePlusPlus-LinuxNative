@@ -35,17 +35,22 @@ def _ensure_css() -> None:
     if _CSS_LOADED:
         return
     css = Gtk.CssProvider()
+    # Follow the active GTK theme (light/dark + accent) via its named colors,
+    # so the HUD reads as native chrome rather than a hardcoded black box.
     css.load_from_string("""
         window.hud { background: transparent; }
         .hud-box {
-            background: rgba(0,0,0,0.72);
-            border: 1px solid rgba(255,255,255,0.35);
-            border-radius: 10px;
-            padding: 6px 10px;
+            background-color: alpha(@theme_bg_color, 0.94);
+            color: @theme_fg_color;
+            border: 1px solid @borders;
+            border-radius: 12px;
+            padding: 8px 12px;
+            box-shadow: 0 1px 4px rgba(0,0,0,0.35);
         }
-        .hud-level { color: #ff9ed8; font-weight: bold; text-shadow: 0 0 3px black; }
-        .hud-xp { color: rgba(255,255,255,0.85); font-size: 11px; }
-        .hud-box progressbar trough { min-height: 8px; }
+        .hud-level { color: @theme_selected_bg_color; font-weight: bold; }
+        .hud-xp { font-size: 0.85em; }
+        .hud-box progressbar > trough > progress { min-height: 6px; }
+        .hud-box progressbar > trough { min-height: 6px; }
     """)
     Gtk.StyleContext.add_provider_for_display(
         Gdk.Display.get_default(), css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
@@ -69,6 +74,7 @@ class ProgressHUD(Gtk.Window):
         self._bar.set_size_request(150, -1)
         self._xp = Gtk.Label(halign=Gtk.Align.END)
         self._xp.add_css_class("hud-xp")
+        self._xp.add_css_class("dim-label")
         box.append(self._level)
         box.append(self._bar)
         box.append(self._xp)
