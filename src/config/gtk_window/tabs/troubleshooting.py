@@ -86,7 +86,7 @@ class TroubleshootingTab(Adw.PreferencesPage):
         del_logs_btn = Gtk.Button(icon_name="user-trash-symbolic")
         del_logs_btn.set_valign(Gtk.Align.CENTER)
         del_logs_btn.add_css_class("destructive-action")
-        del_logs_btn.set_tooltip_text("Deletes every log except the currently active one.")
+        del_logs_btn.set_tooltip_text("Delete all logs except the active one")
         del_logs_btn.connect("clicked", lambda _: self._on_delete_logs())
         self._log_count_row.add_suffix(del_logs_btn)
         logs.add(self._log_count_row)

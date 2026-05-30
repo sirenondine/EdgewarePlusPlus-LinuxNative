@@ -216,14 +216,14 @@ class ConfigWindow(Adw.ApplicationWindow):
         save_exit_btn.set_child(Adw.ButtonContent(
             label="Save & Exit", icon_name="document-save-symbolic"))
         save_exit_btn.add_css_class("suggested-action")
-        save_exit_btn.set_tooltip_text("Save settings and close the config window.")
+        save_exit_btn.set_tooltip_text("Save settings and close the window")
         save_exit_btn.connect("clicked", lambda _: write_save(vars, True))
         header.pack_end(save_exit_btn)
 
         save_btn = Gtk.Button()
         save_btn.set_child(Adw.ButtonContent(
             label="Save", icon_name="document-save-symbolic"))
-        save_btn.set_tooltip_text("Save without exiting (Ctrl+S).")
+        save_btn.set_tooltip_text("Save without closing the window (Ctrl+S)")
         save_btn.connect("clicked", lambda _: write_save(vars, False))
         header.pack_end(save_btn)
 
