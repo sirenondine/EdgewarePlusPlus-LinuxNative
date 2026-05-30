@@ -86,7 +86,7 @@ class InfoTab(Adw.PreferencesPage):
         status_row.set_subtitle(GLib.markup_escape_text(pack.discord.text or ""))
         discord.add(status_row)
         image_row = Adw.ActionRow(title="Discord Status Image")
-        image_row.add_suffix(_value_label(pack.discord.image))
+        image_row.set_subtitle(GLib.markup_escape_text(pack.discord.image or ""))
         image_row.set_tooltip_text(
             "The image is fetched from the Discord application API, which can't be "
             "accessed without permissions, so it can't be previewed here."
@@ -116,16 +116,8 @@ def _count_row(title: str, number: int) -> Adw.ActionRow:
 
 def _value_row(title: str, value: str) -> Adw.ActionRow:
     row = Adw.ActionRow(title=title)
-    row.add_suffix(_value_label(value))
+    row.set_subtitle(GLib.markup_escape_text(value or ""))
     return row
-
-
-def _value_label(text: str) -> Gtk.Label:
-    lbl = Gtk.Label(label=text or "")
-    lbl.set_valign(Gtk.Align.CENTER)
-    lbl.set_wrap(True)
-    lbl.add_css_class("dim-label")
-    return lbl
 
 
 def _list_length(pack: Pack, attr: str) -> int:
