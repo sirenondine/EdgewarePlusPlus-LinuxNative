@@ -12,7 +12,9 @@
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 # GNU General Public License for more details.
 
+import json
 import os
+from pathlib import Path
 
 from gi import require_version
 
@@ -43,16 +45,13 @@ class InfoTab(Adw.PreferencesPage):
         mgmt = Adw.PreferencesGroup(title="Pack Management")
         self.add(mgmt)
 
-        current_row = Adw.ActionRow(
-            title="Active Pack",
-            subtitle=pack.info.name,
-        )
+        current_row = Adw.ActionRow(title="Active Pack", subtitle=pack.info.name)
         current_row.add_suffix(Gtk.Image.new_from_icon_name("media-playback-start-symbolic"))
         mgmt.add(current_row)
 
         import_row = Adw.ActionRow(
             title="Import New Pack",
-            subtitle="Copy a .zip pack into data/packs/ for easy switching.",
+            subtitle="Extract a .zip into data/packs/ for easy switching.",
         )
         import_btn = Gtk.Button(label="Import…")
         import_btn.set_valign(Gtk.Align.CENTER)
@@ -61,45 +60,57 @@ class InfoTab(Adw.PreferencesPage):
         import_row.set_activatable_widget(import_btn)
         mgmt.add(import_row)
 
-        change_row = Adw.ActionRow(
-            title="Change Default Pack",
-            subtitle="Overwrites resource/ — use Import New for multi-pack setups.",
-        )
-        change_btn = Gtk.Button(label="Choose…")
-        change_btn.set_valign(Gtk.Align.CENTER)
-        change_btn.connect("clicked", lambda _: self._on_change_default())
-        change_row.add_suffix(change_btn)
-        change_row.set_activatable_widget(change_btn)
-        mgmt.add(change_row)
+        # ---- Installed packs ----------------------------------------------
+        pack_dirs = sorted(
+            [d for d in Data.PACKS.iterdir() if d.is_dir()],
+            key=lambda d: d.name.lower()
+        ) if Data.PACKS.exists() else []
 
-        # Switch pack list
-        pack_list = sorted(os.listdir(Data.PACKS)) if Data.PACKS.exists() else []
-        if pack_list:
+        if pack_dirs:
             switch_group = Adw.PreferencesGroup(
                 title="Installed Packs",
-                description="Click a pack to switch to it. Changes save automatically.",
+                description="Switch activates the pack. Set Default copies it to resource/ for use as the built-in pack.",
             )
             self.add(switch_group)
 
             current_name = vars.pack_path.get() if vars else ""
-            for name in pack_list:
-                row = Adw.ActionRow(title=name)
+            for pack_dir in pack_dirs:
+                name = pack_dir.name
+                # Load description cheaply without constructing a full Pack object
+                info = _read_pack_info(pack_dir)
+                display_name = info.get("name") or name
+                description = info.get("description") or ""
+
+                row = Adw.ActionRow(title=display_name)
+                if description:
+                    row.set_subtitle(GLib.markup_escape_text(description[:120]))
+
+                btn_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+                btn_box.set_valign(Gtk.Align.CENTER)
+
                 if name == current_name:
                     check = Gtk.Image.new_from_icon_name("object-select-symbolic")
                     check.add_css_class("accent")
                     check.set_valign(Gtk.Align.CENTER)
-                    row.add_suffix(check)
+                    btn_box.append(check)
                 else:
                     sw_btn = Gtk.Button(label="Switch")
-                    sw_btn.set_valign(Gtk.Align.CENTER)
                     sw_btn.connect("clicked", lambda _b, n=name: self._on_switch(n))
-                    row.add_suffix(sw_btn)
-                    row.set_activatable_widget(sw_btn)
+                    btn_box.append(sw_btn)
+
+                set_def_btn = Gtk.Button(label="Set Default")
+                set_def_btn.set_tooltip_text("Copy this pack to resource/ so it loads without needing to switch.")
+                set_def_btn.connect("clicked", lambda _b, d=pack_dir: self._on_set_default(d))
+                btn_box.append(set_def_btn)
+
+                row.add_suffix(btn_box)
+                if name != current_name:
+                    row.set_activatable_widget(btn_box.get_first_child())
                 switch_group.add(row)
 
             default_row = Adw.ActionRow(
                 title="Default Pack",
-                subtitle="The built-in resource/ pack.",
+                subtitle="The built-in resource/ pack (no switch needed).",
             )
             def_btn = Gtk.Button(label="Switch")
             def_btn.set_valign(Gtk.Align.CENTER)
@@ -168,9 +179,9 @@ class InfoTab(Adw.PreferencesPage):
         from config.gtk_window.import_pack import import_pack
         import_pack(False)
 
-    def _on_change_default(self) -> None:
-        from config.gtk_window.import_pack import import_pack
-        import_pack(True)
+    def _on_set_default(self, pack_dir) -> None:
+        from config.gtk_window.import_pack import set_default_from_installed
+        set_default_from_installed(pack_dir)
 
     def _on_switch(self, name: str) -> None:
         if self._vars:
@@ -178,6 +189,18 @@ class InfoTab(Adw.PreferencesPage):
             self._vars.pack_path.set(name)
             write_save(self._vars)
             refresh()
+
+
+def _read_pack_info(pack_dir: Path) -> dict:
+    """Cheaply read name/description from info.json without loading the full Pack."""
+    for candidate in ("info.json", "resource/info.json"):
+        p = pack_dir / candidate
+        if p.is_file():
+            try:
+                return json.loads(p.read_text(encoding="utf-8"))
+            except Exception:
+                pass
+    return {}
 
 
 def _status_row(title: str, ok: bool, tooltip: str | None = None) -> Adw.ActionRow:

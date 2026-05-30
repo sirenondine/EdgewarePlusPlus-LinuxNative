@@ -1,3 +1,4 @@
+import logging
 import os
 import shutil
 import zipfile
@@ -16,6 +17,24 @@ from paths import DEFAULT_PACK_PATH, Data, PackPaths
 def _dialog(title: str, text: str) -> None:
     from gtk_dialog import ask_yes_no
     ask_yes_no(title, text)
+
+
+def set_default_from_installed(pack_dir: Path) -> None:
+    """Copy an already-extracted pack from data/packs/ to resource/ (the default)."""
+    from config.gtk_window.utils import confirm_overwrite, refresh
+    if not confirm_overwrite(DEFAULT_PACK_PATH):
+        return
+    try:
+        if DEFAULT_PACK_PATH.exists():
+            shutil.rmtree(DEFAULT_PACK_PATH)
+        shutil.copytree(pack_dir, DEFAULT_PACK_PATH)
+        from config.gtk_window.toast import toast
+        toast(f"Default pack set to {pack_dir.name}.")
+        refresh()
+    except Exception as e:
+        logging.warning(f"Failed to set default pack: {e}")
+        from gtk_dialog import ask_yes_no
+        ask_yes_no("Error", f"Could not set default pack:\n{e}")
 
 
 def import_pack(default: bool) -> None:
