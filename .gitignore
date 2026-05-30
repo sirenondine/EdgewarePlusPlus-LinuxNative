@@ -142,6 +142,7 @@ edgeware/edgeware.pyw
 edgeware/panic.pyw
 
 edgeware/resource/
+/resource/
 edgeware/data/*
 !edgeware/data/presets
 edgeware/data/presets/*
