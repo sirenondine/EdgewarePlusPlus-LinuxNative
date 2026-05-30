@@ -73,15 +73,18 @@ _GROUPS: dict[str, list[tuple]] = {
     ],
 }
 
+# Sane out-of-the-box defaults: a new device vibrates on common events so the
+# feature works immediately. General force is the master multiplier — 100 = no
+# reduction (50 silently halves everything, which felt "broken").
 _DEFAULTS: dict[str, object] = {
-    "sextoy_general_vibration_force": 50,
-    "sextoy_image_open_chance": 0, "sextoy_image_open_vibration_force": 50, "sextoy_image_open_vibration_length": 0.5,
+    "sextoy_general_vibration_force": 100,
+    "sextoy_image_open_chance": 50, "sextoy_image_open_vibration_force": 60, "sextoy_image_open_vibration_length": 0.8,
     "sextoy_image_close_chance": 0, "sextoy_image_close_vibration_force": 50, "sextoy_image_close_vibration_length": 0.5,
-    "sextoy_video_open_chance": 0, "sextoy_video_open_vibration_force": 50, "sextoy_video_open_vibration_length": 0.5,
+    "sextoy_video_open_chance": 75, "sextoy_video_open_vibration_force": 70, "sextoy_video_open_vibration_length": 1.5,
     "sextoy_video_close_chance": 0, "sextoy_video_close_vibration_force": 50, "sextoy_video_close_vibration_length": 0.5,
-    "sextoy_caption_chance": 0, "sextoy_caption_vibration_force": 50, "sextoy_caption_vibration_length": 0.5,
-    "sextoy_display_notification_chance": 0, "sextoy_display_notification_vibration_force": 50, "sextoy_display_notification_vibration_length": 0.5,
-    "sextoy_prompt_enabled": 0, "sextoy_prompt_vibration_force": 50,
+    "sextoy_caption_chance": 25, "sextoy_caption_vibration_force": 50, "sextoy_caption_vibration_length": 0.5,
+    "sextoy_display_notification_chance": 30, "sextoy_display_notification_vibration_force": 50, "sextoy_display_notification_vibration_length": 0.5,
+    "sextoy_prompt_enabled": 1, "sextoy_prompt_vibration_force": 60,
 }
 
 
@@ -136,6 +139,8 @@ class SexToysTab(Adw.PreferencesPage):
         self.add(self._devices_group)
 
         self._device_rows: dict[str, Adw.ExpanderRow] = {}
+        # (device idx, setting key) -> Gtk.Adjustment | Adw.SwitchRow, for reset.
+        self._controls: dict[tuple, object] = {}
         self._empty_row = Adw.ActionRow(
             title="No devices yet",
             subtitle="Connect to Intiface and scan to discover your toy.",
@@ -210,6 +215,12 @@ class SexToysTab(Adw.PreferencesPage):
         expander = Adw.ExpanderRow(title=name, subtitle=f"Device {idx}")
         self._device_rows[idx] = expander
 
+        reset_btn = Gtk.Button(icon_name="edit-undo-symbolic")
+        reset_btn.set_valign(Gtk.Align.CENTER)
+        reset_btn.set_tooltip_text("Reset this device to recommended settings")
+        reset_btn.connect("clicked", lambda _b, i=idx: self._reset_device(i))
+        expander.add_suffix(reset_btn)
+
         for group_name, settings in _GROUPS.items():
             # Group header row (non-interactive divider)
             header = Adw.ActionRow(title=group_name)
@@ -220,6 +231,16 @@ class SexToysTab(Adw.PreferencesPage):
                 expander.add_row(self._setting_row(idx, key, label, kind, lo, hi))
 
         self._devices_group.add(expander)
+
+    def _reset_device(self, idx: str) -> None:
+        """Apply recommended defaults to a device's controls in place. Setting
+        each widget fires its own handler, which persists into the dict."""
+        for key, default in _DEFAULTS.items():
+            ctrl = self._controls.get((idx, key))
+            if isinstance(ctrl, Adw.SwitchRow):
+                ctrl.set_active(bool(default))
+            elif ctrl is not None:  # Gtk.Adjustment
+                ctrl.set_value(float(default))
 
     def _value(self, idx: str, key: str):
         return self._data.get(idx, {}).get(key, _DEFAULTS.get(key, 0))
@@ -233,6 +254,7 @@ class SexToysTab(Adw.PreferencesPage):
             row = Adw.SwitchRow(title=label)
             row.set_active(bool(self._value(idx, key)))
             row.connect("notify::active", lambda r, _p: self._store(idx, key, int(r.get_active())))
+            self._controls[(idx, key)] = row
             return row
 
         row = Adw.ActionRow(title=label)
@@ -245,6 +267,7 @@ class SexToysTab(Adw.PreferencesPage):
             self._store(idx, key, v)
 
         adj.connect("value-changed", on_change)
+        self._controls[(idx, key)] = adj
 
         scale = Gtk.Scale(orientation=Gtk.Orientation.HORIZONTAL, adjustment=adj)
         scale.set_draw_value(False)
