@@ -20,7 +20,7 @@ from gi import require_version
 
 require_version("Gtk", "4.0")
 require_version("Adw", "1")
-from gi.repository import Adw, GLib, Gtk
+from gi.repository import Adw, GdkPixbuf, GLib, Gtk
 
 from pack import Pack
 from paths import Data
@@ -89,6 +89,7 @@ class InfoTab(Adw.PreferencesPage):
                 row = Adw.ActionRow(title=display_name)
                 if description:
                     row.set_subtitle(GLib.markup_escape_text(description[:120]))
+                row.add_prefix(_pack_icon_prefix(pack_dir))
 
                 btn_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
                 btn_box.set_valign(Gtk.Align.CENTER)
@@ -203,6 +204,42 @@ class InfoTab(Adw.PreferencesPage):
     def _on_switch(self, name: str) -> None:
         if self._on_switch_pack:
             self._on_switch_pack(name)
+
+
+def _pack_icon_prefix(pack_dir: Path) -> Gtk.Widget:
+    """32×32 pack icon framed for use as an ActionRow prefix."""
+    SIZE = 32
+    picture = Gtk.Picture()
+    picture.set_size_request(SIZE, SIZE)
+    picture.set_content_fit(Gtk.ContentFit.COVER)
+    picture.set_can_shrink(True)
+
+    icon_path = pack_dir / "icon.ico"
+    loaded = False
+    if icon_path.is_file():
+        try:
+            pb = GdkPixbuf.Pixbuf.new_from_file_at_scale(str(icon_path), SIZE, SIZE, True)
+            picture.set_pixbuf(pb)
+            loaded = True
+        except Exception:
+            pass
+
+    if not loaded:
+        # Fall back to a generic app icon
+        from paths import CustomAssets
+        fallback = CustomAssets.icon()
+        if fallback.is_file():
+            try:
+                pb = GdkPixbuf.Pixbuf.new_from_file_at_scale(str(fallback), SIZE, SIZE, True)
+                picture.set_pixbuf(pb)
+            except Exception:
+                pass
+
+    frame = Gtk.Frame()
+    frame.add_css_class("card")
+    frame.set_valign(Gtk.Align.CENTER)
+    frame.set_child(picture)
+    return frame
 
 
 def _read_pack_info(pack_dir: Path) -> dict:
