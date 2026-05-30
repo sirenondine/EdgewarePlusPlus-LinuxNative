@@ -146,7 +146,7 @@ if __name__ == "__main__":
             Thread(target=lambda: replace_images(settings, pack), daemon=True).start()  # Thread for performance reasons
             handle_corruption(settings, pack, state)
             handle_discord(settings, pack)
-            handle_sextoy(settings, state)
+            handle_sextoy(settings, pack, state)
             handle_lock_screen(settings, state)
             handle_niri_watch(settings, state)
             handle_power(settings, state)

@@ -63,7 +63,7 @@ def open_web(pack: Pack, web: str | None = None) -> None:
         Thread(target=lambda: webbrowser.open(web), daemon=True).start()
 
 
-def handle_sextoy(settings: Settings, state: State) -> None:
+def handle_sextoy(settings: Settings, pack: Pack, state: State) -> None:
     """Connect to Intiface at startup if toy support is configured. The Sextoy
     lives on state so popups can drive it. No-op without buttplug-py or any
     configured devices."""
@@ -78,7 +78,7 @@ def handle_sextoy(settings: Settings, state: State) -> None:
         from gi.repository import GLib
 
         def update() -> None:
-            notify("Edgeware++", "Toy connected." if connected else "Toy disconnected. Reconnect from the tray menu.")
+            notify("Edgeware++", "Toy connected." if connected else "Toy disconnected. Reconnect from the tray menu.", icon=pack.icon)
             if state.tray and hasattr(state.tray, "set_toy_status"):
                 state.tray.set_toy_status(connected)
             return False
