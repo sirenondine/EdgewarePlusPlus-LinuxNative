@@ -130,15 +130,19 @@ class InfoTab(Adw.PreferencesPage):
                 btn_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
                 btn_box.set_valign(Gtk.Align.CENTER)
 
+                # Switch button: accent check (disabled) when this is the active
+                # pack, play icon (clickable) otherwise — mirrors the star pattern.
+                sw_btn = Gtk.Button()
                 if name == current_name:
-                    check = Gtk.Image.new_from_icon_name("object-select-symbolic")
-                    check.add_css_class("accent")
-                    check.set_valign(Gtk.Align.CENTER)
-                    btn_box.append(check)
+                    sw_btn.set_icon_name("object-select-symbolic")
+                    sw_btn.add_css_class("accent")
+                    sw_btn.set_sensitive(False)
+                    sw_btn.set_tooltip_text("Currently active pack")
                 else:
-                    sw_btn = Gtk.Button(label="Switch")
+                    sw_btn.set_icon_name("media-playback-start-symbolic")
+                    sw_btn.set_tooltip_text("Switch to this pack")
                     sw_btn.connect("clicked", lambda _b, n=name: self._on_switch(n))
-                    btn_box.append(sw_btn)
+                btn_box.append(sw_btn)
 
                 # Star button: filled+accent when this is the default pack,
                 # outline otherwise. Clicking sets this pack as default.
