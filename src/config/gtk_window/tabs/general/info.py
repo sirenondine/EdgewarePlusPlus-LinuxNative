@@ -36,10 +36,11 @@ DISCORD_TEXT = (
 
 
 class InfoTab(Adw.PreferencesPage):
-    def __init__(self, pack: Pack, vars=None) -> None:
+    def __init__(self, pack: Pack, vars=None, on_switch_pack=None) -> None:
         super().__init__()
         self._pack = pack
         self._vars = vars
+        self._on_switch_pack = on_switch_pack
 
         # ---- Pack management ---------------------------------------------
         mgmt = Adw.PreferencesGroup(title="Pack Management")
@@ -200,11 +201,8 @@ class InfoTab(Adw.PreferencesPage):
         set_default_from_installed(pack_dir, on_done=on_done)
 
     def _on_switch(self, name: str) -> None:
-        if self._vars:
-            from config.gtk_window.utils import write_save, refresh
-            self._vars.pack_path.set(name)
-            write_save(self._vars)
-            refresh()
+        if self._on_switch_pack:
+            self._on_switch_pack(name)
 
 
 def _read_pack_info(pack_dir: Path) -> dict:
