@@ -186,35 +186,6 @@ class StartTab(Adw.PreferencesPage):
             live_version or "unknown", mismatch=mismatch))
         info.add(github_ver_row)
 
-        # ---- Pack configuration ------------------------------------------
-        pack_group = Adw.PreferencesGroup(
-            title="Pack Configuration",
-            description=(
-                "Pack creators can ship a config file with settings tailored to their "
-                "intended experience."
-            ),
-        )
-        self.add(pack_group)
-
-        load_pack_row = Adw.ActionRow(
-            title="Load Pack Configuration",
-            subtitle=f"{len(pack.config)} suggested settings in this pack.",
-        )
-        load_pack_btn = Gtk.Button(label="Load")
-        load_pack_btn.set_valign(Gtk.Align.CENTER)
-        load_pack_btn.set_sensitive(bool(pack.config))
-        load_pack_btn.connect("clicked", lambda _: apply_preset(pack.config, vars))
-        load_pack_row.add_suffix(load_pack_btn)
-        load_pack_row.set_activatable_widget(load_pack_btn)
-        pack_group.add(load_pack_row)
-
-        pack_group.add(AdwSwitchRow(
-            "Force Warning Failsafes", vars.preset_danger,
-            subtitle=(
-                "Turns on \"Warn if Dangerous Settings Active\" after loading a pack "
-                "config, regardless of the config's own setting."
-            )))
-
         # ---- Panic -------------------------------------------------------
         panic_group = Adw.PreferencesGroup(title="Panic Settings", description=PANIC_TEXT)
         self.add(panic_group)

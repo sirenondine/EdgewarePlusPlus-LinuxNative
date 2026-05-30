@@ -62,6 +62,40 @@ class InfoTab(Adw.PreferencesPage):
         import_row.set_activatable_widget(import_btn)
         mgmt.add(import_row)
 
+        # ---- Pack configuration (this pack's creator-suggested settings) ---
+        if vars is not None:
+            from config.gtk_window.preset import apply_preset
+            from config.gtk_window.widgets import AdwSwitchRow
+
+            config_group = Adw.PreferencesGroup(
+                title="Pack Configuration",
+                description=(
+                    "Pack creators can ship a config file with settings tailored to "
+                    "their intended experience for this pack."
+                ),
+            )
+            self.add(config_group)
+
+            load_cfg_row = Adw.ActionRow(
+                title="Load Pack Configuration",
+                subtitle=f"{len(pack.config)} suggested setting"
+                         f"{'s' if len(pack.config) != 1 else ''} in this pack.",
+            )
+            load_cfg_btn = Gtk.Button(label="Load")
+            load_cfg_btn.set_valign(Gtk.Align.CENTER)
+            load_cfg_btn.set_sensitive(bool(pack.config))
+            load_cfg_btn.connect("clicked", lambda _: apply_preset(pack.config, vars))
+            load_cfg_row.add_suffix(load_cfg_btn)
+            load_cfg_row.set_activatable_widget(load_cfg_btn)
+            config_group.add(load_cfg_row)
+
+            config_group.add(AdwSwitchRow(
+                "Force Warning Failsafes", vars.preset_danger,
+                subtitle=(
+                    "Turns on \"Warn if Dangerous Settings Active\" after loading a pack "
+                    "config, regardless of the config's own setting."
+                )))
+
         # ---- Installed packs ----------------------------------------------
         pack_dirs = sorted(
             [d for d in Data.PACKS.iterdir() if d.is_dir()],
