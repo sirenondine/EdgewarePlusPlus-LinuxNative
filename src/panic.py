@@ -124,6 +124,23 @@ def emergency_stop(settings: Settings) -> None:
     os._exit(0)
 
 
+def quit_session(settings: Settings) -> None:
+    """A clean exit with no XP penalty (the reward for finishing daily quests).
+    Saves progress, reverts the wallpaper, then exits."""
+    import os
+    if getattr(settings, "gamification", False):
+        try:
+            from features import gamification
+            gamification.flush()
+        except Exception as e:
+            logging.warning(f"quit: gamification flush failed: {e}")
+    try:
+        set_wallpaper(CustomAssets.panic_wallpaper())
+    except Exception as e:
+        logging.warning(f"quit: wallpaper revert failed: {e}")
+    os._exit(0)
+
+
 def request_panic(settings: Settings, state: State) -> None:
     """Panic entry point for the tray and socket. Honours panic lockout (which
     needs a GTK safeword prompt, so it goes through the graceful path), but

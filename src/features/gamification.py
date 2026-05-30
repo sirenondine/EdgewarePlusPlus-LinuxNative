@@ -237,6 +237,12 @@ class Progress:
             out.extend(self.quests.get(scope, {}).get("items", []))
         return out
 
+    def daily_quests_complete(self) -> bool:
+        """True when every daily quest is done (used to gate the tray Quit)."""
+        self.ensure_quests()
+        items = self.quests.get("daily", {}).get("items", [])
+        return bool(items) and all(q.done for q in items)
+
     def _check_achievements(self) -> None:
         for ach in ACHIEVEMENTS:
             if ach.id in self.achievements:
@@ -375,6 +381,10 @@ def set_progress_callback(callback) -> None:
 
 def active_quests() -> list[Quest]:
     return progress().active_quests()
+
+
+def daily_quests_complete() -> bool:
+    return progress().daily_quests_complete()
 
 
 def all_achievements() -> list[Achievement]:

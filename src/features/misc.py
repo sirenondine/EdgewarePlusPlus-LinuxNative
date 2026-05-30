@@ -148,6 +148,10 @@ def handle_gamification(settings: Settings, pack: Pack, state: State) -> None:
         notify("Quest complete", f"{quest.desc}  ·  +{quest.reward} XP", icon=pack.icon)
         reward()
         companion_say("quest_complete", f"the user completed a quest: {quest.desc}")
+        # Finishing all daily quests unlocks the clean Quit option.
+        if gamification.daily_quests_complete() and state.tray and hasattr(state.tray, "set_quit_visible"):
+            notify("Edgeware++", "Daily quests complete — you may now Quit from the tray.", icon=pack.icon)
+            state.tray.set_quit_visible(True)
 
     gamification.set_level_up_callback(on_level_up)
     gamification.set_achievement_callback(on_achievement)
@@ -226,6 +230,17 @@ def make_tray_icon(
     toy_configured = BUTTPLUG_AVAILABLE and getattr(settings, "sextoys", None)
     on_reconnect_toy = (lambda: state.sextoy and state.sextoy.reconnect()) if toy_configured else None
 
+    # Quit is a clean, no-penalty exit. With gamification on it is hidden until
+    # the daily quests are complete, so the only early exit is Panic (penalty).
+    from panic import quit_session
+    quit_hidden = False
+    if getattr(settings, "gamification", False):
+        try:
+            from features import gamification
+            quit_hidden = not gamification.daily_quests_complete()
+        except Exception:
+            quit_hidden = False
+
     try:
         state.tray = StatusNotifierItem(
             icon_name=os_utils.APP_ID,
@@ -235,7 +250,8 @@ def make_tray_icon(
             on_open_config=open_config,
             on_toggle_pause=toggle_pause,
             on_reconnect_toy=on_reconnect_toy,
-            on_quit=lambda: request_panic(settings, state),
+            on_quit=lambda: quit_session(settings),
+            quit_hidden=quit_hidden,
         )
         logging.info("Created StatusNotifierItem tray icon (D-Bus, with menu)")
     except Exception as e:

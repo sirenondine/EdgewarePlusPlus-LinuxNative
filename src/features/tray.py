@@ -132,11 +132,24 @@ class DBusMenu:
     def __init__(self, conn: Gio.DBusConnection, iface, items: list[tuple[str, Callable[[], None]]]) -> None:
         # items: list of (label, callback); ids are 1-based index.
         self._items = items
+        self._visible = [True] * len(items)
         self._conn = conn
         self._revision = 1
         self.reg_id = conn.register_object(
             _MENU_PATH, iface, self._on_method_call, self._on_get_property, None
         )
+
+    def set_item_visible(self, index: int, visible: bool) -> None:
+        if not (0 <= index < len(self._items)) or self._visible[index] == visible:
+            return
+        self._visible[index] = visible
+        self._revision += 1
+        try:
+            self._conn.emit_signal(
+                None, _MENU_PATH, "com.canonical.dbusmenu", "LayoutUpdated",
+                GLib.Variant("(ui)", (self._revision, 0)))
+        except Exception:
+            pass
 
     def set_item_label(self, index: int, label: str) -> None:
         """Relabel an item in place and tell the host to re-fetch the layout."""
@@ -151,17 +164,17 @@ class DBusMenu:
         except Exception:
             pass
 
-    def _item_props(self, label: str) -> dict:
+    def _item_props(self, index: int) -> dict:
         return {
-            "label": GLib.Variant("s", label),
+            "label": GLib.Variant("s", self._items[index][0]),
             "enabled": GLib.Variant("b", True),
-            "visible": GLib.Variant("b", True),
+            "visible": GLib.Variant("b", self._visible[index]),
         }
 
     def _layout_tuple(self) -> tuple:
         children = [
-            GLib.Variant("(ia{sv}av)", (i + 1, self._item_props(label), []))
-            for i, (label, _cb) in enumerate(self._items)
+            GLib.Variant("(ia{sv}av)", (i + 1, self._item_props(i), []))
+            for i in range(len(self._items))
         ]
         return (0, {"children-display": GLib.Variant("s", "submenu")}, children)
 
@@ -174,11 +187,11 @@ class DBusMenu:
             out = []
             for item_id in wanted:
                 if 1 <= item_id <= len(self._items):
-                    out.append((item_id, self._item_props(self._items[item_id - 1][0])))
+                    out.append((item_id, self._item_props(item_id - 1)))
             invocation.return_value(GLib.Variant("(a(ia{sv}))", (out,)))
         elif method == "GetProperty":
             item_id, name = params.unpack()
-            props = self._item_props(self._items[item_id - 1][0]) if 1 <= item_id <= len(self._items) else {}
+            props = self._item_props(item_id - 1) if 1 <= item_id <= len(self._items) else {}
             invocation.return_value(GLib.Variant("(v)", (props.get(name, GLib.Variant("s", "")),)))
         elif method == "Event":
             item_id, event_id, _data, _ts = params.unpack()
@@ -202,7 +215,7 @@ class DBusMenu:
 
 
 class StatusNotifierItem:
-    def __init__(self, icon_name: str, tooltip: str, on_panic: Callable[[], None], on_skip_hibernate: Callable[[], None] | None = None, on_open_config: Callable[[], None] | None = None, on_toggle_pause: Callable[[], None] | None = None, on_reconnect_toy: Callable[[], None] | None = None, on_quit: Callable[[], None] | None = None) -> None:
+    def __init__(self, icon_name: str, tooltip: str, on_panic: Callable[[], None], on_skip_hibernate: Callable[[], None] | None = None, on_open_config: Callable[[], None] | None = None, on_toggle_pause: Callable[[], None] | None = None, on_reconnect_toy: Callable[[], None] | None = None, on_quit: Callable[[], None] | None = None, quit_hidden: bool = False) -> None:
         self._icon_name = icon_name
         self._tooltip = tooltip
         self._on_panic = on_panic
@@ -211,6 +224,7 @@ class StatusNotifierItem:
         self._on_toggle_pause = on_toggle_pause
         self._on_reconnect_toy = on_reconnect_toy
         self._on_quit = on_quit
+        self._quit_hidden = quit_hidden
         self._reg_id = 0
         self._menu = None
         self._owner_id = 0
@@ -234,7 +248,9 @@ class StatusNotifierItem:
             self._menu_items.append(("Skip to Hibernate", on_skip_hibernate))
         if on_open_config:
             self._menu_items.append(("Open Config", on_open_config))
+        self._quit_index: int | None = None
         if on_quit:
+            self._quit_index = len(self._menu_items)
             self._menu_items.append(("Quit", on_quit))
 
         self._owner_id = Gio.bus_own_name(
@@ -257,6 +273,8 @@ class StatusNotifierItem:
                 None,
             )
             self._menu = DBusMenu(conn, self._menu_iface, self._menu_items)
+            if self._quit_hidden and self._quit_index is not None:
+                self._menu.set_item_visible(self._quit_index, False)
         except Exception as e:
             logging.warning(f"Failed to export StatusNotifierItem: {e}")
             return
@@ -317,6 +335,11 @@ class StatusNotifierItem:
         reconnects (a no-op while connected)."""
         if self._menu and self._toy_index is not None:
             self._menu.set_item_label(self._toy_index, "Toy: connected" if connected else "Reconnect toy")
+
+    def set_quit_visible(self, visible: bool) -> None:
+        """Show/hide the Quit item (gated behind finishing the daily quests)."""
+        if self._menu and self._quit_index is not None:
+            self._menu.set_item_visible(self._quit_index, visible)
 
     def stop(self) -> None:
         if self._conn:
