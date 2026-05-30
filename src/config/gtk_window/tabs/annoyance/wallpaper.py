@@ -14,14 +14,17 @@
 
 import logging
 import os
+import shutil
+from pathlib import Path
 
 from gi import require_version
 
 require_version("Gtk", "4.0")
-from gi.repository import GdkPixbuf, Gtk
+require_version("Adw", "1")
+from gi.repository import Adw, Gtk
 
-from config.gtk_window.widgets import ConfigRow, ConfigScale, ConfigSection, ConfigToggle
-from config.gtk_window.toast import name_popover, toast
+from config.gtk_window.widgets import AdwSliderRow, AdwSwitchRow
+from config.gtk_window.toast import name_popover
 from config.gtk_window.utils import config
 from config.vars import Vars
 from os_utils import get_wallpaper
@@ -32,76 +35,75 @@ ROTATE_TEXT = "Turning on wallpaper rotate disables built-in pack wallpapers, al
 PANIC_TEXT = "Set your panic wallpaper to your default wallpaper ASAP!"
 
 
-class WallpaperTab(Gtk.ScrolledWindow):
+class WallpaperTab(Adw.PreferencesPage):
     def __init__(self, vars: Vars, pack: Pack) -> None:
         super().__init__()
-        self.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
         self._vars = vars
         self._pack = pack
 
-        vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
-        self.set_child(vbox)
+        # ---- Panic wallpaper ---------------------------------------------
+        panic = Adw.PreferencesGroup(title="Panic Wallpaper", description=PANIC_TEXT)
+        self.add(panic)
 
-        panic_section = ConfigSection("Panic Wallpaper", PANIC_TEXT)
-        vbox.append(panic_section)
-
-        self._panic_preview = Gtk.Picture()
-        self._panic_preview.set_size_request(200, 112)
-        self._load_panic_preview()
-        panic_section.append(self._panic_preview)
-
-        panic_btn_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
-        panic_section.append(panic_btn_row)
-
+        panic_actions = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         set_btn = Gtk.Button(label="Set Panic Wallpaper")
         set_btn.set_tooltip_text("Set the wallpaper shown when you panic.")
         set_btn.connect("clicked", self._on_set_panic)
-        panic_btn_row.append(set_btn)
-
+        panic_actions.append(set_btn)
         auto_btn = Gtk.Button(label="Auto Import")
         auto_btn.set_tooltip_text("Automatically set your current wallpaper as the panic wallpaper.")
         auto_btn.connect("clicked", self._on_auto_import_panic)
-        panic_btn_row.append(auto_btn)
+        panic_actions.append(auto_btn)
+        panic.set_header_suffix(panic_actions)
 
-        rot_section = ConfigSection("Rotating Wallpaper", ROTATE_TEXT)
-        vbox.append(rot_section)
+        self._panic_preview = Gtk.Picture()
+        self._panic_preview.set_content_fit(Gtk.ContentFit.CONTAIN)
+        self._panic_preview.set_can_shrink(True)
+        self._panic_preview.set_size_request(-1, 240)
+        self._load_panic_preview()
+        frame = Gtk.Frame()
+        frame.add_css_class("card")
+        frame.set_child(self._panic_preview)
+        panic.add(frame)
 
-        rot_row = ConfigRow()
-        rot_section.append(rot_row)
-        rot_toggle = ConfigToggle("Rotate Wallpapers", vars.rotate_wallpaper)
-        rot_row.append(rot_toggle)
+        # ---- Rotating wallpaper ------------------------------------------
+        rot = Adw.PreferencesGroup(title="Rotating Wallpaper", description=ROTATE_TEXT)
+        self.add(rot)
+        rot.add(AdwSwitchRow("Rotate Wallpapers", vars.rotate_wallpaper))
+
+        rot_actions = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        add_btn = Gtk.Button(label="Add/Edit")
+        add_btn.connect("clicked", self._on_add)
+        rot_actions.append(add_btn)
+        self._wall_remove_btn = Gtk.Button(label="Remove")
+        self._wall_remove_btn.connect("clicked", self._on_remove)
+        self._wall_remove_btn.set_sensitive(False)
+        rot_actions.append(self._wall_remove_btn)
+        auto_wall_btn = Gtk.Button(label="Auto Import")
+        auto_wall_btn.connect("clicked", self._on_auto_import)
+        rot_actions.append(auto_wall_btn)
+        rot.set_header_suffix(rot_actions)
 
         self._wallpaper_store = Gtk.StringList.new(list(config.get("wallpaperDat", {}).keys()))
         self._wallpaper_selection = Gtk.SingleSelection.new(self._wallpaper_store)
+        self._wallpaper_selection.connect("notify::selected", self._update_remove_btn)
         self._wallpaper_list = Gtk.ListView.new(self._wallpaper_selection)
-        self._wallpaper_list.set_vexpand(True)
         factory = Gtk.SignalListItemFactory()
         factory.connect("setup", self._on_list_item_setup)
         factory.connect("bind", self._on_list_item_bind)
         self._wallpaper_list.set_factory(factory)
-        rot_section.append(self._wallpaper_list)
 
-        btn_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
-        rot_section.append(btn_row)
+        scroller = Gtk.ScrolledWindow()
+        scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        scroller.set_min_content_height(220)
+        scroller.set_child(self._wallpaper_list)
+        list_frame = Gtk.Frame()
+        list_frame.add_css_class("card")
+        list_frame.set_child(scroller)
+        rot.add(list_frame)
 
-        add_btn = Gtk.Button(label="Add/Edit Wallpaper")
-        add_btn.connect("clicked", self._on_add)
-        btn_row.append(add_btn)
-
-        self._wall_remove_btn = Gtk.Button(label="Remove Wallpaper")
-        self._wall_remove_btn.connect("clicked", self._on_remove)
-        self._wall_remove_btn.set_sensitive(False)
-        self._wallpaper_selection.connect("notify::selected", self._update_remove_btn)
-        btn_row.append(self._wall_remove_btn)
-
-        auto_wall_btn = Gtk.Button(label="Auto Import")
-        auto_wall_btn.connect("clicked", self._on_auto_import)
-        btn_row.append(auto_wall_btn)
-
-        rot_row2 = ConfigRow()
-        rot_section.append(rot_row2)
-        rot_row2.append(ConfigScale("Rotate Timer (sec)", vars.wallpaper_timer, 5, 300))
-        rot_row2.append(ConfigScale("Rotate Variation (sec)", vars.wallpaper_variance, 0, 300))
+        rot.add(AdwSliderRow("Rotate Timer (sec)", vars.wallpaper_timer, 5, 300))
+        rot.add(AdwSliderRow("Rotate Variation (sec)", vars.wallpaper_variance, 0, 300))
 
     def _on_set_panic(self, _btn: Gtk.Button) -> None:
         fd = Gtk.FileDialog.new()
@@ -111,7 +113,7 @@ class WallpaperTab(Gtk.ScrolledWindow):
         filt.add_mime_type("image/jpeg")
         filt.add_mime_type("image/png")
         fd.set_default_filter(filt)
-        fd.open(None, None, self._on_panic_file_selected, None)
+        fd.open(self.get_root(), None, self._on_panic_file_selected, None)
 
     def _on_panic_file_selected(self, fd: Gtk.FileDialog, result, _ud) -> None:
         from PIL import Image
@@ -120,10 +122,8 @@ class WallpaperTab(Gtk.ScrolledWindow):
             if not file:
                 return
             path = file.get_path()
-            pixbuf = GdkPixbuf.Pixbuf.new_from_file(path)
-            pixbuf = pixbuf.scale_simple(200, 112, GdkPixbuf.InterpType.BILINEAR)
-            self._panic_preview.set_pixbuf(pixbuf)
             Image.open(path).convert("RGB").save(Data.PANIC_WALLPAPER)
+            self._load_panic_preview()
         except Exception as e:
             logging.warning(f"Failed to set panic wallpaper: {e}")
 
@@ -136,9 +136,10 @@ class WallpaperTab(Gtk.ScrolledWindow):
             logging.warning(f"Failed to auto import panic wallpaper: {e}")
 
     def _load_panic_preview(self) -> None:
+        # Hand the Picture the full-resolution file so it scales crisply to the
+        # display size, instead of a pre-shrunk pixbuf that upscales blurry.
         try:
-            pixbuf = GdkPixbuf.Pixbuf.new_from_file_at_size(str(CustomAssets.panic_wallpaper()), 200, 112)
-            self._panic_preview.set_pixbuf(pixbuf)
+            self._panic_preview.set_filename(str(CustomAssets.panic_wallpaper()))
         except Exception:
             pass
 
@@ -152,7 +153,7 @@ class WallpaperTab(Gtk.ScrolledWindow):
         filt.add_mime_type("image/jpeg")
         filt.add_mime_type("image/png")
         fd.set_default_filter(filt)
-        fd.open(None, None, self._on_add_file_selected, None)
+        fd.open(self.get_root(), None, self._on_add_file_selected, None)
 
     def _on_add_file_selected(self, fd: Gtk.FileDialog, result, _ud) -> None:
         try:
@@ -166,8 +167,17 @@ class WallpaperTab(Gtk.ScrolledWindow):
 
     def _finish_add(self, name: str) -> None:
         if self._pending_path:
+            src = Path(self._pending_path)
+            # Runtime resolves rotating wallpapers as pack.paths.root / filename,
+            # so the file must live in the pack root to play and to preview.
+            dest = self._pack.paths.root / src.name
+            try:
+                if src.resolve() != dest.resolve():
+                    shutil.copyfile(src, dest)
+            except Exception as e:
+                logging.warning(f"Failed to copy wallpaper into pack: {e}")
             wallpaper_dat = config.get("wallpaperDat", {})
-            wallpaper_dat[name] = os.path.basename(self._pending_path)
+            wallpaper_dat[name] = src.name
             config["wallpaperDat"] = wallpaper_dat
             self._wallpaper_store.append(name)
             self._pending_path = None
@@ -200,11 +210,41 @@ class WallpaperTab(Gtk.ScrolledWindow):
 
     @staticmethod
     def _on_list_item_setup(_factory, item) -> None:
+        box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        box.set_margin_start(6)
+        box.set_margin_end(6)
+        box.set_margin_top(4)
+        box.set_margin_bottom(4)
+
+        thumb = Gtk.Picture()
+        thumb.set_size_request(96, 54)
+        thumb.set_content_fit(Gtk.ContentFit.COVER)
+        thumb.set_can_shrink(True)
+        thumb_frame = Gtk.Frame()
+        thumb_frame.add_css_class("card")
+        thumb_frame.set_valign(Gtk.Align.CENTER)
+        thumb_frame.set_child(thumb)
+        box.append(thumb_frame)
+
         label = Gtk.Label()
         label.set_xalign(0)
-        item.set_child(label)
+        label.set_valign(Gtk.Align.CENTER)
+        box.append(label)
 
-    @staticmethod
-    def _on_list_item_bind(_factory, item) -> None:
-        label = item.get_child()
-        label.set_text(item.get_item().get_string())
+        item.set_child(box)
+
+    def _on_list_item_bind(self, _factory, item) -> None:
+        box = item.get_child()
+        thumb_frame = box.get_first_child()
+        thumb = thumb_frame.get_child()
+        label = thumb_frame.get_next_sibling()
+
+        name = item.get_item().get_string()
+        label.set_text(name)
+
+        filename = config.get("wallpaperDat", {}).get(name)
+        path = self._pack.paths.root / filename if filename else None
+        if path and path.is_file():
+            thumb.set_filename(str(path))
+        else:
+            thumb.set_paintable(None)
