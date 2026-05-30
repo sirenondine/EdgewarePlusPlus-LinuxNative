@@ -49,6 +49,7 @@ _FADE_TYPES = {
 }
 
 
+
 class CorruptionModeTab(Adw.PreferencesPage):
     def __init__(self, vars: Vars, pack: Pack) -> None:
         super().__init__()

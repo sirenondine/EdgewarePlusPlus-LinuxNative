@@ -275,21 +275,27 @@ def AdwSliderRow(title: str, variable: ConfigVar, from_: int, to: int, subtitle:
     return row
 
 
-def AdwComboRow(title: str, variable: ConfigVar, options: dict[str, str], subtitle: str | None = None) -> Adw.ComboRow:
-    """A ComboRow bound to a ConfigVar. `options` maps stored value -> label."""
+def AdwComboRow(title: str, variable: ConfigVar, options: dict[str, str]) -> Adw.ComboRow:
+    """A ComboRow bound to a ConfigVar.
+
+    `options` maps stored value -> description string. Keys are used as the
+    dropdown labels (short); the description for the selected item is shown
+    as the row subtitle so long descriptions don't overflow the combo button.
+    """
+    keys = list(options.keys())
     row = Adw.ComboRow(title=title)
-    if subtitle:
-        row.set_subtitle(subtitle)
-    values = list(options.keys())
-    row.set_model(Gtk.StringList.new([options[v] for v in values]))
+    row.set_model(Gtk.StringList.new(keys))
     current = variable.get()
-    if current in values:
-        row.set_selected(values.index(current))
+    if current in keys:
+        row.set_selected(keys.index(current))
+    row.set_subtitle(options.get(str(current), ""))
 
     def on_selected(r, _p):
         idx = r.get_selected()
-        if 0 <= idx < len(values):
-            variable.set(values[idx])
+        if 0 <= idx < len(keys):
+            key = keys[idx]
+            variable.set(key)
+            r.set_subtitle(options[key])
 
     row.connect("notify::selected", on_selected)
     return row
