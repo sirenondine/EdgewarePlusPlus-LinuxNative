@@ -131,5 +131,8 @@ class Prompt(Gtk.Window):
             stop_continuous(getattr(self, "_vib_token", ""), self.state.sextoy)
             self.destroy()
             self.state.prompt_active = False
+            if self.settings.gamification:
+                from features import gamification
+                gamification.record("prompt_completed")
             if self.on_close:
                 self.on_close()

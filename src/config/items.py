@@ -217,6 +217,10 @@ CONFIG_ITEMS = {
     # individual values via its sliders.
     "sextoys": Item("sextoys", Schema({str: dict}), VAR, lambda value: value, block=True),
     "intiface_address": Item("intifaceAddress", STRING, VAR, str, block=True),
+
+    # Local gamification (XP, levels, achievements). Opt-in, fully local, no
+    # leaderboard or telemetry; progress lives in a plain JSON state file.
+    "gamification": Item("gamification", BOOLEAN, VAR, bool, block=True),
 }
 # fmt: on
 

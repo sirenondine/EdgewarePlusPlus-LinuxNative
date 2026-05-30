@@ -89,6 +89,30 @@ def handle_sextoy(settings: Settings, pack: Pack, state: State) -> None:
     state.sextoy.connect()
 
 
+def handle_gamification(settings: Settings, pack: Pack, state: State) -> None:
+    """Load local progress and wire level-up notifications + a playtime ticker.
+    No-op unless gamification is enabled."""
+    if not getattr(settings, "gamification", False):
+        return
+    from gi.repository import GLib
+
+    from features import gamification
+
+    def on_level_up(level: int) -> None:
+        notify("Edgeware++", f"Level up! You reached level {level}.", icon=pack.icon)
+
+    gamification.set_level_up_callback(on_level_up)
+    gamification.progress()  # load now so the first event is fast
+
+    def tick() -> bool:
+        import roll
+        if not roll.is_paused():
+            gamification.record("playtime_minute")
+        return True
+
+    GLib.timeout_add_seconds(60, tick)
+
+
 def send_notification(
     settings: Settings, pack: Pack, notification: str | None = None, sextoy: object | None = None
 ) -> None:

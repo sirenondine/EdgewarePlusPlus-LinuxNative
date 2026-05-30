@@ -229,6 +229,9 @@ class Popup(Gtk.Window):
     def try_denial_text(self) -> None:
         if self.denial:
             self._add_text(self.pack.random_denial(), Gtk.Align.CENTER, Gtk.Align.CENTER)
+            if self.settings.gamification:
+                from features import gamification
+                gamification.record("denial_seen")
 
     def try_caption(self) -> None:
         caption = self.pack.random_caption(self.media)
@@ -330,6 +333,10 @@ class Popup(Gtk.Window):
                 self.blacklist_media()
             self.close()
             self.try_mitosis()
+            # Gamification: reward user-initiated dismissals (not timeout closes).
+            if self.settings.gamification:
+                from features import gamification
+                gamification.record("popup_closed")
 
     def blacklist_media(self) -> None:
         filename = os.path.basename(self.media).split("/")[-1]

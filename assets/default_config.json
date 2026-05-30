@@ -101,5 +101,6 @@
   "spawnOnActiveMonitor": 0,
   "pauseOnBattery": 0,
   "pauseApps": "",
-  "escalation": 0
+  "escalation": 0,
+  "gamification": 0
 }
