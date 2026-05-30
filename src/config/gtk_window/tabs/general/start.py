@@ -233,7 +233,9 @@ class StartTab(Adw.PreferencesPage):
         general.add(AdwSwitchRow("Create Desktop Icons", vars.desktop_icons))
         general.add(AdwSwitchRow(
             "Pause When Screen Locks", vars.pause_on_lock,
-            subtitle="Stop spawning popups while the session is locked; resume on unlock."))
+            subtitle="Pauses popups while locked (via logind / ScreenSaver). Lockers "
+                     "that use ext-session-lock only (Noctalia, swaylock) should call "
+                     "edgeware-ctl.sh pause/resume from a lock hook instead."))
         general.add(AdwSwitchRow(
             "Warn if \"Dangerous\" Settings Active", vars.safe_mode,
             subtitle="Asks you to confirm before saving if certain settings are enabled."))
