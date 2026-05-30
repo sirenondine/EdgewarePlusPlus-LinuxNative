@@ -88,6 +88,7 @@ class Persona:
     relative to the pack root."""
     name: str = "Companion"
     avatar: str | None = None
+    spritesheet: str | None = None  # codex-pet-share layout (8x9 cells); path rel to pack root
     system_prompt: str = ""
     greetings: list[str] = field(default_factory=list)
     idle_lines: list[str] = field(default_factory=list)

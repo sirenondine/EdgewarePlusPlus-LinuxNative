@@ -15,13 +15,17 @@
 # You should have received a copy of the GNU General Public License
 # along with Edgeware++.  If not, see <https://www.gnu.org/licenses/>.
 
-# The companion's on-screen presence: a small persistent layer-shell window
-# (avatar + speech bubble) anchored to a screen corner. One instance is reused
-# for the whole session; it hides when idle and reappears for each utterance.
+# The companion's on-screen presence: a small layer-shell window anchored to a
+# screen corner, showing an animated sprite (codex-pet-share format, see
+# sprite.py) or a static avatar, plus a speech bubble.
+#
+# With a spritesheet the window behaves like a desktop pet: always visible,
+# idling, switching to a "talk" animation while speaking. With only a static
+# avatar it is ephemeral: it appears to speak and hides when idle.
 #
 # begin()/append()/finish() are the engine-facing API and are thread-safe — the
 # engine calls them from its worker thread; each marshals onto the GTK main
-# thread via GLib.idle_add. Keep all actual widget work in the _impl methods.
+# thread via GLib.idle_add. Keep all widget work in the _impl methods.
 
 import logging
 
@@ -31,6 +35,8 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Gtk4LayerShell", "1.0")
 from gi.repository import GLib, Gtk
 from gi.repository import Gtk4LayerShell as LayerShell
+
+from features.companion import sprite
 
 _CSS_LOADED = False
 
@@ -42,6 +48,7 @@ def _ensure_css() -> None:
     from gi.repository import Gdk
     css = Gtk.CssProvider()
     css.load_from_string("""
+        window.companion-window { background: transparent; }
         .companion-bg {
             background: rgba(0,0,0,0.82);
             border: 1px solid rgba(255,255,255,0.45);
@@ -69,27 +76,36 @@ class CompanionWindow(Gtk.Window):
 
         self.set_decorated(False)
         self.set_resizable(False)
+        self.add_css_class("companion-window")  # transparent toplevel; only the rounded box paints
 
-        box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
-        box.add_css_class("companion-bg")
+        box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        box.set_valign(Gtk.Align.END)
 
-        avatar_path = self._resolve_avatar(pack, persona)
-        if avatar_path:
-            avatar = Gtk.Picture.new_for_filename(str(avatar_path))
-            avatar.set_size_request(96, 96)
-            avatar.set_content_fit(Gtk.ContentFit.COVER)
-            avatar.add_css_class("companion-avatar")
-            box.append(avatar)
+        # Animated sprite (pet) takes precedence over a static avatar.
+        self._sprite = self._load_sprite(pack, persona)
+        if self._sprite:
+            box.append(self._sprite)
+        else:
+            avatar_path = self._resolve_avatar(pack, persona)
+            if avatar_path:
+                avatar = Gtk.Picture.new_for_filename(str(avatar_path))
+                avatar.set_size_request(96, 96)
+                avatar.set_content_fit(Gtk.ContentFit.COVER)
+                avatar.add_css_class("companion-avatar")
+                box.append(avatar)
 
-        text_col = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        self._text_col = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        self._text_col.add_css_class("companion-bg")  # only the speech bubble paints; the pet floats free
+        self._text_col.set_valign(Gtk.Align.END)
         name = Gtk.Label(label=persona.name, halign=Gtk.Align.START)
         name.add_css_class("companion-name")
         self._bubble = Gtk.Label(label="", wrap=True, halign=Gtk.Align.START, xalign=0.0)
         self._bubble.set_max_width_chars(34)
         self._bubble.add_css_class("companion-bubble")
-        text_col.append(name)
-        text_col.append(self._bubble)
-        box.append(text_col)
+        self._text_col.append(name)
+        self._text_col.append(self._bubble)
+        self._text_col.set_visible(False)  # shown only while speaking
+        box.append(self._text_col)
 
         self.set_child(box)
 
@@ -102,7 +118,33 @@ class CompanionWindow(Gtk.Window):
             LayerShell.set_margin(self, LayerShell.Edge.BOTTOM, 28)
             LayerShell.set_margin(self, LayerShell.Edge.RIGHT, 28)
 
-        self.set_visible(False)
+        # A pet (sprite) is persistent and idles on screen; an avatar-only
+        # companion stays hidden until it speaks.
+        if self._sprite:
+            self.set_visible(True)
+            self.present()
+        else:
+            self.set_visible(False)
+
+    def _load_sprite(self, pack, persona):
+        path = None
+        try:
+            if persona.spritesheet:
+                p = pack.paths.root / persona.spritesheet
+                if p.is_file():
+                    path = p
+            if path is None:
+                for cand in (pack.paths.root / "companion" / "spritesheet.webp",
+                             pack.paths.root / "spritesheet.webp"):
+                    if cand.is_file():
+                        path = cand
+                        break
+        except Exception:
+            return None
+        if path is None:
+            return None
+        sheet = sprite.load_sheet(path)
+        return sprite.SpriteWidget(sheet) if sheet else None
 
     def _resolve_avatar(self, pack, persona):
         try:
@@ -132,6 +174,9 @@ class CompanionWindow(Gtk.Window):
             self._hide_id = None
         self._buf = ""
         self._bubble.set_text("")
+        self._text_col.set_visible(True)
+        if self._sprite:
+            self._sprite.set_state(sprite.TALK_STATE)
         self.set_visible(True)
         self.present()
         return False
@@ -150,6 +195,11 @@ class CompanionWindow(Gtk.Window):
         return False
 
     def _hide_impl(self) -> bool:
-        self.set_visible(False)
         self._hide_id = None
+        self._text_col.set_visible(False)
+        if self._sprite:
+            # Pet stays on screen, back to idling.
+            self._sprite.set_state(sprite.IDLE_STATE)
+        else:
+            self.set_visible(False)
         return False

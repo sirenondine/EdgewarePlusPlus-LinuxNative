@@ -219,6 +219,7 @@ def load_companion(paths: PackPaths) -> Persona | None:
             {
                 Optional("name"): str,
                 Optional("avatar"): str,
+                Optional("spritesheet"): str,
                 Optional("system_prompt"): str,
                 Optional("greetings"): [str],
                 Optional("idle_lines"): [str],
@@ -229,6 +230,7 @@ def load_companion(paths: PackPaths) -> Persona | None:
         return Persona(
             name=data.get("name", "Companion"),
             avatar=data.get("avatar"),
+            spritesheet=data.get("spritesheet"),
             system_prompt=data.get("system_prompt", ""),
             greetings=data.get("greetings", []),
             idle_lines=data.get("idle_lines", []),
