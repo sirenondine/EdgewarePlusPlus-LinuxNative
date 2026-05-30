@@ -23,7 +23,7 @@ from gi.repository import Adw, GdkPixbuf, GLib, Gtk
 
 from config.gtk_window.toast import name_popover
 from config.gtk_window.utils import config
-from config.gtk_window.widgets import AdwComboRow, AdwSwitchRow
+from config.gtk_window.widgets import AdwComboRow, AdwEntryRow, AdwSwitchRow
 from config.vars import Vars
 from features import booru
 
@@ -47,6 +47,15 @@ class BooruTab(Adw.PreferencesPage):
         group.add(AdwComboRow(
             "Site", vars.booru_site,
             {name: name.capitalize() for name in booru.SITE_NAMES}))
+
+        # Optional credentials (e.g. Gelbooru API key + user id, Danbooru
+        # api key + login). Left blank for anonymous access.
+        creds = Adw.PreferencesGroup(
+            title="Credentials",
+            description="Optional. Some sites need an API key (and a user id or login) for full access or higher limits. Leave blank for anonymous use.")
+        self.add(creds)
+        creds.add(AdwEntryRow("API key", vars.booru_api_key, password=True))
+        creds.add(AdwEntryRow("User ID / Login", vars.booru_user_id))
 
         tags_group = Adw.PreferencesGroup(title="Tags")
         self.add(tags_group)
@@ -124,6 +133,8 @@ class BooruTab(Adw.PreferencesPage):
     # ---- Preview handlers ------------------------------------------------
     def _on_preview(self, _btn: Gtk.Button) -> None:
         site = self._vars.booru_site.get() or booru.DEFAULT_SITE
+        api_key = self._vars.booru_api_key.get() or ""
+        user_id = self._vars.booru_user_id.get() or ""
         tags = config.get("tagList", "").replace(">", " ").strip()
         child = self._flow.get_first_child()
         while child:
@@ -132,10 +143,10 @@ class BooruTab(Adw.PreferencesPage):
         self._preview_btn.set_sensitive(False)
         self._spinner.start()
         self._status.set_text(f"Searching {site} for: {tags or '(all)'}…")
-        threading.Thread(target=self._preview_worker, args=(site, tags), daemon=True).start()
+        threading.Thread(target=self._preview_worker, args=(site, tags, api_key, user_id), daemon=True).start()
 
-    def _preview_worker(self, site: str, tags: str) -> None:
-        results = booru.search(site, tags, limit=PREVIEW_COUNT)
+    def _preview_worker(self, site: str, tags: str, api_key: str, user_id: str) -> None:
+        results = booru.search(site, tags, limit=PREVIEW_COUNT, api_key=api_key, user_id=user_id)
         shown = 0
         for post in results:
             url = booru.thumb_url(post)

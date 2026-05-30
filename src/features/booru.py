@@ -44,17 +44,25 @@ SITE_NAMES = list(SITE_CLASSES.keys())
 DEFAULT_SITE = "gelbooru"
 
 
-def _client(site: str):
+def _client(site: str, api_key: str = "", user_id: str = ""):
     import booru
     cls_name = SITE_CLASSES.get((site or DEFAULT_SITE).lower(), SITE_CLASSES[DEFAULT_SITE])
-    return getattr(booru, cls_name)()
+    cls = getattr(booru, cls_name)
+    # Auth-capable sites take (api_key, user_id|login) positionally; sites
+    # without auth (e.g. Rule34) take no args and raise TypeError, so fall back.
+    if api_key or user_id:
+        try:
+            return cls(api_key, user_id)
+        except TypeError:
+            pass
+    return cls()
 
 
-def search(site: str, tags: str, limit: int = 12, page: int = 1) -> list[dict]:
+def search(site: str, tags: str, limit: int = 12, page: int = 1, api_key: str = "", user_id: str = "") -> list[dict]:
     """Return up to `limit` post dicts for `tags` (space separated) from `site`.
     Empty list on no results or error. Blocking — call off the main thread."""
     try:
-        client = _client(site)
+        client = _client(site, api_key, user_id)
         result = asyncio.run(client.search(query=tags or "", limit=limit, page=page))
         if isinstance(result, str):
             result = json.loads(result)
@@ -68,9 +76,9 @@ def thumb_url(post: dict) -> str | None:
     return post.get("preview_url") or post.get("sample_url") or post.get("file_url")
 
 
-def random_image_url(site: str, tags: str, limit: int = 20) -> str | None:
+def random_image_url(site: str, tags: str, limit: int = 20, api_key: str = "", user_id: str = "") -> str | None:
     """Pick a random full-resolution image URL for `tags`, or None."""
-    urls = [p.get("file_url") for p in search(site, tags, limit=limit) if p.get("file_url")]
+    urls = [p.get("file_url") for p in search(site, tags, limit=limit, api_key=api_key, user_id=user_id) if p.get("file_url")]
     return random.choice(urls) if urls else None
 
 

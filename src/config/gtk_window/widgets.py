@@ -115,3 +115,18 @@ def AdwComboRow(title: str, variable: ConfigVar, options: dict[str, str]) -> Adw
             row.set_subtitle(options.get(str(value), ""))
     variable.trace_add(_sync)
     return row
+
+
+def AdwEntryRow(title: str, variable: ConfigVar, password: bool = False) -> Adw.EntryRow:
+    """A text (or masked password) entry row bound to a ConfigVar."""
+    row = Adw.PasswordEntryRow(title=title) if password else Adw.EntryRow(title=title)
+    row.set_text(str(variable.get() or ""))
+    row.connect("changed", lambda r: variable.set(r.get_text()))
+
+    # Reflect external changes (preset / pack-config apply) into the entry.
+    def _sync(value: object) -> None:
+        text = str(value or "")
+        if row.get_text() != text:
+            row.set_text(text)
+    variable.trace_add(_sync)
+    return row
