@@ -123,6 +123,7 @@
   "companionGreetOnStart": 1,
   "companionWindowAware": 0,
   "companionScreenshotAware": 0,
+  "companionClipboardAware": 0,
   "gamification": 0,
   "gamificationRewards": 1,
   "gamificationHud": 1,

@@ -111,6 +111,12 @@ def handle_companion(settings: Settings, pack: Pack, state: State) -> None:
         if getattr(settings, "companion_greet_on_start", False):
             companion.greet()
 
+        # React to images the user copies, if enabled.
+        if getattr(settings, "companion_clipboard_awareness", False):
+            from features.companion import vision
+            vision.watch_clipboard_images(
+                lambda b64: state.companion and state.companion.react_image("the user just copied an image", b64))
+
         # Optional timer-driven observation, on a cadence instead of on focus
         # changes: screen-aware -> look at the screen; otherwise idle chatter.
         interval = getattr(settings, "companion_observe_interval", 0)

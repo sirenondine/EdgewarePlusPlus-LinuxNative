@@ -288,6 +288,13 @@ class Companion:
         from features.companion import vision
         self._run(text, image_b64=vision.encode_image_file(image_path))
 
+    def react_image(self, detail: str, image_b64: str) -> None:
+        """React to an already-encoded image (e.g. one copied to the clipboard)."""
+        if self._busy or not image_b64:
+            return
+        text = f"(event:clipboard) {detail}\nReact in one short in-character line."
+        threading.Thread(target=self._run, args=(text,), kwargs={"image_b64": image_b64}, daemon=True).start()
+
     def extract_memory(self) -> None:
         """Summarise the session log into durable facts and persist them.
         Blocking (a single LLM call with a short timeout); meant to run at a

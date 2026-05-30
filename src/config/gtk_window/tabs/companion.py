@@ -49,6 +49,11 @@ SCREENSHOT_TEXT = (
     "the clipboard, which is then restored); otherwise the whole screen. Very "
     "sensitive — only use a trusted LOCAL backend. Overrides window awareness."
 )
+CLIPBOARD_TEXT = (
+    "Clipboard awareness lets the companion react to images you copy (needs a "
+    "vision model). Every copied image is sent to the backend — including "
+    "private screenshots — so only use a trusted LOCAL backend."
+)
 
 
 class CompanionTab(Adw.PreferencesPage):
@@ -93,6 +98,8 @@ class CompanionTab(Adw.PreferencesPage):
             "Window Awareness", vars.companion_window_awareness, subtitle=PRIVACY_TEXT))
         behaviour.add(AdwSwitchRow(
             "Screen Awareness", vars.companion_screenshot_awareness, subtitle=SCREENSHOT_TEXT))
+        behaviour.add(AdwSwitchRow(
+            "Clipboard Awareness", vars.companion_clipboard_awareness, subtitle=CLIPBOARD_TEXT))
 
         # ---- Test --------------------------------------------------------
         test_group = Adw.PreferencesGroup(

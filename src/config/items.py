@@ -94,6 +94,7 @@ RUN_ON_SAVE_QUIT_DANGER = "Edgeware will run on Save & Exit (AKA: when you hit Y
 COMPANION_CLOUD_DANGER = "The AI companion is set to a cloud backend! Your prompts and pack content will be sent to a third party. Use a local backend (Ollama) to keep everything on your machine."
 COMPANION_WINDOW_AWARE_DANGER = "Companion window awareness is enabled! The names of apps you focus will be fed to the companion, and sent to the backend. With a cloud backend, that information leaves your machine."
 COMPANION_SCREENSHOT_DANGER = "Companion screen awareness is enabled! Screenshots of your WHOLE screen (including popups and anything else open) are sent to the companion's backend. With a cloud backend, your screen contents leave your machine. Only enable this with a trusted local backend."
+COMPANION_CLIPBOARD_DANGER = "Companion clipboard awareness is enabled! Every image you COPY is sent to the companion's backend. That can include private screenshots or documents. With a cloud backend it leaves your machine. Only enable this with a trusted local backend."
 
 
 # fmt: off
@@ -246,6 +247,7 @@ CONFIG_ITEMS = {
     "companion_greet_on_start": Item("companionGreetOnStart", BOOLEAN, VAR, bool, block=True),
     "companion_window_awareness": Item("companionWindowAware", BOOLEAN, VAR, bool, danger=Danger(DangerLevel.MEDIUM, Schema(1), COMPANION_WINDOW_AWARE_DANGER), block=True),
     "companion_screenshot_awareness": Item("companionScreenshotAware", BOOLEAN, VAR, bool, danger=Danger(DangerLevel.EXTREME, Schema(1), COMPANION_SCREENSHOT_DANGER), block=True),
+    "companion_clipboard_awareness": Item("companionClipboardAware", BOOLEAN, VAR, bool, danger=Danger(DangerLevel.EXTREME, Schema(1), COMPANION_CLIPBOARD_DANGER), block=True),
 
     # Local gamification (XP, levels, achievements). Opt-in, fully local, no
     # leaderboard or telemetry; progress lives in a plain JSON state file.

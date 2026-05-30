@@ -32,6 +32,11 @@ import subprocess
 import time
 
 
+# Hashes of images this module put on the clipboard (our own window captures),
+# so the clipboard watcher doesn't feed our screenshots back to the companion.
+_own_hashes: set[int] = set()
+
+
 def _encode(raw: bytes, max_dim: int, quality: int) -> str | None:
     """PNG/JPEG bytes -> downscaled base64 JPEG (no data URI prefix)."""
     if not raw:
@@ -64,6 +69,10 @@ def capture_window(max_dim: int = 1024, quality: int = 70) -> str | None:
         subprocess.run(["niri", "msg", "action", "screenshot-window"], capture_output=True, timeout=3)
         time.sleep(0.15)  # let the clipboard populate
         raw = subprocess.run(["wl-paste", "--type", "image/png"], capture_output=True, timeout=3).stdout
+        if raw:
+            _own_hashes.add(hash(raw))
+            if len(_own_hashes) > 16:
+                _own_hashes.pop()
         return _encode(raw, max_dim, quality)
     except Exception as e:
         logging.warning(f"Companion window capture failed: {e}")
@@ -91,6 +100,39 @@ def capture_screenshot(max_dim: int = 1024, quality: int = 70) -> str | None:
 def available() -> bool:
     """Whether any capture path is usable."""
     return bool(os.environ.get("NIRI_SOCKET") and shutil.which("wl-paste")) or shutil.which("grim") is not None
+
+
+def watch_clipboard_images(callback, interval: float = 4.0, max_dim: int = 1024, quality: int = 70) -> None:
+    """Poll the clipboard for newly-copied images and pass each (as base64 JPEG)
+    to callback. Skips repeats and our own window captures. Daemon thread; no-op
+    without wl-paste."""
+    import threading
+
+    if not shutil.which("wl-paste"):
+        return
+
+    def loop() -> None:
+        last = None
+        while True:
+            time.sleep(interval)
+            try:
+                raw = subprocess.run(["wl-paste", "--type", "image/png"], capture_output=True, timeout=3).stdout
+            except Exception:
+                continue
+            if not raw:
+                continue
+            h = hash(raw)
+            if h == last or h in _own_hashes:
+                continue
+            last = h
+            b64 = _encode(raw, max_dim, quality)
+            if b64:
+                try:
+                    callback(b64)
+                except Exception as e:
+                    logging.debug(f"clipboard callback error: {e}")
+
+    threading.Thread(target=loop, daemon=True).start()
 
 
 def encode_image_file(path, max_dim: int = 1024, quality: int = 70) -> str | None:
