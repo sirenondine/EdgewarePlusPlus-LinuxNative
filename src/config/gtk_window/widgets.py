@@ -32,6 +32,14 @@ def AdwSwitchRow(title: str, variable: ConfigVar, subtitle: str | None = None) -
         row.set_subtitle(subtitle)
     row.set_active(bool(variable.get()))
     row.connect("notify::active", lambda r, _p: variable.set(r.get_active()))
+
+    # Reflect external changes (preset / pack-config apply) back into the widget,
+    # guarded so the widget's own write-back doesn't loop.
+    def _sync(value: object) -> None:
+        active = bool(value)
+        if row.get_active() != active:
+            row.set_active(active)
+    variable.trace_add(_sync)
     return row
 
 
@@ -43,6 +51,17 @@ def AdwSliderRow(title: str, variable: ConfigVar, from_: int, to: int, subtitle:
 
     adj = Gtk.Adjustment(value=variable.get(), lower=from_, upper=to, step_increment=1)
     adj.connect("value-changed", lambda a: variable.set(int(a.get_value())))
+
+    # Reflect external changes (preset / pack-config apply) into the slider,
+    # guarded against the adjustment's own write-back looping.
+    def _sync(value: object) -> None:
+        try:
+            v = int(value)
+        except (TypeError, ValueError):
+            return
+        if int(adj.get_value()) != v:
+            adj.set_value(v)
+    variable.trace_add(_sync)
 
     scale = Gtk.Scale(orientation=Gtk.Orientation.HORIZONTAL, adjustment=adj)
     scale.set_draw_value(False)
@@ -86,4 +105,13 @@ def AdwComboRow(title: str, variable: ConfigVar, options: dict[str, str]) -> Adw
             r.set_subtitle(options[key])
 
     row.connect("notify::selected", on_selected)
+
+    # Reflect external changes (preset / pack-config apply) into the combo.
+    def _sync(value: object) -> None:
+        if value in keys:
+            idx = keys.index(value)
+            if row.get_selected() != idx:
+                row.set_selected(idx)
+            row.set_subtitle(options.get(str(value), ""))
+    variable.trace_add(_sync)
     return row
