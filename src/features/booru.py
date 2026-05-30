@@ -58,12 +58,19 @@ def _client(site: str, api_key: str = "", user_id: str = ""):
     return cls()
 
 
+def normalize_tags(tags: str) -> str:
+    """Edgeware historically defaults the tag list to "all" to mean "anything",
+    but boorus treat "all" as a literal (non-existent) tag and return nothing.
+    Drop it so the query becomes an unfiltered (recent posts) search."""
+    return " ".join(t for t in (tags or "").split() if t.lower() != "all")
+
+
 def search(site: str, tags: str, limit: int = 12, page: int = 1, api_key: str = "", user_id: str = "") -> list[dict]:
     """Return up to `limit` post dicts for `tags` (space separated) from `site`.
     Empty list on no results or error. Blocking — call off the main thread."""
     try:
         client = _client(site, api_key, user_id)
-        result = asyncio.run(client.search(query=tags or "", limit=limit, page=page))
+        result = asyncio.run(client.search(query=normalize_tags(tags), limit=limit, page=page))
         if isinstance(result, str):
             result = json.loads(result)
         return result or []
