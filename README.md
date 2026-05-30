@@ -10,9 +10,10 @@ Originally inspired by "Elsaware" (which, truthfully, I know nothing about), the
 
 ## Usage Instructions
 
-All stable builds can be found in the "Releases" tab on the right (or [here](https://github.com/araten10/EdgewarePlusPlus/releases)), along with a brief summary of patch notes. Alternatively, if more up to date but potentially unstable builds tickle your fancy, you can click the big ol' "code" button in the top right, then "download zip".
-
-Save and extract it somewhere, then run `edgeware/EdgewareSetup.bat`. This will install python for you, alongside some necessary libraries. After that it will give you instructions for further use, and open up `edgeware/config.pyw`. **Check the top of the installer window to see if you have an older version of Python installed!** Edgeware previously used python 3.10, and if you're using that version, you'll have to uninstall it to get the newest version!
+This is the **LinuxNative** fork — Linux / Wayland only. Windows and macOS are not
+supported here; for those platforms use the upstream
+[EdgewarePlusPlus](https://github.com/araten10/EdgewarePlusPlus). Clone this repository
+(or download it as a ZIP via the "code" button) and follow the Linux setup below.
 
 **If you're using Linux**, this fork (LinuxNative) runs **natively on Wayland** — the
 config window and the runtime popups are GTK4, popups use `gtk4-layer-shell`, and
@@ -41,7 +42,7 @@ input devices directly, which requires your user to be in the `input` group.
 
 From there you'll need an actual pack, which can be downloaded online or made yourself. Unfortunately at the time of writing there's really no congregated directory of packs everyone's made, they're all scattered to the four winds... but for a start [the original Edgeware page](https://github.com/PetitTournesol/Edgeware) has a few sample packs, and there's a few more in the "Packs" section of the readme.
 
-Any time Edgeware has a major update, it might be a good idea to run `EdgewareSetup.bat` again, as this is the file that downloads dependencies for the program.
+After pulling a major update, re-run `setup.sh` to refresh the Python dependencies.
 
 **Any damage you do to your computer with Edgeware is your own responsibility! Please read the "About" tab in the config window and make backups if you're planning on using the advanced, dangerous settings!**
 

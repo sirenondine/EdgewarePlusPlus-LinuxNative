@@ -177,3 +177,4 @@ Thumbs.db
 # Flatpak build artifacts
 flatpak-build/
 .flatpak-builder/
+appimage-build/
