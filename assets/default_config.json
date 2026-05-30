@@ -38,6 +38,8 @@
   "booruSite": "gelbooru",
   "booruApiKey": "",
   "booruUserId": "",
+  "booruExclude": "",
+  "booruRating": "any",
   "downloadEnabled": 0,
   "runOnSaveQuit": 0,
   "timerMode": 0,

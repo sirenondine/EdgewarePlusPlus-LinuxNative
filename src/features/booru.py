@@ -58,19 +58,33 @@ def _client(site: str, api_key: str = "", user_id: str = ""):
     return cls()
 
 
-def normalize_tags(tags: str) -> str:
-    """Edgeware historically defaults the tag list to "all" to mean "anything",
-    but boorus treat "all" as a literal (non-existent) tag and return nothing.
-    Drop it so the query becomes an unfiltered (recent posts) search."""
-    return " ".join(t for t in (tags or "").split() if t.lower() != "all")
+RATINGS = ["any", "safe", "questionable", "explicit"]
 
 
-def search(site: str, tags: str, limit: int = 12, page: int = 1, api_key: str = "", user_id: str = "") -> list[dict]:
-    """Return up to `limit` post dicts for `tags` (space separated) from `site`.
-    Empty list on no results or error. Blocking — call off the main thread."""
+def _split(value: str) -> list[str]:
+    return [t for t in (value or "").replace(">", " ").split() if t]
+
+
+def build_query(tags: str, exclude: str = "", rating: str = "any") -> str:
+    """Compose a booru query: include tags, minus excluded tags (-tag), plus an
+    optional rating: filter. The historical "all" default means "anything", so
+    it is dropped (boorus treat it as a literal, non-existent tag)."""
+    parts = [t for t in _split(tags) if t.lower() != "all"]
+    parts += [f"-{t}" for t in _split(exclude)]
+    if rating and rating != "any":
+        parts.append(f"rating:{rating}")
+    return " ".join(parts)
+
+
+def search(site: str, tags: str, limit: int = 12, page: int = 1, api_key: str = "",
+           user_id: str = "", exclude: str = "", rating: str = "any") -> list[dict]:
+    """Return up to `limit` post dicts from `site` for `tags` minus `exclude`,
+    optionally filtered to a `rating`. Empty list on no results or error.
+    Blocking — call off the main thread."""
     try:
         client = _client(site, api_key, user_id)
-        result = asyncio.run(client.search(query=normalize_tags(tags), limit=limit, page=page))
+        query = build_query(tags, exclude, rating)
+        result = asyncio.run(client.search(query=query, limit=limit, page=page))
         if isinstance(result, str):
             result = json.loads(result)
         return result or []
@@ -83,9 +97,11 @@ def thumb_url(post: dict) -> str | None:
     return post.get("preview_url") or post.get("sample_url") or post.get("file_url")
 
 
-def random_image_url(site: str, tags: str, limit: int = 20, api_key: str = "", user_id: str = "") -> str | None:
+def random_image_url(site: str, tags: str, limit: int = 20, api_key: str = "",
+                     user_id: str = "", exclude: str = "", rating: str = "any") -> str | None:
     """Pick a random full-resolution image URL for `tags`, or None."""
-    urls = [p.get("file_url") for p in search(site, tags, limit=limit, api_key=api_key, user_id=user_id) if p.get("file_url")]
+    posts = search(site, tags, limit=limit, api_key=api_key, user_id=user_id, exclude=exclude, rating=rating)
+    urls = [p.get("file_url") for p in posts if p.get("file_url")]
     return random.choice(urls) if urls else None
 
 

@@ -66,7 +66,9 @@ class ImagePopup(Popup):
                 url = booru.random_image_url(
                     site, self.settings.booru_tags,
                     api_key=getattr(self.settings, "booru_api_key", "") or "",
-                    user_id=getattr(self.settings, "booru_user_id", "") or "")
+                    user_id=getattr(self.settings, "booru_user_id", "") or "",
+                    exclude=getattr(self.settings, "booru_exclude", "") or "",
+                    rating=getattr(self.settings, "booru_rating", "any") or "any")
                 if url:
                     return Image.open(io.BytesIO(booru.fetch_bytes(url)))
                 logging.error(f'No results for tags "{self.settings.booru_tags}" on {site}')

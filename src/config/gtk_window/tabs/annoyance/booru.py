@@ -57,44 +57,18 @@ class BooruTab(Adw.PreferencesPage):
         creds.add(AdwEntryRow("API key", vars.booru_api_key, password=True))
         creds.add(AdwEntryRow("User ID / Login", vars.booru_user_id))
 
-        tags_group = Adw.PreferencesGroup(title="Tags")
-        self.add(tags_group)
+        self.add(self._make_tag_list_group(
+            "Tags", "tagList", "all",
+            'Posts must match these tags. Use "all" (or leave empty) for anything.'))
+        self.add(self._make_tag_list_group(
+            "Excluded Tags", "booruExclude", "",
+            "Posts matching any of these tags are skipped (sent as -tag)."))
 
-        tags = [t for t in config.get("tagList", "").split(">") if t]
-        self._tag_store = Gtk.StringList.new(tags)
-        self._tag_selection = Gtk.SingleSelection.new(self._tag_store)
-        self._tag_selection.connect("notify::selected", self._update_buttons)
-
-        factory = Gtk.SignalListItemFactory()
-        factory.connect("setup", self._on_setup)
-        factory.connect("bind", self._on_bind)
-        tag_list = Gtk.ListView.new(self._tag_selection, factory)
-
-        scroller = Gtk.ScrolledWindow()
-        scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-        scroller.set_min_content_height(180)
-        scroller.set_child(tag_list)
-        list_frame = Gtk.Frame()
-        list_frame.add_css_class("card")
-        list_frame.set_child(scroller)
-        tags_group.add(list_frame)
-
-        # Header suffix buttons
-        btn_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        add_btn = Gtk.Button(icon_name="list-add-symbolic")
-        add_btn.set_tooltip_text("Add tag")
-        add_btn.connect("clicked", self._on_add)
-        btn_row.append(add_btn)
-        self._remove_btn = Gtk.Button(icon_name="list-remove-symbolic")
-        self._remove_btn.set_tooltip_text("Remove selected tag")
-        self._remove_btn.connect("clicked", self._on_remove)
-        self._remove_btn.set_sensitive(False)
-        btn_row.append(self._remove_btn)
-        reset_btn = Gtk.Button(icon_name="edit-undo-symbolic")
-        reset_btn.set_tooltip_text("Reset to default tags")
-        reset_btn.connect("clicked", self._on_reset)
-        btn_row.append(reset_btn)
-        tags_group.set_header_suffix(btn_row)
+        rating_group = Adw.PreferencesGroup(title="Rating")
+        self.add(rating_group)
+        rating_group.add(AdwComboRow(
+            "Rating", vars.booru_rating,
+            {r: r.capitalize() for r in booru.RATINGS}))
 
         # ---- Preview -----------------------------------------------------
         preview_group = Adw.PreferencesGroup(
@@ -135,6 +109,8 @@ class BooruTab(Adw.PreferencesPage):
         site = self._vars.booru_site.get() or booru.DEFAULT_SITE
         api_key = self._vars.booru_api_key.get() or ""
         user_id = self._vars.booru_user_id.get() or ""
+        exclude = config.get("booruExclude", "")
+        rating = self._vars.booru_rating.get() or "any"
         # Remember whether this site needs credentials we don't fully have, to
         # give a useful message if it returns nothing.
         self._needs_creds = site in ("gelbooru", "danbooru") and not (api_key and user_id)
@@ -147,10 +123,12 @@ class BooruTab(Adw.PreferencesPage):
         self._preview_btn.set_sensitive(False)
         self._spinner.start()
         self._status.set_text(f"Searching {site} for: {tags or '(all)'}…")
-        threading.Thread(target=self._preview_worker, args=(site, tags, api_key, user_id), daemon=True).start()
+        threading.Thread(target=self._preview_worker,
+                         args=(site, tags, api_key, user_id, exclude, rating), daemon=True).start()
 
-    def _preview_worker(self, site: str, tags: str, api_key: str, user_id: str) -> None:
-        results = booru.search(site, tags, limit=PREVIEW_COUNT, api_key=api_key, user_id=user_id)
+    def _preview_worker(self, site: str, tags: str, api_key: str, user_id: str, exclude: str, rating: str) -> None:
+        results = booru.search(site, tags, limit=PREVIEW_COUNT, api_key=api_key,
+                               user_id=user_id, exclude=exclude, rating=rating)
         shown = 0
         for post in results:
             url = booru.thumb_url(post)
@@ -194,34 +172,66 @@ class BooruTab(Adw.PreferencesPage):
         self._status.set_text(msg)
         return False
 
-    def _on_add(self, btn: Gtk.Button) -> None:
-        name_popover(btn, "Tag name (or space-separated tags)", self._add_tag)
+    def _make_tag_list_group(self, title: str, config_key: str, default: str, description: str) -> Adw.PreferencesGroup:
+        """A reusable add/remove/reset tag list bound to a ">"-joined config key.
+        Used for both the include tags and the exclude tags."""
+        group = Adw.PreferencesGroup(title=title, description=description)
+        store = Gtk.StringList.new([t for t in config.get(config_key, "").split(">") if t])
+        selection = Gtk.SingleSelection.new(store)
 
-    def _add_tag(self, tag: str) -> None:
-        current = config.get("tagList", "")
-        config["tagList"] = f"{current}>{tag}" if current else tag
-        self._tag_store.append(tag)
+        factory = Gtk.SignalListItemFactory()
+        factory.connect("setup", self._on_setup)
+        factory.connect("bind", self._on_bind)
+        listview = Gtk.ListView.new(selection, factory)
+        scroller = Gtk.ScrolledWindow()
+        scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        scroller.set_min_content_height(140)
+        scroller.set_child(listview)
+        frame = Gtk.Frame()
+        frame.add_css_class("card")
+        frame.set_child(scroller)
+        group.add(frame)
 
-    def _update_buttons(self, selection, _param=None) -> None:
-        pos = selection.get_selected()
-        # pos 0 is "all" — don't allow removing it
-        self._remove_btn.set_sensitive(
-            pos != Gtk.INVALID_LIST_POSITION and pos > 0
-        )
+        def sync() -> None:
+            config[config_key] = ">".join(store.get_string(i) for i in range(store.get_n_items()))
 
-    def _on_remove(self, _btn: Gtk.Button) -> None:
-        pos = self._tag_selection.get_selected()
-        if pos != Gtk.INVALID_LIST_POSITION and pos > 0:
-            tag = self._tag_store.get_string(pos)
-            current = config.get("tagList", "")
-            config["tagList"] = current.replace(f">{tag}", "")
-            self._tag_store.remove(pos)
+        def add(tag: str) -> None:
+            for t in tag.split():
+                store.append(t)
+            sync()
 
-    def _on_reset(self, _btn: Gtk.Button) -> None:
-        while self._tag_store.get_n_items() > 0:
-            self._tag_store.remove(0)
-        self._tag_store.append("all")
-        config["tagList"] = "all"
+        remove_btn = Gtk.Button(icon_name="list-remove-symbolic")
+        remove_btn.set_tooltip_text("Remove selected")
+        remove_btn.set_sensitive(False)
+        selection.connect("notify::selected", lambda sel, _p: remove_btn.set_sensitive(
+            sel.get_selected() != Gtk.INVALID_LIST_POSITION))
+
+        def on_remove(_b) -> None:
+            pos = selection.get_selected()
+            if pos != Gtk.INVALID_LIST_POSITION:
+                store.remove(pos)
+                sync()
+
+        def on_reset(_b) -> None:
+            while store.get_n_items() > 0:
+                store.remove(0)
+            for t in (default.split(">") if default else []):
+                store.append(t)
+            sync()
+
+        remove_btn.connect("clicked", on_remove)
+        add_btn = Gtk.Button(icon_name="list-add-symbolic")
+        add_btn.set_tooltip_text("Add tag")
+        add_btn.connect("clicked", lambda b: name_popover(b, "Tag name (or space-separated tags)", add))
+        reset_btn = Gtk.Button(icon_name="edit-undo-symbolic")
+        reset_btn.set_tooltip_text("Reset")
+        reset_btn.connect("clicked", on_reset)
+
+        buttons = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        for b in (add_btn, remove_btn, reset_btn):
+            buttons.append(b)
+        group.set_header_suffix(buttons)
+        return group
 
     @staticmethod
     def _on_setup(_factory, item) -> None:
