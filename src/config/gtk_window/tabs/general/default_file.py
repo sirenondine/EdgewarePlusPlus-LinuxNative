@@ -12,157 +12,135 @@
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 # GNU General Public License for more details.
 
+import logging
+import shutil
 from pathlib import Path
 
 from gi import require_version
 
 require_version("Gtk", "4.0")
-from gi.repository import GdkPixbuf, Gtk
+require_version("Adw", "1")
+from gi.repository import Adw, GdkPixbuf, Gtk
 
-from config.gtk_window.widgets import PAD, ConfigSection
+from pack import Pack
 from paths import CustomAssets, Data
 
-INTRO_TEXT = (
-    "Changing these will change the default file Edgeware++ falls back on when a replacement "
-    "isn't provided by a pack. The files you choose will be stored under \"data\"."
-)
 
-
-class DefaultFileTab(Gtk.ScrolledWindow):
-    def __init__(self) -> None:
+class DefaultFileTab(Adw.PreferencesPage):
+    def __init__(self, pack: Pack) -> None:
         super().__init__()
-        self.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-        self.set_hexpand(True)
-        self.set_vexpand(True)
+        self._pack = pack
 
-        vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
-        self.set_child(vbox)
-
-        section = ConfigSection("Default Files", INTRO_TEXT)
-        vbox.append(section)
-
-        row_1 = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=PAD)
-        section.append(row_1)
-        row_1.append(
-            _DefaultImageFrame(
-                CustomAssets.startup_splash(),
-                Data.STARTUP_SPLASH,
-                (150, 150),
-                "Default Loading Splash",
-                "LOADING SPLASH:\n\nUsed in \"Show Loading Flair\" setting (found in \"Start\" tab).",
-            )
+        # ---- Default fallback files (global, stored under data/) ----------
+        defaults = Adw.PreferencesGroup(
+            title="Default Fallback Files",
+            description="Used when the loaded pack doesn't provide its own. Stored under \"data\".",
         )
-        row_1.append(
-            _DefaultImageFrame(
-                CustomAssets.theme_demo(),
-                Data.THEME_DEMO,
-                (150, 75),
-                "Theme Demo",
-                "THEME DEMO:\n\nUsed in the \"Start\" tab. Must be 150x75!",
-            )
+        self.add(defaults)
+
+        defaults.add(_FileRow(
+            "Loading Splash", "Shown by the \"Show Loading Flair\" setting (Start tab).",
+            CustomAssets.startup_splash(), Data.STARTUP_SPLASH))
+        defaults.add(_FileRow(
+            "Theme Demo", "Preview shown on the Start tab. Should be 150×75.",
+            CustomAssets.theme_demo(), Data.THEME_DEMO))
+        defaults.add(_FileRow(
+            "App Icon", "Desktop shortcuts and the tray icon. .ico only.",
+            CustomAssets.icon(), Data.ICON, ico=True))
+        defaults.add(_FileRow(
+            "Config Icon", "Desktop shortcut and the config window. .ico only.",
+            CustomAssets.config_icon(), Data.CONFIG_ICON, ico=True))
+        defaults.add(_FileRow(
+            "Panic Icon", "Panic desktop shortcut. .ico only.",
+            CustomAssets.panic_icon(), Data.PANIC_ICON, ico=True))
+        defaults.add(_FileRow(
+            "Hypno Overlay", "Used by the \"Hypno Overlays\" setting (Popup Tweaks tab).",
+            CustomAssets.hypno(), Data.HYPNO))
+
+        # ---- Current pack files (write into the loaded pack) --------------
+        pack_group = Adw.PreferencesGroup(
+            title=f"Current Pack Files — {pack.info.name}",
+            description="Replace the branding files inside the pack that's loaded now.",
         )
+        self.add(pack_group)
 
-        row_2 = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=PAD)
-        section.append(row_2)
-        row_2.append(
-            _DefaultImageFrame(
-                CustomAssets.icon(),
-                Data.ICON,
-                (70, 70),
-                "Icon",
-                "ICON:\n\nUsed in desktop shortcuts and tray icon. Only supports .ico files.",
-            )
-        )
-        row_2.append(
-            _DefaultImageFrame(
-                CustomAssets.config_icon(),
-                Data.CONFIG_ICON,
-                (70, 70),
-                "Config Icon",
-                "CONFIG ICON:\n\nUsed in desktop shortcuts and the config window. Only supports .ico files.",
-            )
-        )
-        row_2.append(
-            _DefaultImageFrame(
-                CustomAssets.panic_icon(),
-                Data.PANIC_ICON,
-                (70, 70),
-                "Panic Icon",
-                "PANIC ICON:\n\nUsed in desktop shortcuts. Only supports .ico files.",
-            )
-        )
-
-        row_3 = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=PAD)
-        section.append(row_3)
-        row_3.append(
-            _DefaultImageFrame(
-                CustomAssets.hypno(),
-                Data.HYPNO,
-                (200, 200),
-                "Default Hypno",
-                "HYPNO:\n\nUsed in \"Hypno Overlays\" setting (found in \"Popup Tweaks\" tab).",
-            )
-        )
+        root = pack.paths.root
+        pack_group.add(_FileRow(
+            "Pack Icon", "icon.ico in the pack.",
+            pack.paths.icon, root / "icon.ico", ico=True))
+        pack_group.add(_FileRow(
+            "Pack Loading Splash", "loading_splash.png in the pack.",
+            next((p for p in pack.paths.splash if p.is_file()), root / "loading_splash.png"),
+            root / "loading_splash.png"))
+        pack_group.add(_FileRow(
+            "Pack Wallpaper", "wallpaper.png in the pack.",
+            pack.paths.wallpaper, root / "wallpaper.png"))
 
 
-class _DefaultImageFrame(Gtk.Frame):
-    def __init__(
-        self,
-        image_file: Path,
-        custom_file: Path,
-        size: tuple[int, int],
-        title: str,
-        message: str,
-    ) -> None:
-        super().__init__()
-        self._custom_file = custom_file
-        self._size = size
+class _FileRow(Adw.ActionRow):
+    """One file: thumbnail preview + a Change button that actually saves it."""
 
-        hbox = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=PAD)
-        self.set_child(hbox)
+    def __init__(self, title: str, subtitle: str, current: Path, dest: Path, ico: bool = False) -> None:
+        super().__init__(title=title, subtitle=subtitle)
+        self._dest = dest
+        self._ico = ico
 
-        col1 = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
-        hbox.append(col1)
+        self._image = Gtk.Picture()
+        self._image.set_size_request(64, 48)
+        self._image.set_content_fit(Gtk.ContentFit.CONTAIN)
+        self._load_preview(current)
 
-        btn = Gtk.Button(label=f"Change {title}")
-        btn.connect("clicked", self._on_change)
-        col1.append(btn)
+        frame = Gtk.Frame()
+        frame.set_valign(Gtk.Align.CENTER)
+        frame.add_css_class("card")
+        frame.set_child(self._image)
+        self.add_prefix(frame)
 
-        info = Gtk.Label(label=message, wrap=True)
-        col1.append(info)
+        button = Gtk.Button(label="Change…")
+        button.set_valign(Gtk.Align.CENTER)
+        button.connect("clicked", self._on_change)
+        self.add_suffix(button)
+        self.set_activatable_widget(button)
 
-        col2 = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
-        hbox.append(col2)
-
-        title_lbl = Gtk.Label(label=title)
-        col2.append(title_lbl)
-
+    def _load_preview(self, path: Path) -> None:
         try:
-            pixbuf = GdkPixbuf.Pixbuf.new_from_file_at_size(str(image_file), size[0], size[1])
-            image = Gtk.Picture.new_for_pixbuf(pixbuf)
+            self._image.set_pixbuf(GdkPixbuf.Pixbuf.new_from_file_at_size(str(path), 64, 48))
         except Exception:
-            image = Gtk.Picture()
-            image.set_size_request(size[0], size[1])
-        col2.append(image)
-        self._image = image
+            self._image.set_paintable(None)
 
     def _on_change(self, _btn: Gtk.Button) -> None:
         fd = Gtk.FileDialog.new()
-        fd.set_title("Choose Image")
+        fd.set_title(f"Choose {self.get_title()}")
         filt = Gtk.FileFilter()
-        filt.set_name("Image files")
-        filt.add_mime_type("image/jpeg")
-        filt.add_mime_type("image/png")
-        filt.add_mime_type("image/gif")
+        if self._ico:
+            filt.set_name("Icon files")
+            filt.add_pattern("*.ico")
+        else:
+            filt.set_name("Image files")
+            for mime in ("image/png", "image/jpeg", "image/gif", "image/bmp"):
+                filt.add_mime_type(mime)
         fd.set_default_filter(filt)
-        fd.open(None, None, self._on_file_selected, None)
+        fd.open(self.get_root(), None, self._on_selected, None)
 
-    def _on_file_selected(self, fd: Gtk.FileDialog, result, _ud) -> None:
+    def _on_selected(self, fd: Gtk.FileDialog, result, _ud) -> None:
         try:
             file = fd.open_finish(result)
-            if not file:
-                return
-            pixbuf = GdkPixbuf.Pixbuf.new_from_file_at_size(file.get_path(), self._size[0], self._size[1])
-            self._image.set_pixbuf(pixbuf)
         except Exception:
-            pass
+            return
+        if not file:
+            return
+        src = Path(file.get_path())
+        try:
+            self._dest.parent.mkdir(parents=True, exist_ok=True)
+            if self._ico and src.suffix.lower() != ".ico":
+                from PIL import Image
+                Image.open(src).save(self._dest)  # convert to .ico
+            else:
+                shutil.copyfile(src, self._dest)
+            self._load_preview(self._dest)
+            from config.gtk_window.toast import toast
+            toast(f"{self.get_title()} updated.")
+        except Exception as e:
+            logging.warning(f"Failed to set {self.get_title()}: {e}")
+            from config.gtk_window.toast import toast
+            toast(f"Couldn't update {self.get_title()}.")

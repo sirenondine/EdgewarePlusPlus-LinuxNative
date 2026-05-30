@@ -110,7 +110,7 @@ class ConfigWindow(Adw.ApplicationWindow):
 
         notebook.append_page(StartTab(vars, local_version, live_version, pack), Gtk.Label(label="Start"))
         notebook.append_page(InfoTab(pack), Gtk.Label(label="Pack Info"))
-        notebook.append_page(DefaultFileTab(), Gtk.Label(label="Default Files"))
+        notebook.append_page(DefaultFileTab(pack), Gtk.Label(label="Default Files"))
         notebook.append_page(PopupTypesTab(vars), Gtk.Label(label="Popup Types"))
         notebook.append_page(PopupTweaksTab(vars), Gtk.Label(label="Popup Tweaks"))
         notebook.append_page(WallpaperTab(vars, pack), Gtk.Label(label="Wallpaper"))
