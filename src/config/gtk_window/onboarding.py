@@ -184,7 +184,7 @@ class _OnboardingDialog(Adw.Window):
                 "Click the button below and press any key to set it. F9 or F12 are "
                 "good choices: easy to reach, unlikely to fire by accident.\n\n"
                 "On Niri: the GlobalShortcuts portal is not supported. After setup, "
-                "also add the keybind shown on the Start tab to ~/.config/niri/config.kdl."
+                "also add the keybind shown on the Overview tab to ~/.config/niri/config.kdl."
             ),
         )
 
@@ -243,7 +243,7 @@ class _OnboardingDialog(Adw.Window):
                 "Click \"Save & Launch\" to save settings and start the runtime now, "
                 "or \"Save\" to save and stay in the config window.\n\n"
                 "Tips:\n"
-                "• Start tab → Popup Timer Delay: 8000–10000 ms is a gentle start.\n"
+                "• Overview → Popup Timer Delay: 8000–10000 ms is a gentle start.\n"
                 "• Popup Types → set chances for each type.\n"
                 "• Wallpaper → auto-import your panic wallpaper any time it changes.\n"
                 "• Tutorial tab → full documentation in the config window.\n\n"

@@ -39,10 +39,10 @@ class DefaultFileTab(Adw.PreferencesPage):
         self.add(defaults)
 
         defaults.add(_FileRow(
-            "Loading Splash", "Shown by the \"Show Loading Flair\" setting (Start tab).",
+            "Loading Splash", "Shown by the \"Show Loading Flair\" setting (Overview tab).",
             CustomAssets.startup_splash(), Data.STARTUP_SPLASH))
         defaults.add(_FileRow(
-            "Theme Demo", "Preview shown on the Start tab. Should be 150×75.",
+            "Theme Demo", "Preview shown on the Overview tab. Should be 150×75.",
             CustomAssets.theme_demo(), Data.THEME_DEMO))
         defaults.add(_FileRow(
             "App Icon", "Desktop shortcuts and the tray icon. .ico only.",
@@ -54,7 +54,7 @@ class DefaultFileTab(Adw.PreferencesPage):
             "Panic Icon", "Panic desktop shortcut. .ico only.",
             CustomAssets.panic_icon(), Data.PANIC_ICON, ico=True))
         defaults.add(_FileRow(
-            "Hypno Overlay", "Used by the \"Hypno Overlays\" setting (Popup Tweaks tab).",
+            "Hypno Overlay", "Used by the \"Hypno Overlays\" setting (Popup Tweaks).",
             CustomAssets.hypno(), Data.HYPNO))
 
         # ---- Current pack files (write into the loaded pack) --------------

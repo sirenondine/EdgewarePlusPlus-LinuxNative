@@ -43,7 +43,7 @@ _INTRO = (
          "are completely removed.\n\n"
          "The global panic hotkey goes through your compositor's GlobalShortcuts portal "
          "(KDE/GNOME) or the tray icon. On Niri, add a native keybind pointing at "
-         "panic.sh — see the Start tab for a ready-to-paste snippet."),
+         "panic.sh — see the Overview tab for a ready-to-paste snippet."),
         ("History",
          "Edgeware was created by PetitTournesol in 2021. Araten discovered it in 2023 "
          "and began adding features (originally with zero Python experience). Marigold "
@@ -58,7 +58,7 @@ _QUICKSTART = (
     "Want to get up and running as fast as possible? Do these three things first.",
     [
         ("1 — Set a panic key",
-         "Go to the Start tab and click the Global Panic Key button. Press a key you "
+         "Go to the Overview tab and click the Global Panic Key button. Press a key you "
          "won't hit by accident (F9 is a good choice). On Niri, also add the keybind "
          "snippet shown in that tab to ~/.config/niri/config.kdl.\n\n"
          "Panic instantly stops Edgeware and reverts your wallpaper."),
@@ -67,7 +67,7 @@ _QUICKSTART = (
          "current wallpaper automatically, or pick a file manually.\n\n"
          "Without this, panic will set a blank wallpaper."),
         ("3 — Enable the safety warning",
-         "On the Start tab, make sure \"Warn if Dangerous Settings Active\" is on. "
+         "On the Overview tab, make sure \"Warn if Dangerous Settings Active\" is on. "
          "It's on by default — this dialog catches you before you accidentally save "
          "destructive settings like Fill Drive or Disable Panic Hotkey."),
         ("Recommended first settings",
@@ -85,13 +85,12 @@ _GETTING_STARTED = (
     [
         ("Importing a pack",
          "Packs are .zip files. Don't extract them — just save the zip somewhere.\n\n"
-         "In the config window click \"Import Pack\" in the header bar, then choose:\n\n"
-         "• Import New — extracts the pack into data/packs/ so you can switch between "
-         "packs instantly with \"Switch Pack\". Recommended if you have several packs.\n\n"
-         "• Change Default — overwrites the resource/ folder directly. Use this for "
-         "portability or a single-pack setup.\n\n"
-         "After importing, the pack name appears in the header subtitle. You can verify "
-         "it loaded on the Pack Info tab."),
+         "Use the Import New Pack button on the Packs tab, or click Import… in the "
+         "Packs tab to pick a .zip. The pack is extracted into data/packs/ and immediately "
+         "available in the Installed Packs list.\n\n"
+         "\"Set Default\" copies an installed pack to resource/ — useful for portable "
+         "or single-pack setups.\n\n"
+         "After importing, switch to the pack via the Installed Packs list."),
         ("Running Edgeware",
          "Click Save & Exit in the header (or use Ctrl+S then close) to save and "
          "optionally launch the runtime.\n\n"
@@ -101,9 +100,9 @@ _GETTING_STARTED = (
          "• panic.sh   — force-quits the runtime and reverts the wallpaper\n"
          "• setup.sh   — install/update Python dependencies"),
         ("Stopping Edgeware",
-         "• Press your global panic key (set on the Start tab).\n"
+         "• Press your global panic key (set on the Overview tab).\n"
          "• Click Panic in the system tray menu.\n"
-         "• Click \"Perform Panic\" on the Start tab.\n"
+         "• Click \"Perform Panic\" on the Overview tab.\n"
          "• Run panic.sh from a terminal.\n\n"
          "All methods send a message over a Unix socket — they work even if the "
          "compositor's GlobalShortcuts portal is unavailable."),
@@ -114,7 +113,7 @@ _SETTINGS_101 = (
     "Settings 101",
     "A tour of the most important tabs and the settings you'll actually use.",
     [
-        ("Start",
+        ("Overview",
          "Meta-settings for the program itself: panic key, loading splash, desktop icon "
          "shortcuts, the safety warning, config presets, and the pack config loader.\n\n"
          "Always set your panic key here before running Edgeware."),
@@ -141,11 +140,11 @@ _SETTINGS_101 = (
         ("Corruption",
          "A pack-level feature: moods are toggled on/off as you hit trigger thresholds "
          "(time, popup count, or launch count). The pack must explicitly support it — "
-         "check the Pack Info tab for the Corruption status indicator."),
+         "check the Packs tab for the Corruption status indicator."),
         ("Dangerous",
          "Panic Lockout, Fill Drive, Replace Images, folder blacklist. "
          "These are intentionally hard to reach. Enable the safe-mode warning on the "
-         "Start tab so you get a confirmation dialog before saving if any of these are on."),
+         "Overview tab so you get a confirmation dialog before saving if any of these are on."),
     ],
 )
 

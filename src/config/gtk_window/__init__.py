@@ -37,7 +37,7 @@ pil_logger = logging.getLogger("PIL")
 pil_logger.setLevel(logging.INFO)
 
 # Pages whose widgets depend on the loaded pack — rebuilt on pack switch.
-_PACK_PAGE_NAMES = {"Start", "Pack Info", "Default Files", "Wallpaper", "Moods", "Corruption", "Troubleshooting"}
+_PACK_PAGE_NAMES = {"Overview", "Packs", "Assets", "Wallpaper", "Moods", "Corruption", "Troubleshooting"}
 
 
 def _load_pack(pack_name: str) -> Pack:
@@ -55,11 +55,11 @@ def _ensure_mood_file(pack: Pack) -> None:
 def _make_pack_page(name: str, vars: Vars, pack: Pack,
                     local_version: str, live_version: str,
                     on_switch_pack) -> Gtk.Widget:
-    if name == "Start":
+    if name == "Overview":
         return StartTab(vars, local_version, live_version, pack)
-    if name == "Pack Info":
+    if name == "Packs":
         return InfoTab(pack, vars, on_switch_pack=on_switch_pack)
-    if name == "Default Files":
+    if name == "Assets":
         return DefaultFileTab(pack)
     if name == "Wallpaper":
         return WallpaperTab(vars, pack)
@@ -144,19 +144,21 @@ class ConfigWindow(Adw.ApplicationWindow):
 
         # --- Responsive split view: sidebar list + page stack ---------------
         static_pages = [
-            ("Popup Types",     PopupTypesTab(vars)),
-            ("Popup Tweaks",    PopupTweaksTab(vars)),
-            ("Booru",           BooruTab(vars)),
-            ("Dangerous",       DangerousSettingsTab(vars)),
-            ("Modes",           BasicModesTab(vars)),
-            ("Tutorial",        TutorialTab()),
+            ("Popup Types",  PopupTypesTab(vars)),
+            ("Popup Tweaks", PopupTweaksTab(vars)),
+            ("Booru",        BooruTab(vars)),
+            ("Modes",        BasicModesTab(vars)),
+            ("Dangerous",    DangerousSettingsTab(vars)),
+            ("Tutorial",     TutorialTab()),
         ]
 
         # Full ordered page list (pack pages built first pass)
         all_page_names = [
-            "Start", "Pack Info", "Default Files", "Popup Types", "Popup Tweaks",
-            "Wallpaper", "Moods", "Booru", "Dangerous", "Modes",
-            "Corruption", "Troubleshooting", "Tutorial",
+            "Overview", "Packs", "Assets",
+            "Popup Types", "Popup Tweaks",
+            "Wallpaper", "Moods", "Booru",
+            "Modes", "Corruption", "Dangerous",
+            "Troubleshooting", "Tutorial",
         ]
 
         self._stack = Gtk.Stack()
@@ -269,8 +271,8 @@ class ConfigWindow(Adw.ApplicationWindow):
         # Keep the current visible page if it's a static page; otherwise go to Pack Info
         visible = self._stack.get_visible_child_name()
         if visible in _PACK_PAGE_NAMES:
-            self._stack.set_visible_child_name("Pack Info")
-            self._content_nav.set_title("Pack Info")
+            self._stack.set_visible_child_name("Packs")
+            self._content_nav.set_title("Packs")
 
         # Update window chrome
         self._base_title = f"Edgeware++ Config — {self._pack.info.name}"

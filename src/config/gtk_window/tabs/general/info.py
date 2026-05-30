@@ -31,7 +31,7 @@ INFO_TEXT = (
 )
 DISCORD_TEXT = (
     "Only displays on Discord if you turn on the associated \"Show on Discord\" "
-    "setting (Dangerous Settings tab)."
+    "setting (Dangerous)."
 )
 
 
