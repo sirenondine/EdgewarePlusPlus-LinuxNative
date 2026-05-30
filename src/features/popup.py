@@ -74,6 +74,9 @@ def _ensure_css() -> None:
 
 class Popup(Gtk.Window):
     media: Path  # Defined by subclasses
+    # Sex-toy vibration event names, set by subclasses (e.g. "image_open").
+    vibration_open_event: str | None = None
+    vibration_close_event: str | None = None
 
     def __init__(self, settings: Settings, pack: Pack, state: State, on_close: Callable[[], None] | None = None) -> None:
         super().__init__()
@@ -157,6 +160,9 @@ class Popup(Gtk.Window):
         self.try_move()
         self.try_timeout()
         self.try_pump_scare()
+        if self.vibration_open_event:
+            from features.vibration_mixin import vibrate_event
+            vibrate_event(self.vibration_open_event, self.settings, self.state.sextoy)
 
     def compute_geometry(self, source_width: int, source_height: int) -> None:
         self.monitor = utils.random_monitor(self.settings)
@@ -211,6 +217,8 @@ class Popup(Gtk.Window):
         caption = self.pack.random_caption(self.media)
         if self.settings.captions_in_popups and caption:
             self._add_text(caption, Gtk.Align.START, Gtk.Align.START)
+            from features.vibration_mixin import vibrate_event
+            vibrate_event("caption", self.settings, self.state.sextoy)
 
     def try_corruption_dev(self) -> None:
         if self.settings.corruption_dev_mode:
@@ -316,6 +324,9 @@ class Popup(Gtk.Window):
         notify(self.pack.info.name, f"{filename} has been successfully sent to blacklist", icon=self.pack.icon)
 
     def close(self) -> None:
+        if self.vibration_close_event:
+            from features.vibration_mixin import vibrate_event
+            vibrate_event(self.vibration_close_event, self.settings, self.state.sextoy)
         if self._move_id is not None:
             utils.after_cancel(self._move_id)
             self._move_id = None

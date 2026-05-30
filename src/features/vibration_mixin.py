@@ -152,3 +152,29 @@ class VibrationMixin:
         if isinstance(value, int):
             return bool(value)
         return False
+
+
+# --- module-level convenience -------------------------------------------------
+# A shared mixin instance for stateless one-shot triggers from popups, plus
+# thin wrappers that no-op when toy support isn't active.
+
+_shared = VibrationMixin()
+
+
+def vibrate_event(event_type: str, settings: Any, sextoy: Any) -> None:
+    """Fire a one-shot vibration for an event. No-op if sextoy is None."""
+    if sextoy is None:
+        return
+    _shared.trigger_vibration(event_type, getattr(settings, "sextoys", {}) or {}, sextoy)
+
+
+def start_continuous_event(event_type: str, settings: Any, sextoy: Any) -> None:
+    if sextoy is None:
+        return
+    _shared.start_continuous_vibration(event_type, getattr(settings, "sextoys", {}) or {}, sextoy)
+
+
+def stop_continuous_event(event_type: str, sextoy: Any) -> None:
+    if sextoy is None:
+        return
+    _shared.stop_continuous_vibration(event_type, sextoy)

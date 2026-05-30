@@ -87,6 +87,13 @@ class Prompt(Gtk.Window):
 
         self.present()
 
+        # Sex-toy: hold a continuous vibration while the prompt is open; stop it
+        # whenever the window goes away (submit, panic, or close).
+        from features.vibration_mixin import start_continuous_event, stop_continuous_event
+        start_continuous_event("prompt", self.settings, self.state.sextoy)
+        self.connect("close-request", lambda _w: (
+            stop_continuous_event("prompt", self.state.sextoy), False)[1])
+
     def _get_text(self) -> str:
         buffer = self._input.get_buffer()
         return buffer.get_text(buffer.get_start_iter(), buffer.get_end_iter(), False)
@@ -118,6 +125,8 @@ class Prompt(Gtk.Window):
                 )  # fmt: skip
 
         if d[len(a)][len(b)] <= max_mistakes:
+            from features.vibration_mixin import stop_continuous_event
+            stop_continuous_event("prompt", self.state.sextoy)
             self.destroy()
             self.state.prompt_active = False
             if self.on_close:

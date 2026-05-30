@@ -71,6 +71,7 @@ from features.misc import (
     handle_keyboard,
     handle_mitosis_mode,
     handle_panic_lockout,
+    handle_sextoy,
     handle_wallpaper,
     make_desktop_icons,
     make_tray_icon,
@@ -123,7 +124,7 @@ if __name__ == "__main__":
             RollTarget(lambda: Prompt(settings, pack, state), lambda: settings.prompt_chance),
             RollTarget(lambda: play_audio(settings, pack, state), lambda: settings.audio_chance),
             RollTarget(lambda: open_web(pack), lambda: settings.web_chance),
-            RollTarget(lambda: send_notification(settings, pack), lambda: settings.notification_chance),
+            RollTarget(lambda: send_notification(settings, pack, sextoy=state.sextoy), lambda: settings.notification_chance),
         ]
 
         def start_main() -> None:
@@ -134,6 +135,7 @@ if __name__ == "__main__":
             Thread(target=lambda: replace_images(settings, pack), daemon=True).start()  # Thread for performance reasons
             handle_corruption(settings, pack, state)
             handle_discord(settings, pack)
+            handle_sextoy(settings, state)
             handle_panic_lockout(settings, state)
             handle_mitosis_mode(settings, pack, state)
             run_script(settings, pack, state)

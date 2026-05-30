@@ -53,6 +53,12 @@ def panic(settings: Settings, state: State, condition: bool = True, disable: boo
         if state.keyboard_process:
             state.keyboard_process.terminate()
 
+        if getattr(state, "sextoy", None):
+            try:
+                state.sextoy.disconnect()
+            except Exception:
+                pass
+
         if state.tray and hasattr(state.tray, "stop"):
             state.tray.stop()
 

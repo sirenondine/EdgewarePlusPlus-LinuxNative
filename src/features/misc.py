@@ -63,8 +63,20 @@ def open_web(pack: Pack, web: str | None = None) -> None:
         Thread(target=lambda: webbrowser.open(web), daemon=True).start()
 
 
+def handle_sextoy(settings: Settings, state: State) -> None:
+    """Connect to Intiface at startup if toy support is configured. The Sextoy
+    lives on state so popups can drive it. No-op without buttplug-py or any
+    configured devices."""
+    from features.sextoy import BUTTPLUG_AVAILABLE, Sextoy
+
+    if not BUTTPLUG_AVAILABLE or not getattr(settings, "sextoys", None):
+        return
+    state.sextoy = Sextoy(settings)
+    state.sextoy.connect()
+
+
 def send_notification(
-    settings: Settings, pack: Pack, notification: str | None = None
+    settings: Settings, pack: Pack, notification: str | None = None, sextoy: object | None = None
 ) -> None:
     notification = notification or pack.random_notification()
     if not notification:
@@ -77,6 +89,9 @@ def send_notification(
         icon=pack.icon,
         attachment=image if roll(settings.notification_image_chance) and image else None,
     )
+
+    from features.vibration_mixin import vibrate_event
+    vibrate_event("display_notification", settings, sextoy)
 
 
 def make_tray_icon(

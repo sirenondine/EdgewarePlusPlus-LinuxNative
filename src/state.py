@@ -64,6 +64,8 @@ class State:
     keyboard_process: multiprocessing.Process | None = None
     alt_held = False
 
+    sextoy: object | None = None  # features.sextoy.Sextoy when toy support is active
+
     @property
     def popup_number(self) -> int:
         return self._popup_number.value
