@@ -192,18 +192,12 @@ def confirm_overwrite(path: Path) -> bool:
     path_type = "directory" if path.is_dir() else "file"
     delete = shutil.rmtree if path.is_dir() else os.remove
 
-    dialog = Gtk.Dialog(title="Confirm Overwrite")
-    dialog.set_transient_for(_get_parent_window())
-    dialog.add_button("Cancel", Gtk.ResponseType.NO)
-    dialog.add_button("Delete", Gtk.ResponseType.YES)
-    dialog.get_content_area().append(Gtk.Label(
-        label=f'Path "{path}" already exists.\n\nThis {path_type} will be permanently deleted. Proceed?',
-        wrap=True, margin_start=12, margin_end=12, margin_top=12, margin_bottom=12,
-    ))
-    dialog.present()
-    response = dialog_run(dialog)
-    dialog.destroy()
-    if response == Gtk.ResponseType.YES:
+    from gtk_dialog import ask_yes_no
+    if ask_yes_no(
+        "Confirm Overwrite",
+        f'"{path}" already exists.\n\nThis {path_type} will be permanently deleted. Proceed?',
+        heading="Overwrite existing file?",
+    ):
         delete(path)
         return True
     return False
@@ -275,53 +269,48 @@ def safe_check(vars: Vars) -> bool:
     for key, var in vars.entries.items():
         danger = CONFIG_DANGER.get(key)
         if danger and danger.check(var.get()):
-            danger_levels[danger.level].append(f"\n\u2022{danger.warning or key}")
+            danger_levels[danger.level].append(f"\n\u2022 {danger.warning or key}")
 
     danger_num = 0
     warnings = ""
     for level, dangers in danger_levels.items():
         danger_num += len(dangers)
         if dangers:
-            warnings += f"\n\n{level.value.capitalize()}{''.join(dangers)}"
+            warnings += f"\n\n<b>{level.value.capitalize()}</b>{''.join(dangers)}"
 
     if not danger_num:
         return True
 
-    dialog = Gtk.Dialog(title="Dangerous Settings Detected!")
-    dialog.set_transient_for(_get_parent_window())
-    dialog.add_button("Cancel", Gtk.ResponseType.NO)
-    dialog.add_button("Save Anyway", Gtk.ResponseType.YES)
-    dialog.get_content_area().append(Gtk.Label(
-        label=f"{danger_num} potentially dangerous setting(s) detected! Save anyway?{warnings}",
-        wrap=True, margin_start=12, margin_end=12, margin_top=12, margin_bottom=12,
-    ))
-    dialog.present()
-    response = dialog_run(dialog)
-    dialog.destroy()
-    return response == Gtk.ResponseType.YES
+    from gtk_dialog import ask_yes_no
+    return ask_yes_no(
+        "Dangerous Settings",
+        f"{danger_num} potentially dangerous setting(s) active:{warnings}",
+        heading="Save anyway?",
+        markup=True,
+    )
 
 
 def clear_launches(confirmation: bool) -> None:
+    from gtk_dialog import ask_yes_no
     try:
         if os.path.exists(Data.CORRUPTION_LAUNCHES):
             os.remove(Data.CORRUPTION_LAUNCHES)
             if confirmation:
-                d = Gtk.Dialog(title="Cleaning Completed")
-                d.set_transient_for(_get_parent_window())
-                d.add_button("_Close", Gtk.ResponseType.OK)
-                d.get_content_area().append(Gtk.Label(label="The file that manages corruption launches has been deleted, and will be remade next time you start Edgeware with corruption on!", wrap=True, margin_start=12, margin_end=12, margin_top=12, margin_bottom=12))
-                d.present()
-                dialog_run(d)
-                d.destroy()
+                ask_yes_no(
+                    "Launches Reset",
+                    "The corruption launches file has been deleted. "
+                    "It will be recreated the next time Edgeware runs with corruption enabled.",
+                    heading="Done",
+                )
         else:
             if confirmation:
-                d = Gtk.Dialog(title="No launches file!")
-                d.set_transient_for(_get_parent_window())
-                d.add_button("_Close", Gtk.ResponseType.OK)
-                d.get_content_area().append(Gtk.Label(label="There is no launches file to delete!\n\nThe launches file is used for the launch transition mode, and is automatically deleted when you load a new pack.", wrap=True, margin_start=12, margin_end=12, margin_top=12, margin_bottom=12))
-                d.present()
-                dialog_run(d)
-                d.destroy()
+                ask_yes_no(
+                    "No Launches File",
+                    "There is no launches file to delete.\n\n"
+                    "The launches file tracks the Launch trigger mode and is "
+                    "automatically removed when you load a new pack.",
+                    heading="Nothing to reset",
+                )
     except Exception as e:
         print(f"failed to clear launches. {e}")
         logging.warning(f"could not delete the corruption launches file. {e}")

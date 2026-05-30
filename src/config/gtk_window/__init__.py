@@ -26,7 +26,7 @@ from config.gtk_window.tabs.general.start import StartTab
 from config.gtk_window.tabs.modes import BasicModesTab
 from config.gtk_window.tabs.troubleshooting import TroubleshootingTab
 from config.gtk_window.tabs.tutorial import TutorialTab
-from config.gtk_window.utils import config, dialog_run, get_live_version, refresh, write_save
+from config.gtk_window.utils import config, get_live_version, refresh, write_save
 from config.vars import Vars
 from pack import Pack
 from paths import DEFAULT_PACK_PATH, CustomAssets, Data
@@ -164,18 +164,13 @@ class ConfigWindow(Adw.ApplicationWindow):
         if live_version and local_version.split("_")[0] != live_version.split("_")[0] and not (
             local_version.endswith("DEV") or config.get("toggleInternet")
         ):
-            dialog = Gtk.Dialog(title="New version available")
-            dialog.set_transient_for(self)
-            dialog.add_button("_Download", Gtk.ResponseType.YES)
-            dialog.add_button("_Later", Gtk.ResponseType.NO)
-            dialog.get_content_area().append(Gtk.Label(
-                label="A newer version of Edgeware++ LinuxNative is available.\nVisit the repository to download the update.",
-                wrap=True, margin_start=12, margin_end=12, margin_top=12, margin_bottom=12,
-            ))
-            dialog.present()
-            response = dialog_run(dialog)
-            dialog.destroy()
-            if response == Gtk.ResponseType.YES:
+            from gtk_dialog import ask_yes_no
+            if ask_yes_no(
+                "Update Available",
+                f"A newer version of Edgeware++ LinuxNative is available "
+                f"({live_version}). Visit the repository to download it?",
+                heading="New version available",
+            ):
                 import webbrowser
                 webbrowser.open("https://github.com/sirenondine/EdgewarePlusPlus-LinuxNative")
 

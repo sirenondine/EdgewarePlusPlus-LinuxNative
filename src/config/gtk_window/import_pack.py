@@ -14,14 +14,8 @@ from paths import DEFAULT_PACK_PATH, Data, PackPaths
 
 
 def _dialog(title: str, text: str) -> None:
-    from config.gtk_window.utils import dialog_run, _get_parent_window
-    d = Gtk.Dialog(title=title)
-    d.set_transient_for(_get_parent_window())
-    d.add_button("_OK", Gtk.ResponseType.OK)
-    d.get_content_area().append(Gtk.Label(label=text, wrap=True, margin_start=12, margin_end=12, margin_top=12, margin_bottom=12))
-    d.present()
-    dialog_run(d)
-    d.destroy()
+    from gtk_dialog import ask_yes_no
+    ask_yes_no(title, text)
 
 
 def import_pack(default: bool) -> None:
