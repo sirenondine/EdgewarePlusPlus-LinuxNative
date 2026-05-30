@@ -238,6 +238,7 @@ def _pack_icon_prefix(pack_dir: Path) -> Gtk.Widget:
     frame = Gtk.Frame()
     frame.add_css_class("card")
     frame.set_valign(Gtk.Align.CENTER)
+    frame.set_size_request(SIZE, SIZE)
     frame.set_child(picture)
     return frame
 
