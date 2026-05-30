@@ -67,16 +67,20 @@ class InfoTab(Adw.PreferencesPage):
         ) if Data.PACKS.exists() else []
 
         if pack_dirs:
+            from config.gtk_window.import_pack import get_default_pack_source
             switch_group = Adw.PreferencesGroup(
                 title="Installed Packs",
-                description="Switch activates the pack. Set Default copies it to resource/ for use as the built-in pack.",
+                description="Switch activates the pack. Set Default copies it to resource/.",
             )
             self.add(switch_group)
 
             current_name = vars.pack_path.get() if vars else ""
+            self._default_badges: dict[str, Gtk.Label] = {}  # dir name → badge label
+
+            default_source = get_default_pack_source()
+
             for pack_dir in pack_dirs:
                 name = pack_dir.name
-                # Load description cheaply without constructing a full Pack object
                 info = _read_pack_info(pack_dir)
                 display_name = info.get("name") or name
                 description = info.get("description") or ""
@@ -87,6 +91,14 @@ class InfoTab(Adw.PreferencesPage):
 
                 btn_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
                 btn_box.set_valign(Gtk.Align.CENTER)
+
+                # "Default" badge — visible when this is the current default
+                default_badge = Gtk.Label(label="Default")
+                default_badge.add_css_class("accent")
+                default_badge.add_css_class("caption")
+                default_badge.set_visible(name == default_source)
+                btn_box.append(default_badge)
+                self._default_badges[name] = default_badge
 
                 if name == current_name:
                     check = Gtk.Image.new_from_icon_name("object-select-symbolic")
@@ -99,18 +111,17 @@ class InfoTab(Adw.PreferencesPage):
                     btn_box.append(sw_btn)
 
                 set_def_btn = Gtk.Button(label="Set Default")
-                set_def_btn.set_tooltip_text("Copy this pack to resource/ so it loads without needing to switch.")
+                set_def_btn.set_tooltip_text(
+                    "Copy this pack to resource/ so it's the built-in default.")
                 set_def_btn.connect("clicked", lambda _b, d=pack_dir: self._on_set_default(d))
                 btn_box.append(set_def_btn)
 
                 row.add_suffix(btn_box)
-                if name != current_name:
-                    row.set_activatable_widget(btn_box.get_first_child())
                 switch_group.add(row)
 
             default_row = Adw.ActionRow(
                 title="Default Pack",
-                subtitle="The built-in resource/ pack (no switch needed).",
+                subtitle="The built-in resource/ pack — no switch needed.",
             )
             def_btn = Gtk.Button(label="Switch")
             def_btn.set_valign(Gtk.Align.CENTER)
@@ -181,7 +192,12 @@ class InfoTab(Adw.PreferencesPage):
 
     def _on_set_default(self, pack_dir) -> None:
         from config.gtk_window.import_pack import set_default_from_installed
-        set_default_from_installed(pack_dir)
+
+        def on_done(new_default: str) -> None:
+            for name, badge in self._default_badges.items():
+                badge.set_visible(name == new_default)
+
+        set_default_from_installed(pack_dir, on_done=on_done)
 
     def _on_switch(self, name: str) -> None:
         if self._vars:

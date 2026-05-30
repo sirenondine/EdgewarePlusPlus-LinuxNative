@@ -19,18 +19,33 @@ def _dialog(title: str, text: str) -> None:
     ask_yes_no(title, text)
 
 
-def set_default_from_installed(pack_dir: Path) -> None:
-    """Copy an already-extracted pack from data/packs/ to resource/ (the default)."""
-    from config.gtk_window.utils import confirm_overwrite, refresh
+_DEFAULT_MARKER = DEFAULT_PACK_PATH / ".pack_source"
+
+
+def get_default_pack_source() -> str:
+    """Return the dir name of the installed pack last set as default, or ''."""
+    try:
+        return _DEFAULT_MARKER.read_text(encoding="utf-8").strip()
+    except Exception:
+        return ""
+
+
+def set_default_from_installed(pack_dir: Path, on_done=None) -> None:
+    """Copy an already-extracted pack from data/packs/ to resource/ (the default).
+    Writes a marker file so the UI can show which pack is default.
+    Does NOT refresh — caller updates its own UI via on_done()."""
+    from config.gtk_window.utils import confirm_overwrite
     if not confirm_overwrite(DEFAULT_PACK_PATH):
         return
     try:
         if DEFAULT_PACK_PATH.exists():
             shutil.rmtree(DEFAULT_PACK_PATH)
         shutil.copytree(pack_dir, DEFAULT_PACK_PATH)
+        _DEFAULT_MARKER.write_text(pack_dir.name, encoding="utf-8")
         from config.gtk_window.toast import toast
         toast(f"Default pack set to {pack_dir.name}.")
-        refresh()
+        if on_done:
+            on_done(pack_dir.name)
     except Exception as e:
         logging.warning(f"Failed to set default pack: {e}")
         from gtk_dialog import ask_yes_no
