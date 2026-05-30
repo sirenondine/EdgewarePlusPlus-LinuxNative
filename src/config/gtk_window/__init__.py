@@ -118,32 +118,77 @@ class ConfigWindow(Adw.ApplicationWindow):
         header.pack_end(save_btn)
 
         toolbar_view.add_top_bar(header)
-        toolbar_view.set_content(self._overlay)
         self.set_content(toolbar_view)
 
-        vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
-        self._overlay.set_child(vbox)
+        # --- Responsive split view: sidebar list + page stack ---------------
+        pages = [
+            ("Start",           StartTab(vars, local_version, live_version, pack)),
+            ("Pack Info",       InfoTab(pack)),
+            ("Default Files",   DefaultFileTab(pack)),
+            ("Popup Types",     PopupTypesTab(vars)),
+            ("Popup Tweaks",    PopupTweaksTab(vars)),
+            ("Wallpaper",       WallpaperTab(vars, pack)),
+            ("Moods",           MoodsTab(pack)),
+            ("Booru",           BooruTab(vars)),
+            ("Dangerous",       DangerousSettingsTab(vars)),
+            ("Modes",           BasicModesTab(vars)),
+            ("Corruption",      CorruptionModeTab(vars, pack)),
+            ("Troubleshooting", TroubleshootingTab(vars, pack)),
+            ("Tutorial",        TutorialTab()),
+        ]
 
-        # Single flat notebook — all tabs at the same level with LEFT tabs
-        notebook = Gtk.Notebook()
-        notebook.set_hexpand(True)
-        notebook.set_vexpand(True)
-        notebook.set_tab_pos(Gtk.PositionType.LEFT)
-        vbox.append(notebook)
+        # Content stack
+        self._stack = Gtk.Stack()
+        self._stack.set_transition_type(Gtk.StackTransitionType.CROSSFADE)
+        for name, widget in pages:
+            self._stack.add_named(widget, name)
 
-        notebook.append_page(StartTab(vars, local_version, live_version, pack), Gtk.Label(label="Start"))
-        notebook.append_page(InfoTab(pack), Gtk.Label(label="Pack Info"))
-        notebook.append_page(DefaultFileTab(pack), Gtk.Label(label="Default Files"))
-        notebook.append_page(PopupTypesTab(vars), Gtk.Label(label="Popup Types"))
-        notebook.append_page(PopupTweaksTab(vars), Gtk.Label(label="Popup Tweaks"))
-        notebook.append_page(WallpaperTab(vars, pack), Gtk.Label(label="Wallpaper"))
-        notebook.append_page(MoodsTab(pack), Gtk.Label(label="Moods"))
-        notebook.append_page(BooruTab(vars), Gtk.Label(label="Booru"))
-        notebook.append_page(DangerousSettingsTab(vars), Gtk.Label(label="Dangerous"))
-        notebook.append_page(BasicModesTab(vars), Gtk.Label(label="Modes"))
-        notebook.append_page(CorruptionModeTab(vars, pack), Gtk.Label(label="Corruption"))
-        notebook.append_page(TroubleshootingTab(vars, pack), Gtk.Label(label="Troubleshooting"))
-        notebook.append_page(TutorialTab(), Gtk.Label(label="Tutorial"))
+        # Sidebar list box
+        sidebar_list = Gtk.ListBox()
+        sidebar_list.set_selection_mode(Gtk.SelectionMode.SINGLE)
+        sidebar_list.add_css_class("navigation-sidebar")
+        for name, _ in pages:
+            row = Gtk.ListBoxRow()
+            lbl = Gtk.Label(label=name, xalign=0)
+            lbl.set_margin_start(12)
+            lbl.set_margin_end(12)
+            lbl.set_margin_top(8)
+            lbl.set_margin_bottom(8)
+            row.set_child(lbl)
+            sidebar_list.append(row)
+
+        sidebar_list.select_row(sidebar_list.get_row_at_index(0))
+
+        split = Adw.NavigationSplitView()
+        split.set_min_sidebar_width(140)
+        split.set_max_sidebar_width(200)
+        split.set_sidebar_width_fraction(0.28)
+
+        # Sidebar nav page
+        sidebar_scroll = Gtk.ScrolledWindow()
+        sidebar_scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        sidebar_scroll.set_child(sidebar_list)
+        sidebar_nav = Adw.NavigationPage.new(sidebar_scroll, "Settings")
+        split.set_sidebar(sidebar_nav)
+
+        # Content nav page — wraps the overlay (toast layer) around the stack
+        self._overlay = Gtk.Overlay()
+        self._overlay.set_child(self._stack)
+        self._content_nav = Adw.NavigationPage.new(self._overlay, pages[0][0])
+        split.set_content(self._content_nav)
+
+        # Wire selection → stack + title
+        def on_row_selected(_lb, row):
+            if row is None:
+                return
+            name, _ = pages[row.get_index()]
+            self._stack.set_visible_child_name(name)
+            self._content_nav.set_title(name)
+            split.set_show_content(True)
+
+        sidebar_list.connect("row-selected", on_row_selected)
+
+        toolbar_view.set_content(split)
 
         # Ctrl+S shortcut
         key_ctrl = Gtk.EventControllerKey.new()
