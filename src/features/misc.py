@@ -101,11 +101,18 @@ def handle_gamification(settings: Settings, pack: Pack, state: State) -> None:
     def on_level_up(level: int) -> None:
         notify("Edgeware++", f"Level up! You reached level {level}.", icon=pack.icon)
 
+    def reward() -> None:
+        if getattr(settings, "gamification_rewards", False):
+            from features import reward as reward_mod
+            reward_mod.reward_burst(settings, pack, state)
+
     def on_achievement(ach) -> None:
         notify(f"Achievement unlocked: {ach.name}", ach.description, icon=pack.icon)
+        reward()
 
     def on_quest_complete(quest) -> None:
         notify("Quest complete", f"{quest.desc}  ·  +{quest.reward} XP", icon=pack.icon)
+        reward()
 
     gamification.set_level_up_callback(on_level_up)
     gamification.set_achievement_callback(on_achievement)

@@ -50,6 +50,9 @@ class ProgressTab(Adw.PreferencesPage):
         general.add(AdwSwitchRow(
             "Enable Gamification", vars.gamification,
             subtitle="Track XP, levels and achievements."))
+        general.add(AdwSwitchRow(
+            "Milestone Rewards", vars.gamification_rewards,
+            subtitle="A burst of popups and a strong toy buzz on each achievement or quest."))
 
         reset_row = Adw.ActionRow(title="Reset Progress", subtitle="Erase all XP, levels and achievements.")
         reset_btn = Gtk.Button(label="Reset")
@@ -113,12 +116,14 @@ class ProgressTab(Adw.PreferencesPage):
         self.add(ach_group)
         for ach in achievements:
             is_unlocked = ach.id in prog.achievements
-            row = Adw.ActionRow(title=ach.name, subtitle=ach.description)
-            icon = Gtk.Image.new_from_icon_name(
-                "starred-symbolic" if is_unlocked else "non-starred-symbolic")
-            row.add_prefix(icon)
-            if not is_unlocked:
-                row.set_sensitive(False)  # dim locked entries
+            # Hidden until earned: locked entries reveal neither name nor hint.
+            if is_unlocked:
+                row = Adw.ActionRow(title=ach.name, subtitle=ach.description)
+                row.add_prefix(Gtk.Image.new_from_icon_name("starred-symbolic"))
+            else:
+                row = Adw.ActionRow(title="Hidden achievement", subtitle="Keep playing to unlock.")
+                row.add_prefix(Gtk.Image.new_from_icon_name("changes-prevent-symbolic"))
+                row.set_sensitive(False)
             ach_group.add(row)
 
     def _on_reset(self, button: Gtk.Button) -> None:

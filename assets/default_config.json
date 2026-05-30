@@ -102,5 +102,6 @@
   "pauseOnBattery": 0,
   "pauseApps": "",
   "escalation": 0,
-  "gamification": 0
+  "gamification": 0,
+  "gamificationRewards": 1
 }

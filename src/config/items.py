@@ -221,6 +221,7 @@ CONFIG_ITEMS = {
     # Local gamification (XP, levels, achievements). Opt-in, fully local, no
     # leaderboard or telemetry; progress lives in a plain JSON state file.
     "gamification": Item("gamification", BOOLEAN, VAR, bool, block=True),
+    "gamification_rewards": Item("gamificationRewards", BOOLEAN, VAR, bool, block=True),
 }
 # fmt: on
 
