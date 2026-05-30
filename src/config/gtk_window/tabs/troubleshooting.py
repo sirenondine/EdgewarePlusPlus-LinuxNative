@@ -18,148 +18,128 @@ import os
 from gi import require_version
 
 require_version("Gtk", "4.0")
-from gi.repository import Gtk
+require_version("Adw", "1")
+from gi.repository import Adw, Gtk
 
 import os_utils
 import utils
 from config.gtk_window.utils import log_file, request_legacy_panic_key
-from config.gtk_window.widgets import ConfigRow, ConfigSection, ConfigToggle
+from config.gtk_window.widgets import AdwSwitchRow
 from config.vars import Vars
 from pack import Pack
 from paths import Data
 
 
-class TroubleshootingTab(Gtk.ScrolledWindow):
+class TroubleshootingTab(Adw.PreferencesPage):
     def __init__(self, vars: Vars, pack: Pack) -> None:
         super().__init__()
-        self.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-        self.set_hexpand(True)
-        self.set_vexpand(True)
 
-        vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
-        self.set_child(vbox)
+        # ---- Troubleshooting toggles -------------------------------------
+        ts = Adw.PreferencesGroup(title="Troubleshooting")
+        self.add(ts)
+        ts.add(AdwSwitchRow(
+            "Toggle Tray Hibernate Skip", vars.toggle_hibernate_skip,
+            subtitle="Adds a tray option to skip to the start of hibernate."))
+        ts.add(AdwSwitchRow(
+            "Turn Off Mood Settings", vars.toggle_mood_set,
+            subtitle="Disables mood saving — useful when rapidly editing your pack."))
+        ts.add(AdwSwitchRow(
+            "Disable Connection to GitHub", vars.toggle_internet,
+            subtitle="Disables all GitHub connections on future launches."))
+        ts.add(AdwSwitchRow(
+            "Enable Hardware Acceleration", vars.video_hardware_acceleration,
+            subtitle="Disabling may increase CPU usage but gives a more consistent experience."))
 
-        # Troubleshooting
-        ts_section = ConfigSection("Troubleshooting")
-        vbox.append(ts_section)
-
-        row = ConfigRow()
-        ts_section.append(row)
-        row.append(
-            ConfigToggle("Toggle Tray Hibernate Skip", vars.toggle_hibernate_skip,
-                tooltip="Adds a tray feature to skip to the start of hibernate.")
+        # ---- Legacy panic key -------------------------------------------
+        legacy = Adw.PreferencesGroup(
+            title="Legacy",
+            description="The legacy panic key only works when an Edgeware popup has focus.",
         )
-        row.append(
-            ConfigToggle("Turn Off Mood Settings", vars.toggle_mood_set,
-                tooltip="Disables mood saving if you're rapidly editing your pack.")
+        self.add(legacy)
+
+        from config.gtk_window.utils import pretty_panic_key
+        legacy_row = Adw.ActionRow(
+            title="Set Legacy Panic Key",
+            subtitle="Requires focus on an Edgeware popup to fire.",
         )
-
-        row2 = ConfigRow()
-        ts_section.append(row2)
-        row2.append(
-            ConfigToggle("Disable Connection to GitHub", vars.toggle_internet,
-                tooltip="Disables all connections to GitHub on future launches.")
+        self._legacy_btn = Gtk.Button(label=f"<{pretty_panic_key(vars.panic_key.get())}>")
+        self._legacy_btn.set_valign(Gtk.Align.CENTER)
+        self._legacy_btn.connect(
+            "clicked",
+            lambda _: request_legacy_panic_key(self._legacy_btn, vars.panic_key),
         )
+        legacy_row.add_suffix(self._legacy_btn)
+        legacy_row.set_activatable_widget(self._legacy_btn)
+        legacy.add(legacy_row)
 
-        row3 = ConfigRow()
-        ts_section.append(row3)
-        row3.append(
-            ConfigToggle("Enable hardware acceleration", vars.video_hardware_acceleration,
-                tooltip="Disabling may increase CPU usage but provides more consistent experience.")
-        )
+        # ---- Logs --------------------------------------------------------
+        logs = Adw.PreferencesGroup(title="Logs")
+        self.add(logs)
 
-        # Legacy
-        legacy_section = ConfigSection("Legacy")
-        vbox.append(legacy_section)
-
-        self._legacy_btn = Gtk.Button(label=f"Set Legacy\nPanic Key\n<{vars.panic_key.get()}>")
-        self._legacy_btn.set_tooltip_text(
-            "Old panic key. Requires focus on an Edgeware popup."
-        )
-        self._legacy_btn.connect("clicked", lambda _: request_legacy_panic_key(self._legacy_btn, vars.panic_key))
-        legacy_section.append(self._legacy_btn)
-
-        # Directories
-        dir_section = ConfigSection("Directories")
-        vbox.append(dir_section)
-
-        logs_frame = Gtk.Frame()
-        logs_hbox = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        logs_frame.set_child(logs_hbox)
-        dir_section.append(logs_frame)
-
-        logs_col1 = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
-        logs_hbox.append(logs_col1)
-        self._log_count_lbl = Gtk.Label(label=f"Total Logs: {self._get_log_number()}")
-        logs_col1.append(self._log_count_lbl)
-
-        logs_col2 = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
-        logs_hbox.append(logs_col2)
-        open_logs_btn = Gtk.Button(label="Open Logs Folder")
+        self._log_count_row = Adw.ActionRow(title="Log Files")
+        self._log_count_row.set_subtitle(f"{self._get_log_number()} log files on disk")
+        open_logs_btn = Gtk.Button(label="Open Folder")
+        open_logs_btn.set_valign(Gtk.Align.CENTER)
         open_logs_btn.connect("clicked", lambda _: os_utils.open_directory(Data.LOGS))
-        logs_col2.append(open_logs_btn)
-        delete_logs_btn = Gtk.Button(label="Delete All Logs")
-        delete_logs_btn.set_tooltip_text("Deletes every log except the currently written one.")
-        delete_logs_btn.connect("clicked", lambda _: self._on_delete_logs())
-        logs_col2.append(delete_logs_btn)
+        self._log_count_row.add_suffix(open_logs_btn)
+        del_logs_btn = Gtk.Button(label="Delete All")
+        del_logs_btn.set_valign(Gtk.Align.CENTER)
+        del_logs_btn.add_css_class("destructive-action")
+        del_logs_btn.set_tooltip_text("Deletes every log except the currently active one.")
+        del_logs_btn.connect("clicked", lambda _: self._on_delete_logs())
+        self._log_count_row.add_suffix(del_logs_btn)
+        logs.add(self._log_count_row)
 
-        moods_frame = Gtk.Frame()
-        moods_hbox = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        moods_frame.set_child(moods_hbox)
-        dir_section.append(moods_frame)
-
-        moods_col1 = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
-        moods_hbox.append(moods_col1)
+        # ---- Directories -------------------------------------------------
+        dirs = Adw.PreferencesGroup(title="Directories")
+        self.add(dirs)
 
         pack_id = pack.info.mood_file.with_suffix("").name
         using_unique = pack_id == utils.compute_mood_id(pack.paths)
-        id_lbl = Gtk.Label(label=("Using Unique ID?: " + ("\u2713" if using_unique else "\u2717")))
+        mood_row = Adw.ActionRow(
+            title="Mood File ID",
+            subtitle=pack_id,
+        )
+        id_lbl = Gtk.Label(label="✓" if using_unique else "✗")
+        id_lbl.set_valign(Gtk.Align.CENTER)
         id_lbl.add_css_class("status-ok" if using_unique else "status-fail")
-        moods_col1.append(id_lbl)
-        pack_id_lbl = Gtk.Label(label=f"Pack ID is: {pack_id}", wrap=True)
-        pack_id_lbl.set_hexpand(True)
-        moods_col1.append(pack_id_lbl)
-
-        moods_col2 = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
-        moods_hbox.append(moods_col2)
+        id_lbl.set_tooltip_text("Using unique ID" if using_unique else "Not using unique ID")
+        mood_row.add_suffix(id_lbl)
         open_moods_btn = Gtk.Button(label="Open Moods Folder")
-        open_moods_btn.set_tooltip_text("Opens the moods folder for the current pack.")
+        open_moods_btn.set_valign(Gtk.Align.CENTER)
         open_moods_btn.connect("clicked", lambda _: os_utils.open_directory(Data.MOODS))
-        moods_col2.append(open_moods_btn)
+        mood_row.add_suffix(open_moods_btn)
+        dirs.add(mood_row)
 
-        open_pack_btn = Gtk.Button(label="Open Pack Folder")
+        pack_row = Adw.ActionRow(title="Pack Folder", subtitle=str(pack.paths.root))
+        open_pack_btn = Gtk.Button(label="Open")
+        open_pack_btn.set_valign(Gtk.Align.CENTER)
         open_pack_btn.connect("clicked", lambda _: os_utils.open_directory(pack.paths.root))
-        dir_section.append(open_pack_btn)
+        pack_row.add_suffix(open_pack_btn)
+        pack_row.set_activatable_widget(open_pack_btn)
+        dirs.add(pack_row)
 
     @staticmethod
     def _get_log_number() -> int:
         return len(os.listdir(Data.LOGS)) if os.path.exists(Data.LOGS) else 0
 
     def _on_delete_logs(self) -> None:
-        from config.gtk_window.utils import dialog_run, _get_parent_window
-        dialog = Gtk.Dialog(title="Confirm Delete")
-        dialog.set_transient_for(_get_parent_window())
-        dialog.add_button("_Cancel", Gtk.ResponseType.NO)
-        dialog.add_button("_Delete", Gtk.ResponseType.YES)
-        dialog.get_content_area().append(Gtk.Label(
-            label=f"Delete all logs? ({self._get_log_number()} total)",
-            wrap=True, margin_start=12, margin_end=12, margin_top=12, margin_bottom=12,
-        ))
-        dialog.present()
-        response = dialog_run(dialog)
-        dialog.destroy()
-        if response != Gtk.ResponseType.YES:
+        from gtk_dialog import ask_yes_no
+        if not ask_yes_no(
+            "Delete Logs",
+            f"Delete all logs? ({self._get_log_number()} total)\n"
+            "The currently active log will be kept.",
+            heading="Confirm deletion",
+        ):
             return
-
         if not (os.path.exists(Data.LOGS) and os.listdir(Data.LOGS)):
             return
-
         try:
             for file in os.listdir(Data.LOGS):
                 if os.path.splitext(file)[0] == os.path.splitext(log_file)[0]:
                     continue
                 if os.path.splitext(file)[1].lower() == ".txt":
                     os.remove(Data.LOGS / file)
-            self._log_count_lbl.set_text(f"Total Logs: {self._get_log_number()}")
+            self._log_count_row.set_subtitle(f"{self._get_log_number()} log files on disk")
         except Exception as e:
             logging.warning(f"could not clear logs: {e}")

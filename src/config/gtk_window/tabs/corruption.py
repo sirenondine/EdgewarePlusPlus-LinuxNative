@@ -17,141 +17,120 @@ import os
 from gi import require_version
 
 require_version("Gtk", "4.0")
-from gi.repository import Gtk
+require_version("Adw", "1")
+from gi.repository import Adw, Gtk
 
 from config.gtk_window.preset import apply_preset
 from config.gtk_window.utils import clear_launches
-from config.gtk_window.widgets import ConfigDropdown, ConfigRow, ConfigScale, ConfigSection, ConfigToggle
+from config.gtk_window.widgets import AdwComboRow, AdwSliderRow, AdwSwitchRow
 from config.vars import Vars
 from pack import Pack
 
 INTRO_TEXT = (
-    "Corruption is a highly specialized mode that packs have to explicitly support. "
-    "When corruption is enabled, it will turn off and on moods based on a trigger."
+    "Corruption is a highly specialised mode that packs must explicitly support. "
+    "When enabled, moods are toggled on and off based on a trigger you configure here."
 )
-TRIGGER_TEXT = (
-    "Triggers are the goals that define how corruption changes over time."
-)
+TRIGGER_TEXT = "Triggers define the goals that drive corruption progression over time."
 PATH_TEXT = (
-    "Here is a chart that shows a basic view of the path that the currently loaded path "
-    "will take during corruption."
+    "A summary of the corruption path the loaded pack will follow — levels, moods "
+    "added/removed, wallpaper changes, and config overrides."
 )
 
+_TRIGGER_TYPES = {
+    "Timed": "Transitions based on time elapsed.",
+    "Popup": "Transitions based on number of popups shown.",
+    "Launch": "Transitions based on number of Edgeware launches.",
+    "Script": "Transitions handled by pack scripts.",
+}
 
-class CorruptionModeTab(Gtk.ScrolledWindow):
+_FADE_TYPES = {
+    "Normal": "Gradually transitions between corruption levels.",
+    "Abrupt": "Immediately switches to a new level on trigger.",
+}
+
+
+class CorruptionModeTab(Adw.PreferencesPage):
     def __init__(self, vars: Vars, pack: Pack) -> None:
         super().__init__()
-        self.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-        self.set_hexpand(True)
-        self.set_vexpand(True)
 
-        vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
-        self.set_child(vbox)
+        # ---- Enable / main controls -------------------------------------
+        main = Adw.PreferencesGroup(title="Corruption Mode", description=INTRO_TEXT)
+        self.add(main)
 
-        # Start
-        start_section = ConfigSection("Corruption", INTRO_TEXT)
-        vbox.append(start_section)
-
-        start_row = ConfigRow()
-        start_section.append(start_row)
-
-        corruption_toggle = ConfigToggle("Turn on Corruption", vars.corruption_mode,
-            tooltip="Corruption Mode gradually makes the pack more depraved.")
-        start_row.append(corruption_toggle)
         has_corruption = os.path.isfile(pack.paths.corruption)
-        corruption_toggle.set_sensitive(has_corruption)
+        enable_row = AdwSwitchRow(
+            "Enable Corruption Mode", vars.corruption_mode,
+            subtitle="Gradually makes the pack more depraved. Pack must support corruption.")
+        enable_row.set_sensitive(has_corruption)
+        main.add(enable_row)
 
-        full_perm_toggle = ConfigToggle("Full Permissions Mode", vars.corruption_full,
-            tooltip="Allows corruption mode to change config settings.")
-        start_row.append(full_perm_toggle)
+        main.add(AdwSwitchRow(
+            "Full Permissions Mode", vars.corruption_full,
+            subtitle="Allows corruption to modify config settings."))
 
-        recommended_btn = Gtk.Button(label="Recommended Settings")
-        recommended_btn.set_tooltip_text("Pack creators can set default corruption settings.")
-        recommended_btn.connect("clicked", lambda _: apply_preset(pack.config, vars, ["corruptionMode", "corruptionTime", "corruptionFadeType"]))
-        start_section.append(recommended_btn)
-
-        # Triggers
-        triggers_section = ConfigSection("Triggers", TRIGGER_TEXT)
-        vbox.append(triggers_section)
-
-        trigger_row = ConfigRow()
-        triggers_section.append(trigger_row)
-
-        trigger_row.append(
-            ConfigDropdown(
-                vars.corruption_trigger,
-                {
-                    "Timed": "Transitions based on time elapsed.",
-                    "Popup": "Transitions based on number of popups.",
-                    "Launch": "Transitions based on number of launches.",
-                    "Script": "Transitions handled by pack scripts.",
-                },
-                label="Trigger Type",
+        if pack.config:
+            rec_row = Adw.ActionRow(
+                title="Recommended Settings",
+                subtitle="Apply the pack creator's suggested corruption settings.",
             )
+            rec_btn = Gtk.Button(label="Apply")
+            rec_btn.set_valign(Gtk.Align.CENTER)
+            rec_btn.connect("clicked", lambda _: apply_preset(
+                pack.config, vars,
+                ["corruptionMode", "corruptionTime", "corruptionFadeType"]))
+            rec_row.add_suffix(rec_btn)
+            rec_row.set_activatable_widget(rec_btn)
+            main.add(rec_row)
+
+        # ---- Triggers ----------------------------------------------------
+        triggers = Adw.PreferencesGroup(title="Triggers", description=TRIGGER_TEXT)
+        self.add(triggers)
+        triggers.add(AdwComboRow("Trigger Type", vars.corruption_trigger, _TRIGGER_TYPES))
+        triggers.add(AdwComboRow("Fade Type", vars.corruption_fade, _FADE_TYPES))
+        triggers.add(AdwSliderRow("Level Time (seconds)", vars.corruption_time, 5, 1800))
+        triggers.add(AdwSliderRow("Level Popups", vars.corruption_popups, 1, 100))
+        triggers.add(AdwSliderRow("Level Launches", vars.corruption_launches, 2, 31))
+
+        reset_row = Adw.ActionRow(
+            title="Reset Launches",
+            subtitle="Clear the launch counter used for the Launch trigger.",
         )
-
-        # Fade type
-        trigger_row.append(
-            ConfigDropdown(
-                vars.corruption_fade,
-                {
-                    "Normal": "Gradually transitions between corruption levels.",
-                    "Abrupt": "Immediately switches to new level upon timer completion.",
-                },
-                label="Fade Type",
-            )
-        )
-
-        # Trigger scales
-        triggers_row = ConfigRow()
-        triggers_section.append(triggers_row)
-        triggers_row.append(ConfigScale("Level Time (seconds)", vars.corruption_time, 5, 1800))
-        triggers_row.append(ConfigScale("Level Popups", vars.corruption_popups, 1, 100))
-        triggers_row.append(ConfigScale("Level Launches", vars.corruption_launches, 2, 31))
-
-        reset_btn = Gtk.Button(label="Reset Launches")
-        reset_btn.set_size_request(-1, 50)
+        reset_btn = Gtk.Button(label="Reset")
+        reset_btn.set_valign(Gtk.Align.CENTER)
+        reset_btn.add_css_class("destructive-action")
         reset_btn.connect("clicked", lambda _: clear_launches(True))
-        triggers_section.append(reset_btn)
+        reset_row.add_suffix(reset_btn)
+        reset_row.set_activatable_widget(reset_btn)
+        triggers.add(reset_row)
 
-        # Misc
-        misc_section = ConfigSection("Misc. Settings")
-        vbox.append(misc_section)
+        # ---- Misc settings -----------------------------------------------
+        misc = Adw.PreferencesGroup(title="Misc. Settings")
+        self.add(misc)
+        misc.add(AdwSwitchRow(
+            "Don't Cycle Wallpaper", vars.corruption_wallpaper,
+            subtitle="Prevents wallpaper from cycling during corruption."))
+        misc.add(AdwSwitchRow(
+            "Don't Cycle Themes", vars.corruption_themes,
+            subtitle="Prevents themes from cycling during corruption."))
+        misc.add(AdwSwitchRow(
+            "Purity Mode", vars.corruption_purity,
+            subtitle="Starts at highest corruption level and works backwards."))
+        misc.add(AdwSwitchRow(
+            "Corruption Dev View", vars.corruption_dev_mode,
+            subtitle="Shows debug information on popups."))
 
-        misc_row = ConfigRow()
-        misc_section.append(misc_row)
-        misc_row.append(
-            ConfigToggle("Don't Cycle Wallpaper", vars.corruption_wallpaper,
-                tooltip="Prevents wallpaper from cycling during corruption.")
-        )
-        misc_row.append(
-            ConfigToggle("Don't Cycle Themes", vars.corruption_themes,
-                tooltip="Prevents themes from cycling during corruption.")
-        )
-
-        misc_row2 = ConfigRow()
-        misc_section.append(misc_row2)
-        misc_row2.append(
-            ConfigToggle("Purity Mode", vars.corruption_purity,
-                tooltip="Starts at highest corruption level, works backwards.")
-        )
-        misc_row2.append(
-            ConfigToggle("Corruption Dev View", vars.corruption_dev_mode,
-                tooltip="Shows debug info on popups.")
-        )
-
-        # Path
+        # ---- Corruption path grid ----------------------------------------
         if pack.corruption_levels:
-            path_section = ConfigSection("Corruption Path", PATH_TEXT)
-            vbox.append(path_section)
+            path = Adw.PreferencesGroup(title="Corruption Path", description=PATH_TEXT)
+            self.add(path)
 
             grid = Gtk.Grid()
             grid.set_column_spacing(16)
             grid.set_row_spacing(4)
-            grid.set_margin_start(4)
-            grid.set_margin_end(4)
-            grid.set_margin_top(4)
-            grid.set_margin_bottom(4)
+            grid.set_margin_start(8)
+            grid.set_margin_end(8)
+            grid.set_margin_top(8)
+            grid.set_margin_bottom(8)
 
             headers = ["Level", "Add Moods", "Remove Moods", "Wallpaper", "Config"]
             for col, title in enumerate(headers):
@@ -160,23 +139,22 @@ class CorruptionModeTab(Gtk.ScrolledWindow):
                 lbl.set_xalign(0)
                 grid.attach(lbl, col, 0, 1, 1)
 
-            sep = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
-            grid.attach(sep, 0, 1, len(headers), 1)
+            grid.attach(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL), 0, 1, len(headers), 1)
 
             for row_idx, level in enumerate(pack.corruption_levels):
-                row = row_idx + 2
-                added = ", ".join(sorted(m for m in level.added_moods if m is not None)) or "—"
-                removed = ", ".join(sorted(m for m in level.removed_moods if m is not None)) or "—"
+                added = ", ".join(sorted(m for m in level.added_moods if m)) or "—"
+                removed = ", ".join(sorted(m for m in level.removed_moods if m)) or "—"
                 cfg = ", ".join(f"{k}={v}" for k, v in (level.config or {}).items()) or "—"
-
                 for col, text in enumerate([str(row_idx), added, removed, level.wallpaper or "—", cfg]):
                     lbl = Gtk.Label(label=text)
                     lbl.set_xalign(0)
                     lbl.set_wrap(True)
-                    grid.attach(lbl, col, row, 1, 1)
+                    grid.attach(lbl, col, row_idx + 2, 1, 1)
 
-            scrolled = Gtk.ScrolledWindow()
-            scrolled.set_vexpand(True)
-            scrolled.set_child(grid)
-            path_section.append(scrolled)
-
+            scroller = Gtk.ScrolledWindow()
+            scroller.set_min_content_height(160)
+            scroller.set_child(grid)
+            frame = Gtk.Frame()
+            frame.add_css_class("card")
+            frame.set_child(scroller)
+            path.add(frame)
