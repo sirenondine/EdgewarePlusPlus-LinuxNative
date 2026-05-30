@@ -118,6 +118,7 @@
   "companionBaseUrl": "http://localhost:11434",
   "companionModel": "",
   "companionApiKey": "",
+  "companionFollow": 1,
   "companionChatterChance": 20,
   "companionReactChance": 15,
   "companionGreetOnStart": 1,

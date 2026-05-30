@@ -242,6 +242,7 @@ CONFIG_ITEMS = {
     "companion_base_url": Item("companionBaseUrl", STRING, VAR, str, block=True),
     "companion_model": Item("companionModel", STRING, VAR, str, block=True),
     "companion_api_key": Item("companionApiKey", STRING, VAR, str, block=True),
+    "companion_follow": Item("companionFollow", BOOLEAN, VAR, bool, block=True),
     "companion_chatter_chance": Item("companionChatterChance", PERCENTAGE, VAR, int),
     "companion_react_chance": Item("companionReactChance", PERCENTAGE, VAR, int),
     "companion_greet_on_start": Item("companionGreetOnStart", BOOLEAN, VAR, bool, block=True),

@@ -28,6 +28,7 @@
 # thread via GLib.idle_add. Keep all widget work in the _impl methods.
 
 import logging
+import random
 
 import gi
 
@@ -36,6 +37,13 @@ gi.require_version("Gdk", "4.0")
 gi.require_version("Gtk4LayerShell", "1.0")
 from gi.repository import GLib, Gtk
 from gi.repository import Gtk4LayerShell as LayerShell
+
+import utils
+
+_FOLLOW_SIZE = (220, 240)   # approx companion footprint, for keeping it on-screen
+_ROAM_STEP_MS = 30          # ms between roam steps
+_ROAM_SPEED = 8             # px per step
+_ROAM_DWELL_MS = (6000, 14000)  # pause range between wanders
 
 from features.companion import sprite
 
@@ -130,16 +138,25 @@ class CompanionWindow(Gtk.Window):
         click.connect("released", self._on_clicked)
         box.add_controller(click)
 
+        # Position state: when following, the companion roams the screen and
+        # migrates to the focused monitor; otherwise it sits bottom-right.
+        self._follow = bool(getattr(settings, "companion_follow", False))
+        self._mon = None
+        self._x = 0
+        self._y = 0
+        self._roam_id: int | None = None
+        self._target = None
+
         if LayerShell.is_supported():
             LayerShell.init_for_window(self)
             LayerShell.set_layer(self, LayerShell.Layer.OVERLAY)
             LayerShell.set_namespace(self, "edgeware-companion")
-            LayerShell.set_anchor(self, LayerShell.Edge.BOTTOM, True)
-            LayerShell.set_anchor(self, LayerShell.Edge.RIGHT, True)
-            LayerShell.set_margin(self, LayerShell.Edge.BOTTOM, 28)
-            LayerShell.set_margin(self, LayerShell.Edge.RIGHT, 28)
+            # Anchor top-left and position by margins (so we can move freely).
+            LayerShell.set_anchor(self, LayerShell.Edge.TOP, True)
+            LayerShell.set_anchor(self, LayerShell.Edge.LEFT, True)
             # Allow keyboard focus on demand so the chat entry can be typed in.
             LayerShell.set_keyboard_mode(self, LayerShell.KeyboardMode.ON_DEMAND)
+            self._init_position()
 
         # A pet (sprite) is persistent and idles on screen; an avatar-only
         # companion stays hidden until it speaks.
@@ -148,6 +165,68 @@ class CompanionWindow(Gtk.Window):
             self.present()
         else:
             self.set_visible(False)
+
+        if self._follow:
+            self._schedule_roam(initial=True)
+
+    # ------------------------------------------------------------------
+    # Positioning / roaming.
+    def _init_position(self) -> None:
+        """Start bottom-right of the focused (or a default) monitor."""
+        self._mon = utils.focused_monitor() or utils.random_monitor(self.settings)
+        w, h = _FOLLOW_SIZE
+        self._x = self._mon.x + max(0, self._mon.width - w - 28)
+        self._y = self._mon.y + max(0, self._mon.height - h - 28)
+        self._apply_position()
+
+    def _apply_position(self) -> None:
+        if not LayerShell.is_supported() or not self._mon:
+            return
+        try:
+            gdk_mon = utils.gdk_monitor_for(self._mon)
+            if gdk_mon:
+                LayerShell.set_monitor(self, gdk_mon)
+            LayerShell.set_margin(self, LayerShell.Edge.LEFT, max(0, int(self._x - self._mon.x)))
+            LayerShell.set_margin(self, LayerShell.Edge.TOP, max(0, int(self._y - self._mon.y)))
+        except Exception as e:
+            logging.debug(f"companion reposition failed: {e}")
+
+    def _schedule_roam(self, initial: bool = False) -> None:
+        delay = 1500 if initial else random.randint(*_ROAM_DWELL_MS)
+        GLib.timeout_add(delay, self._pick_target)
+
+    def _pick_target(self) -> bool:
+        # Migrate to whatever monitor the user is now focused on, then wander.
+        self._mon = utils.focused_monitor() or self._mon or utils.random_monitor(self.settings)
+        w, h = _FOLLOW_SIZE
+        tx = self._mon.x + random.randint(0, max(0, self._mon.width - w))
+        ty = self._mon.y + random.randint(0, max(0, self._mon.height - h))
+        self._target = (tx, ty)
+        if self._roam_id is None:
+            self._roam_id = GLib.timeout_add(_ROAM_STEP_MS, self._roam_step)
+        return False
+
+    def _roam_step(self) -> bool:
+        if not self._target:
+            self._roam_id = None
+            return False
+        # Hold still while speaking or being chatted with (bubble visible).
+        if self._text_col.get_visible():
+            return True
+        tx, ty = self._target
+        dx, dy = tx - self._x, ty - self._y
+        dist = (dx * dx + dy * dy) ** 0.5
+        if dist <= _ROAM_SPEED:
+            self._x, self._y = tx, ty
+            self._apply_position()
+            self._roam_id = None
+            self._target = None
+            self._schedule_roam()  # arrived; dwell, then wander again
+            return False
+        self._x += _ROAM_SPEED * dx / dist
+        self._y += _ROAM_SPEED * dy / dist
+        self._apply_position()
+        return True
 
     def _load_sprite(self, pack, persona):
         path = None
