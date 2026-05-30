@@ -39,19 +39,55 @@ The global **panic** hotkey uses the desktop's GlobalShortcuts portal where avai
 (KDE/GNOME); on compositors that don't support it, Edgeware falls back to reading
 input devices directly, which requires your user to be in the `input` group.
 
+### LinuxNative features
+
+This fork adds Linux/Wayland-native integration on top of the upstream feature set:
+
+- **Modern config app** — the configuration window is a full libadwaita
+  (`Adw.PreferencesPage`) interface with a responsive collapsing sidebar, a global
+  settings search (Ctrl+F), and a first-launch onboarding wizard that walks you
+  through importing a pack, setting a panic key, and setting a panic wallpaper.
+- **Pause / Resume** — popups can be soft-paused (no new popups spawn, existing ones
+  stay) without a full panic, from the tray menu or the control script below.
+- **Pause when the screen locks** — auto-pauses while the session is locked via logind
+  / the ScreenSaver D-Bus interface (GNOME/KDE, or any locker that calls
+  `loginctl lock-session`). Lockers that only use the `ext-session-lock` protocol
+  (e.g. Noctalia, swaylock) don't emit those signals — point their lock/unlock hook at
+  `edgeware-ctl.sh pause` / `edgeware-ctl.sh resume` instead.
+- **Pause during screen share** — on niri, auto-pauses while a screencast is active so
+  content doesn't leak onto a shared screen or recording.
+- **Sex-toy support (Intiface/Buttplug)** — drive a toy on popup events (image/video
+  open/close, captions, notifications, prompts) through Intiface Central. Supports timed
+  pulses, a continuous mode that stacks intensity across concurrent popups, and
+  vibration patterns (pulse/wave/ramp/random). Requires `buttplug-py` (installed by
+  `setup.sh`) and a running Intiface Central server; configure it in the **Sex Toys** tab.
+
+### Control script
+
+`edgeware-ctl.sh` sends a command to a running instance over the panic socket — handy
+for compositor keybinds and lock hooks:
+
+```sh
+edgeware-ctl.sh panic     # stop everything and revert the wallpaper
+edgeware-ctl.sh pause     # stop spawning new popups
+edgeware-ctl.sh resume    # resume
+edgeware-ctl.sh toggle    # flip the pause state
+edgeware-ctl.sh status    # print running / paused / popup count
+```
+
 From there you'll need an actual pack, which can be downloaded online or made yourself. Unfortunately at the time of writing there's really no congregated directory of packs everyone's made, they're all scattered to the four winds... but for a start [the original Edgeware page](https://github.com/PetitTournesol/Edgeware) has a few sample packs, and there's a few more in the "Packs" section of the readme.
 
 After pulling a major update, re-run `setup.sh` to refresh the Python dependencies.
 
-**Any damage you do to your computer with Edgeware is your own responsibility! Please read the "About" tab in the config window and make backups if you're planning on using the advanced, dangerous settings!**
+**Any damage you do to your computer with Edgeware is your own responsibility! Please read the "Dangerous" tab in the config window and make backups if you're planning on using the advanced, dangerous settings!**
 
 We have also added a Pack Editor included with each copy of Edgeware++. It's a bit different if you're familiar with the old one- it runs in command line and has different features.
 
 ## Packs
 
-For some of these packs, we will include a pack config file so you're able to easily test relevant settings. To apply these settings, you can go into the "File" tab once you've imported the pack, and press the "Load Pack Configuration" button. Once they've been loaded, you're free to take a look around and change anything you see fit, as the packs usually will only change a few settings. Make sure you save before you exit!
+For some of these packs, we will include a pack config file so you're able to easily test relevant settings. To apply these settings, go to the "Packs" tab once you've imported the pack, and press the "Load Pack Configuration" button. Once they've been loaded, you're free to take a look around and change anything you see fit, as the packs usually will only change a few settings. Make sure you save before you exit!
 
-Reminder: Check out the "Pack Info" tab for more information on these packs once you download them~
+Reminder: Check out the "Packs" tab for more information on these packs once you download them~
 
 ### Basic Packs
 
@@ -101,7 +137,7 @@ A: No! With the only possible exception of the Python installer, no part of Edge
 
 A: You can go into the resource folder of the pack you got, extract everything inside of it, and zip it with a desired name. This way, you can import the pack normally. If you already have an install of Edgeware++, it is recommended you do this over using their installation unless it comes from a trusted source. While many people make packs like this to make using Edgeware simpler for people who have never heard of it before, there's also the possibility of the files being modified to be malicious.
 
-If you know that the pack creator set specific config settings for their Edgeware installation pack, you can also create a "config.json" file inside your newly created pack zip, and copy all of the contents of their "config.cfg" into it. This will allow you to import their config settings in the *Pack Info* tab, near the bottom.
+If you know that the pack creator set specific config settings for their Edgeware installation pack, you can also create a "config.json" file inside your newly created pack zip, and copy all of the contents of their "config.cfg" into it. This will allow you to import their config settings in the *Packs* tab.
 
 >Q: Can you give me more info on upcoming features?
 
