@@ -104,8 +104,12 @@ def handle_gamification(settings: Settings, pack: Pack, state: State) -> None:
     def on_achievement(ach) -> None:
         notify(f"Achievement unlocked: {ach.name}", ach.description, icon=pack.icon)
 
+    def on_quest_complete(quest) -> None:
+        notify("Quest complete", f"{quest.desc}  ·  +{quest.reward} XP", icon=pack.icon)
+
     gamification.set_level_up_callback(on_level_up)
     gamification.set_achievement_callback(on_achievement)
+    gamification.set_quest_callback(on_quest_complete)
     gamification.progress()  # load now so the first event is fast
 
     def tick() -> bool:

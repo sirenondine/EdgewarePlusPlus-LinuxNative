@@ -74,6 +74,27 @@ class ProgressTab(Adw.PreferencesPage):
         level_row.add_suffix(bar)
         level_group.add(level_row)
 
+        # ---- Quests ------------------------------------------------------
+        for scope, title in (("daily", "Daily Quests"), ("weekly", "Weekly Quests")):
+            items = prog.quests.get(scope, {}).get("items", [])
+            if not items:
+                continue
+            group = Adw.PreferencesGroup(title=title)
+            self.add(group)
+            for q in items:
+                row = Adw.ActionRow(
+                    title=q.desc,
+                    subtitle=f"{min(q.progress, q.target)} / {q.target}  ·  +{q.reward} XP")
+                if q.done:
+                    row.add_prefix(Gtk.Image.new_from_icon_name("emblem-ok-symbolic"))
+                else:
+                    qbar = Gtk.ProgressBar()
+                    qbar.set_fraction(q.progress / q.target if q.target else 1.0)
+                    qbar.set_valign(Gtk.Align.CENTER)
+                    qbar.set_size_request(120, -1)
+                    row.add_suffix(qbar)
+                group.add(row)
+
         # ---- Stats -------------------------------------------------------
         stats = Adw.PreferencesGroup(title="Stats")
         self.add(stats)

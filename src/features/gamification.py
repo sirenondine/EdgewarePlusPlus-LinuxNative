@@ -24,9 +24,11 @@
 import json
 import logging
 import os
+import random
 import tempfile
 import time
 from dataclasses import dataclass
+from datetime import date
 from typing import Callable
 
 from paths import Data
@@ -78,6 +80,79 @@ ACHIEVEMENTS: list[Achievement] = [
 _ACHIEVEMENTS_BY_ID = {a.id: a for a in ACHIEVEMENTS}
 
 
+# --- Quests -------------------------------------------------------------------
+# Recurring objectives that reset each day/week. A fixed subset is picked per
+# period, deterministically seeded by the period so reloads on the same day show
+# the same quests. Quest progress is independent of lifetime counters.
+
+DAILY_QUEST_COUNT = 3
+WEEKLY_QUEST_COUNT = 2
+
+
+@dataclass
+class Quest:
+    id: str
+    event: str
+    target: int
+    reward: int
+    desc: str
+    progress: int = 0
+    done: bool = False
+
+    def to_dict(self) -> dict:
+        return {"id": self.id, "event": self.event, "target": self.target,
+                "reward": self.reward, "desc": self.desc,
+                "progress": self.progress, "done": self.done}
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "Quest":
+        return cls(id=d["id"], event=d["event"], target=int(d["target"]),
+                   reward=int(d["reward"]), desc=d["desc"],
+                   progress=int(d.get("progress", 0)), done=bool(d.get("done", False)))
+
+
+# (event, target, reward_xp, description template with {n})
+DAILY_TEMPLATES = [
+    ("popup_closed", 25, 15, "Dismiss {n} popups today"),
+    ("popup_closed", 50, 30, "Dismiss {n} popups today"),
+    ("prompt_completed", 3, 20, "Complete {n} prompts today"),
+    ("denial_seen", 10, 15, "Endure {n} denials today"),
+    ("playtime_minute", 20, 15, "Stay active {n} minutes today"),
+]
+WEEKLY_TEMPLATES = [
+    ("popup_closed", 300, 100, "Dismiss {n} popups this week"),
+    ("prompt_completed", 25, 80, "Complete {n} prompts this week"),
+    ("denial_seen", 100, 80, "Endure {n} denials this week"),
+    ("playtime_minute", 180, 100, "Stay active {n} minutes this week"),
+]
+
+_SCOPES = {
+    "daily": (DAILY_TEMPLATES, DAILY_QUEST_COUNT),
+    "weekly": (WEEKLY_TEMPLATES, WEEKLY_QUEST_COUNT),
+}
+
+
+def _daily_period() -> str:
+    return date.today().isoformat()
+
+
+def _weekly_period() -> str:
+    y, w, _ = date.today().isocalendar()
+    return f"{y:04d}-W{w:02d}"
+
+
+def _period(scope: str) -> str:
+    return _weekly_period() if scope == "weekly" else _daily_period()
+
+
+def _generate(scope: str, period: str) -> list[Quest]:
+    templates, count = _SCOPES[scope]
+    rng = random.Random(f"{scope}:{period}")
+    chosen = rng.sample(templates, min(count, len(templates)))
+    return [Quest(id=f"{scope}:{ev}:{tgt}", event=ev, target=tgt, reward=xp, desc=desc.format(n=tgt))
+            for (ev, tgt, xp, desc) in chosen]
+
+
 def cumulative_xp(level: int) -> int:
     """Total XP required to be AT `level` (level 0 = 0 XP)."""
     return LEVEL_STEP * level * (level + 1) // 2
@@ -96,21 +171,58 @@ class Progress:
         self.level = 0
         self.counters: dict[str, int] = {}
         self.achievements: set[str] = set()
+        # scope -> {"period": str|None, "items": list[Quest]}
+        self.quests: dict[str, dict] = {}
         self.on_level_up = None  # callback(new_level) injected by the UI layer
         self.on_achievement = None  # callback(Achievement) injected by the UI layer
+        self.on_quest_complete = None  # callback(Quest) injected by the UI layer
         self._last_save = 0.0
         self._dirty = False
 
     # ------------------------------------------------------------------
     def record(self, event: str, count: int = 1, xp: int | None = None) -> None:
         """Log `count` occurrences of `event`, award XP, persist (throttled)."""
+        self.ensure_quests()  # roll daily/weekly over if the period changed
         self.counters[event] = self.counters.get(event, 0) + count
         gain = (EVENT_XP.get(event, 0) if xp is None else xp) * count
         if gain > 0:
             self._add_xp(gain)
         self._check_achievements()
+        self._advance_quests(event, count)
         self._dirty = True
         self._maybe_save()
+
+    def ensure_quests(self) -> None:
+        """Regenerate a scope's quests when its period rolls over."""
+        for scope in _SCOPES:
+            qs = self.quests.setdefault(scope, {"period": None, "items": []})
+            period = _period(scope)
+            if qs.get("period") != period:
+                qs["period"] = period
+                qs["items"] = _generate(scope, period)
+                self._dirty = True
+
+    def _advance_quests(self, event: str, count: int) -> None:
+        for scope in _SCOPES:
+            for q in self.quests.get(scope, {}).get("items", []):
+                if q.done or q.event != event:
+                    continue
+                q.progress = min(q.target, q.progress + count)
+                if q.progress >= q.target:
+                    q.done = True
+                    if q.reward:
+                        self._add_xp(q.reward)
+                    if self.on_quest_complete:
+                        try:
+                            self.on_quest_complete(q)
+                        except Exception as e:
+                            logging.warning(f"gamification quest callback error: {e}")
+
+    def active_quests(self) -> list[Quest]:
+        out: list[Quest] = []
+        for scope in ("daily", "weekly"):
+            out.extend(self.quests.get(scope, {}).get("items", []))
+        return out
 
     def _check_achievements(self) -> None:
         for ach in ACHIEVEMENTS:
@@ -149,6 +261,11 @@ class Progress:
             "level": self.level,
             "counters": self.counters,
             "achievements": sorted(self.achievements),
+            "quests": {
+                scope: {"period": qs.get("period"),
+                        "items": [q.to_dict() for q in qs.get("items", [])]}
+                for scope, qs in self.quests.items()
+            },
         }
 
     def load(self) -> None:
@@ -168,6 +285,11 @@ class Progress:
                         self.achievements.add(ach.id)
                 except Exception:
                     pass
+            for scope, qs in (data.get("quests") or {}).items():
+                self.quests[scope] = {
+                    "period": qs.get("period"),
+                    "items": [Quest.from_dict(q) for q in qs.get("items", [])],
+                }
             logging.info(f"Gamification: loaded level {self.level}, {self.xp} XP, {len(self.achievements)} achievements.")
         except FileNotFoundError:
             logging.info("Gamification: no progress file yet, starting fresh.")
@@ -204,6 +326,7 @@ def progress() -> Progress:
     if _progress is None:
         _progress = Progress()
         _progress.load()
+        _progress.ensure_quests()  # populate / roll over before first use
     return _progress
 
 
@@ -217,6 +340,14 @@ def set_level_up_callback(callback) -> None:
 
 def set_achievement_callback(callback) -> None:
     progress().on_achievement = callback
+
+
+def set_quest_callback(callback) -> None:
+    progress().on_quest_complete = callback
+
+
+def active_quests() -> list[Quest]:
+    return progress().active_quests()
 
 
 def all_achievements() -> list[Achievement]:
