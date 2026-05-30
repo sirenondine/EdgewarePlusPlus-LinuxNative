@@ -33,15 +33,19 @@ from typing import Callable
 
 from paths import Data
 
-# XP per event (negative = penalty). Counters are tracked for every event.
+# XP per event (negative = flat penalty). Counters tracked for every event.
 EVENT_XP = {
     "popup_closed": 1,
     "prompt_completed": 5,
     "denial_seen": 2,
     "playtime_minute": 1,
-    # Penalties for "giving up".
-    "panic": -25,
     "prompt_failed": -5,
+}
+
+# Penalties that dock a fraction of current XP instead of a flat amount, so they
+# scale (and never reset progress to zero). Panicking forfeits 20%.
+PENALTY_PCT = {
+    "panic": 0.20,
 }
 
 LEVEL_STEP = 25  # tuning constant for the level curve
@@ -188,7 +192,12 @@ class Progress:
         """Log `count` occurrences of `event`, award XP, persist (throttled)."""
         self.ensure_quests()  # roll daily/weekly over if the period changed
         self.counters[event] = self.counters.get(event, 0) + count
-        gain = (EVENT_XP.get(event, 0) if xp is None else xp) * count
+        if xp is not None:
+            gain = xp * count
+        elif event in PENALTY_PCT:
+            gain = -round(self.xp * PENALTY_PCT[event])  # fraction of current XP
+        else:
+            gain = EVENT_XP.get(event, 0) * count
         if gain:  # may be negative (a penalty)
             self._add_xp(gain)
         self._check_achievements()
