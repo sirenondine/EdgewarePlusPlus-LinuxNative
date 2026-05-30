@@ -152,6 +152,14 @@ class ConfigWindow(Adw.ApplicationWindow):
 
         self.present()
 
+        # Onboarding — show on first launch or when no pack is loaded
+        import sys
+        _first_launch = "--first-launch-configure" in sys.argv
+        _no_pack = not pack.paths.root.exists() or pack.info.name == "default"
+        if _first_launch or _no_pack:
+            from config.gtk_window.onboarding import show_onboarding
+            GLib.idle_add(lambda: (show_onboarding(self, vars, pack), False)[1])
+
         # Version update dialog (after present() so window is visible as transient parent)
         if live_version and local_version.split("_")[0] != live_version.split("_")[0] and not (
             local_version.endswith("DEV") or config.get("toggleInternet")
