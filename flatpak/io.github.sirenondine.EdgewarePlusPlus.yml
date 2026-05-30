@@ -5,9 +5,8 @@ sdk: org.gnome.Sdk
 command: edgeware
 
 finish-args:
-  # Native Wayland (layer-shell) with X11 fallback.
+  # Wayland only (layer-shell popups require it).
   - --socket=wayland
-  - --socket=fallback-x11
   - --socket=pulseaudio
   - --share=ipc
   # Booru downloads, version check, Discord RPC.
@@ -49,8 +48,8 @@ modules:
         - --share=network
     build-commands:
       - pip3 install --prefix=/app --no-cache-dir
-        booru desktop-notifier filetype get-video-properties pillow pynput
-        pypresence python-xlib requests screeninfo voluptuous
+        booru desktop-notifier evdev filetype get-video-properties pillow pynput
+        pypresence requests screeninfo voluptuous
     cleanup:
       - /lib/python*/site-packages/*/tests
 

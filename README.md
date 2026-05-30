@@ -15,11 +15,10 @@ supported here; for those platforms use the upstream
 [EdgewarePlusPlus](https://github.com/araten10/EdgewarePlusPlus). Clone this repository
 (or download it as a ZIP via the "code" button) and follow the Linux setup below.
 
-**If you're using Linux**, this fork (LinuxNative) runs **natively on Wayland** — the
-config window and the runtime popups are GTK4, popups use `gtk4-layer-shell`, and
-video/audio play through GStreamer (no mpv, no Tkinter). It needs a Wayland
-compositor that supports the layer-shell protocol (niri, Sway, Hyprland, KDE, etc.;
-it also runs under X11 via XWayland, but layer-shell positioning is Wayland-only).
+**If you're using Linux**, this fork (LinuxNative) is **Wayland-only** — the config
+window and the runtime popups are GTK4, popups use `gtk4-layer-shell`, and video/audio
+play through GStreamer (no mpv, no Tkinter, no X11). It requires a Wayland compositor
+that supports the layer-shell protocol (niri, Sway, Hyprland, KDE, etc.).
 
 First install the system dependencies (Python 3.12+, PyGObject/GTK4, libadwaita,
 gtk4-layer-shell, and GStreamer with the Rust plugins that provide

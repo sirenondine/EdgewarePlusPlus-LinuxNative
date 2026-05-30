@@ -6,7 +6,7 @@ get-video-properties
 pillow
 pynput
 pypresence
-python-xlib; platform_system == 'Linux'
+evdev
 requests
 screeninfo
 voluptuous

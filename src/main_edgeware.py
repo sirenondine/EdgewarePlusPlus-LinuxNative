@@ -37,9 +37,9 @@ if __name__ == "__main__":
             os.environ["LD_PRELOAD"] = (os.environ.get("LD_PRELOAD", "") + " " + lib).strip()
             os.execv(sys.executable, [sys.executable, *sys.argv])
 
-    # Prefer native Wayland; fall back to X11. Must precede GTK import.
+    # Wayland-only (layer-shell popups require it). Must precede GTK import.
     if "GDK_BACKEND" not in os.environ:
-        os.environ["GDK_BACKEND"] = "wayland,x11"
+        os.environ["GDK_BACKEND"] = "wayland"
 
     # Use the GL renderer — the Vulkan renderer spams VK_SUBOPTIMAL_KHR warnings
     # as popups spawn/resize. Must precede GTK import.

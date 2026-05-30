@@ -70,11 +70,14 @@ def dialog_run(dialog: Gtk.Dialog) -> Gtk.ResponseType:
 
 
 def keyboard_listener(connection: Connection) -> None:
-    # pynput opens an X connection at import, so import it lazily here — the
-    # config window must load on pure-Wayland / sandboxed sessions without X.
-    if os.environ.get("WAYLAND_DISPLAY") and "PYNPUT_BACKEND" not in os.environ:
-        os.environ["PYNPUT_BACKEND"] = "evdev"
-    from pynput import keyboard
+    # Use pynput's uinput backend (python-evdev) on Wayland; it needs input-device
+    # access + a readable console keymap, so it fails for unprivileged users.
+    os.environ.setdefault("PYNPUT_BACKEND", "uinput")
+    try:
+        from pynput import keyboard
+    except Exception:
+        connection.send("focus")  # unblock the UI; key capture simply won't fire
+        return
     with keyboard.Listener(on_release=lambda key: connection.send(str(key))) as listener:
         connection.send("focus")
         listener.join()

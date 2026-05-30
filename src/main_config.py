@@ -17,10 +17,9 @@
 
 import os
 
-# Prefer native Wayland; fall back to X11 if unavailable.
-# Must be set before GTK is imported.
+# Wayland-only. Must be set before GTK is imported.
 if "GDK_BACKEND" not in os.environ:
-    os.environ["GDK_BACKEND"] = "wayland,x11"
+    os.environ["GDK_BACKEND"] = "wayland"
 
 # Use the GL renderer to avoid Vulkan VK_SUBOPTIMAL_KHR warning spam.
 if "GSK_RENDERER" not in os.environ:

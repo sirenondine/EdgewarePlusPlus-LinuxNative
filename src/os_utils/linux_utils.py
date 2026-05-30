@@ -120,40 +120,16 @@ def find_set_wallpaper_commands(wallpaper: Path, desktop: str) -> list[str]:
 
 
 def find_set_wm_wallpaper_commands(wallpaper: Path) -> list[str]:
+    """Fallback wallpaper setters for bare Wayland compositors without a desktop
+    environment (e.g. niri/Sway). DE-specific setters are tried first elsewhere."""
     quoted = shlex.quote(str(wallpaper))
-    session = os.environ.get("XDG_SESSION_TYPE", "").lower()  # "x11" or "wayland"
 
-    setters = {
-        "x11": [
-            ("nitrogen", [f"nitrogen --set-zoom-fill {quoted}"]),
-            ("feh", [f"feh --bg-scale {quoted}"]),
-            ("habak", [f"habak -ms {quoted}"]),
-            ("hsetroot", [f"hsetroot -fill {quoted}"]),
-            ("chbg", [f"chbg -once -mode maximize {quoted}"]),
-            ("qiv", [f"qiv --root_s {quoted}"]),
-            ("xv", [f"xv -max -smooth -root -quit {quoted}"]),
-            (
-                "xsri",
-                [
-                    f"xsri --center-x --center-y --scale-width=100 --scale-height=100 {quoted}"
-                ],
-            ),
-            ("xli", [f"xli -fullscreen -onroot -quiet -border black {quoted}"]),
-            ("xsetbg", [f"xsetbg -fullscreen -border black {quoted}"]),
-            ("fvwm-root", [f"fvwm-root -r {quoted}"]),
-            ("wmsetbg", [f"wmsetbg -s -S {quoted}"]),
-            ("Esetroot", [f"Esetroot -scale {quoted}"]),
-            (
-                "display",
-                [
-                    f'display -sample `xwininfo -root 2> /dev/null|awk "/geom/{{print $2}}"` -window root {quoted}'
-                ],
-            ),
-        ],
-        "wayland": [],
-    }
+    setters = [
+        ("swww", [f"swww img {quoted}"]),
+        ("swaybg", [f"swaybg -i {quoted} -m fill"]),
+    ]
 
-    for program, commands in setters.get(session, []):
+    for program, commands in setters:
         if shutil.which(program):
             return commands
 

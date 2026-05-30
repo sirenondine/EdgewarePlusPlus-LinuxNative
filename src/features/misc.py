@@ -210,12 +210,17 @@ def handle_mitosis_mode(settings: Settings, pack: Pack, state: State) -> None:
 
 
 def keyboard_listener(connection: Connection) -> None:
-    # pynput connects to X at import time, so import it lazily (only the evdev
-    # fallback path needs it; the portal path and the config window must not
-    # crash on a pure-Wayland / sandboxed session without X).
-    if os.environ.get("WAYLAND_DISPLAY") and "PYNPUT_BACKEND" not in os.environ:
-        os.environ["PYNPUT_BACKEND"] = "evdev"
-    from pynput import keyboard
+    # Use pynput's uinput backend (reads /dev/input via python-evdev) — the only
+    # one that works on Wayland. It needs read access to the input devices and a
+    # readable console keymap (dumpkeys), so it fails for unprivileged users;
+    # the GlobalShortcuts portal is the primary hotkey path and panic is also
+    # available from the tray, the panic command and the config window.
+    os.environ.setdefault("PYNPUT_BACKEND", "uinput")
+    try:
+        from pynput import keyboard
+    except Exception as e:
+        logging.warning(f"Keyboard panic hotkey fallback unavailable: {e}")
+        return
 
     def callback(type: str) -> None:
         return lambda key: connection.send((type, str(key)))
