@@ -240,6 +240,9 @@ class StartTab(Adw.PreferencesPage):
             "Pause During Screen Share", vars.pause_on_screenshare,
             subtitle="Stop spawning popups while a screencast is active (niri only)."))
         general.add(AdwSwitchRow(
+            "Pause On Battery", vars.pause_on_battery,
+            subtitle="Stop spawning popups while running on battery; resume on AC."))
+        general.add(AdwSwitchRow(
             "Warn if \"Dangerous\" Settings Active", vars.safe_mode,
             subtitle="Asks you to confirm before saving if certain settings are enabled."))
         general.add(AdwSwitchRow("Disable Config Help Messages", vars.message_off))

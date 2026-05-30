@@ -67,6 +67,7 @@ from features.drive import fill_drive, replace_images
 from features.hibernate import main_hibernate, start_main_hibernate
 from features.image_popup import ImagePopup
 from features.lockscreen import handle_lock_screen
+from features.power import handle_power
 from features.screenshare import handle_screenshare
 from features.misc import (
     handle_discord,
@@ -141,6 +142,7 @@ if __name__ == "__main__":
             handle_sextoy(settings, state)
             handle_lock_screen(settings, state)
             handle_screenshare(settings, state)
+            handle_power(settings, state)
             handle_panic_lockout(settings, state)
             handle_mitosis_mode(settings, pack, state)
             run_script(settings, pack, state)
