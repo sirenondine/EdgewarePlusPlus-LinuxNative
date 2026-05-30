@@ -47,6 +47,7 @@ class InfoTab(Adw.PreferencesPage):
         self.add(mgmt)
 
         current_row = Adw.ActionRow(title="Active Pack", subtitle=pack.info.name)
+        current_row.add_prefix(_pack_icon_prefix(pack.paths.root))
         current_row.add_suffix(Gtk.Image.new_from_icon_name("media-playback-start-symbolic"))
         mgmt.add(current_row)
 
@@ -111,7 +112,7 @@ class InfoTab(Adw.PreferencesPage):
             self.add(switch_group)
 
             current_name = vars.pack_path.get() if vars else ""
-            self._default_badges: dict[str, Gtk.Label] = {}  # dir name → badge label
+            self._default_buttons: dict[str, Gtk.Button] = {}  # dir name → star button
 
             default_source = get_default_pack_source()
 
@@ -129,14 +130,6 @@ class InfoTab(Adw.PreferencesPage):
                 btn_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
                 btn_box.set_valign(Gtk.Align.CENTER)
 
-                # "Default" badge — visible when this is the current default
-                default_badge = Gtk.Label(label="Default")
-                default_badge.add_css_class("accent")
-                default_badge.add_css_class("caption")
-                default_badge.set_visible(name == default_source)
-                btn_box.append(default_badge)
-                self._default_badges[name] = default_badge
-
                 if name == current_name:
                     check = Gtk.Image.new_from_icon_name("object-select-symbolic")
                     check.add_css_class("accent")
@@ -147,10 +140,13 @@ class InfoTab(Adw.PreferencesPage):
                     sw_btn.connect("clicked", lambda _b, n=name: self._on_switch(n))
                     btn_box.append(sw_btn)
 
-                set_def_btn = Gtk.Button(icon_name="starred-symbolic")
-                set_def_btn.set_tooltip_text("Set as default pack (copies to resource/)")
+                # Star button: filled+accent when this is the default pack,
+                # outline otherwise. Clicking sets this pack as default.
+                set_def_btn = Gtk.Button()
                 set_def_btn.connect("clicked", lambda _b, d=pack_dir: self._on_set_default(d))
                 btn_box.append(set_def_btn)
+                self._default_buttons[name] = set_def_btn
+                self._style_default_button(set_def_btn, name == default_source)
 
                 row.add_suffix(btn_box)
                 switch_group.add(row)
@@ -226,12 +222,23 @@ class InfoTab(Adw.PreferencesPage):
         from config.gtk_window.import_pack import import_pack
         import_pack(False)
 
+    @staticmethod
+    def _style_default_button(btn: Gtk.Button, is_default: bool) -> None:
+        if is_default:
+            btn.set_icon_name("starred-symbolic")
+            btn.add_css_class("accent")
+            btn.set_tooltip_text("This is the default pack")
+        else:
+            btn.set_icon_name("non-starred-symbolic")
+            btn.remove_css_class("accent")
+            btn.set_tooltip_text("Set as default pack (copies to resource/)")
+
     def _on_set_default(self, pack_dir) -> None:
         from config.gtk_window.import_pack import set_default_from_installed
 
         def on_done(new_default: str) -> None:
-            for name, badge in self._default_badges.items():
-                badge.set_visible(name == new_default)
+            for name, btn in self._default_buttons.items():
+                self._style_default_button(btn, name == new_default)
 
         set_default_from_installed(pack_dir, on_done=on_done)
 
