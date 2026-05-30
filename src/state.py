@@ -68,6 +68,7 @@ class State:
     sextoy: object | None = None  # features.sextoy.Sextoy when toy support is active
     companion: object | None = None  # features.companion.engine.Companion when enabled
     companion_window: object | None = None  # features.companion.window.CompanionWindow
+    hud: object | None = None  # features.hud.ProgressHUD when the gamification HUD is on
 
     @property
     def popup_number(self) -> int:

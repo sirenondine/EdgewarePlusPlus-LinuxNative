@@ -63,7 +63,7 @@ def open_web(pack: Pack, web: str | None = None) -> None:
         Thread(target=lambda: webbrowser.open(web), daemon=True).start()
 
 
-def handle_sextoy(settings: Settings, state: State) -> None:
+def handle_sextoy(settings: Settings, pack: Pack, state: State) -> None:
     """Connect to Intiface at startup if toy support is configured. The Sextoy
     lives on state so popups can drive it. No-op without buttplug-py or any
     configured devices."""
@@ -72,6 +72,20 @@ def handle_sextoy(settings: Settings, state: State) -> None:
     if not BUTTPLUG_AVAILABLE or not getattr(settings, "sextoys", None):
         return
     state.sextoy = Sextoy(settings)
+
+    def on_status(connected: bool) -> None:
+        # Fired from the asyncio thread — marshal UI work to the main thread.
+        from gi.repository import GLib
+
+        def update() -> None:
+            notify("Edgeware++", "Toy connected." if connected else "Toy disconnected. Reconnect from the tray menu.", icon=pack.icon)
+            if state.tray and hasattr(state.tray, "set_toy_status"):
+                state.tray.set_toy_status(connected)
+            return False
+
+        GLib.idle_add(update)
+
+    state.sextoy.on_status_change = on_status
     state.sextoy.connect()
 
 
@@ -99,6 +113,56 @@ def handle_companion(settings: Settings, pack: Pack, state: State) -> None:
         logging.warning(f"Failed to start AI companion: {e}")
         state.companion = None
         state.companion_window = None
+
+
+def handle_gamification(settings: Settings, pack: Pack, state: State) -> None:
+    """Load local progress and wire level-up notifications + a playtime ticker.
+    No-op unless gamification is enabled."""
+    if not getattr(settings, "gamification", False):
+        return
+    from gi.repository import GLib
+
+    from features import gamification
+
+    def on_level_up(level: int) -> None:
+        notify("Edgeware++", f"Level up! You reached level {level}.", icon=pack.icon)
+
+    def reward() -> None:
+        if getattr(settings, "gamification_rewards", False):
+            from features import reward as reward_mod
+            reward_mod.reward_burst(settings, pack, state)
+
+    def on_achievement(ach) -> None:
+        notify(f"Achievement unlocked: {ach.name}", ach.description, icon=pack.icon)
+        reward()
+
+    def on_quest_complete(quest) -> None:
+        notify("Quest complete", f"{quest.desc}  ·  +{quest.reward} XP", icon=pack.icon)
+        reward()
+
+    gamification.set_level_up_callback(on_level_up)
+    gamification.set_achievement_callback(on_achievement)
+    gamification.set_quest_callback(on_quest_complete)
+    prog = gamification.progress()  # load now so the first event is fast
+
+    # Live on-screen progress HUD (encourages staying running).
+    if getattr(settings, "gamification_hud", False):
+        try:
+            from features.hud import ProgressHUD
+            into, span = prog.xp_into_level()
+            corner = getattr(settings, "gamification_hud_corner", "top-right")
+            state.hud = ProgressHUD(prog.level, into, span, corner=corner)
+            gamification.set_progress_callback(state.hud.update)
+        except Exception as e:
+            logging.warning(f"Failed to create gamification HUD: {e}")
+
+    def tick() -> bool:
+        import roll
+        if not roll.is_paused():
+            gamification.record("playtime_minute")
+        return True
+
+    GLib.timeout_add_seconds(60, tick)
 
 
 def send_notification(
@@ -148,6 +212,11 @@ def make_tray_icon(
         if state.tray and hasattr(state.tray, "set_pause_label"):
             state.tray.set_pause_label(paused)
 
+    # Offer a reconnect entry only when toy support is actually usable.
+    from features.sextoy import BUTTPLUG_AVAILABLE
+    toy_configured = BUTTPLUG_AVAILABLE and getattr(settings, "sextoys", None)
+    on_reconnect_toy = (lambda: state.sextoy and state.sextoy.reconnect()) if toy_configured else None
+
     try:
         state.tray = StatusNotifierItem(
             icon_name=os_utils.APP_ID,
@@ -156,6 +225,7 @@ def make_tray_icon(
             on_skip_hibernate=skip_hibernate if settings.hibernate_mode else None,
             on_open_config=open_config,
             on_toggle_pause=toggle_pause,
+            on_reconnect_toy=on_reconnect_toy,
             on_quit=lambda: request_panic(settings, state),
         )
         logging.info("Created StatusNotifierItem tray icon (D-Bus, with menu)")

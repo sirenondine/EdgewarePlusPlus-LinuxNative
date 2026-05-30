@@ -20,6 +20,7 @@ from config.gtk_window.tabs.annoyance.popup_types import PopupTypesTab
 from config.gtk_window.tabs.annoyance.sextoys import SexToysTab
 from config.gtk_window.tabs.annoyance.wallpaper import WallpaperTab
 from config.gtk_window.tabs.corruption import CorruptionModeTab
+from config.gtk_window.tabs.progress import ProgressTab
 from config.gtk_window.tabs.general.default_file import DefaultFileTab
 from config.gtk_window.tabs.general.info import InfoTab
 from config.gtk_window.tabs.general.start import StartTab
@@ -243,6 +244,7 @@ class ConfigWindow(Adw.ApplicationWindow):
             ("Sex Toys",     SexToysTab(vars)),
             ("Modes",        BasicModesTab(vars)),
             ("Dangerous",    DangerousSettingsTab(vars)),
+            ("Progress",     ProgressTab(vars)),
             ("Tutorial",     TutorialTab()),
         ]
 
@@ -252,7 +254,7 @@ class ConfigWindow(Adw.ApplicationWindow):
             "Popup Types", "Popup Tweaks",
             "Wallpaper", "Moods", "Booru", "Sex Toys",
             "Modes", "Corruption", "Dangerous",
-            "Troubleshooting", "Tutorial",
+            "Progress", "Troubleshooting", "Tutorial",
         ]
 
         self._stack = Gtk.Stack()

@@ -43,9 +43,19 @@ class Prompt(Gtk.Window):
 
         self.set_decorated(False)
 
+        # While a prompt is up, pause new popup spawns so nothing stacks over it
+        # (it is the newest layer-shell surface, so it sits above whatever is
+        # already on screen). Resumed when the prompt closes.
+        import roll
+        roll.add_pause_reason("prompt")
+
+        # Size the window to the prompt length: longer text gets a bigger window
+        # so the user can actually read what they are typing, capped to the
+        # monitor.
         monitor = utils.primary_monitor()
-        width = monitor.width // 4
-        height = monitor.height // 2
+        chars = len(self.prompt or "")
+        width = max(monitor.width // 5, min(int(monitor.width * 0.7), 360 + chars * 4))
+        height = max(monitor.height // 4, min(int(monitor.height * 0.7), 220 + chars * 2))
         self.set_default_size(width, height)
 
         vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
@@ -94,7 +104,12 @@ class Prompt(Gtk.Window):
         start_continuous(self.settings, self.state.sextoy, self._vib_token,
                          "sextoy_prompt_enabled", "sextoy_prompt_vibration_force")
         self.connect("close-request", lambda _w: (
-            stop_continuous(self._vib_token, self.state.sextoy), False)[1])
+            stop_continuous(self._vib_token, self.state.sextoy),
+            self._resume_popups(), False)[2])
+
+    def _resume_popups(self) -> None:
+        import roll
+        roll.remove_pause_reason("prompt")
 
     def _get_text(self) -> str:
         buffer = self._input.get_buffer()
@@ -129,7 +144,15 @@ class Prompt(Gtk.Window):
         if d[len(a)][len(b)] <= max_mistakes:
             from features.vibration_mixin import stop_continuous
             stop_continuous(getattr(self, "_vib_token", ""), self.state.sextoy)
+            self._resume_popups()
             self.destroy()
             self.state.prompt_active = False
+            if self.settings.gamification:
+                from features import gamification
+                gamification.record("prompt_completed")
             if self.on_close:
                 self.on_close()
+        elif self.settings.gamification:
+            # Too many mistakes: the prompt stays open, but it costs XP.
+            from features import gamification
+            gamification.record("prompt_failed")

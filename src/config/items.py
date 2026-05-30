@@ -155,7 +155,12 @@ CONFIG_ITEMS = {
 
     # Booru
     "booru_download": Item("downloadEnabled", BOOLEAN, VAR, bool),
+    "booru_site": Item("booruSite", STRING, VAR, str),
+    "booru_api_key": Item("booruApiKey", STRING, VAR, str, block=True),
+    "booru_user_id": Item("booruUserId", STRING, VAR, str, block=True),
     "booru_tags": Item("tagList", STRING, None, lambda value: value.replace(">", " ")),
+    "booru_exclude": Item("booruExclude", STRING, None, lambda value: value.replace(">", " ")),
+    "booru_rating": Item("booruRating", STRING, VAR, str),
     # "min_score": Item("booruMinScore", Schema(int), VAR, int),  # TODO: Unimplemented
 
     # Dangerous
@@ -232,6 +237,13 @@ CONFIG_ITEMS = {
     "companion_chatter_chance": Item("companionChatterChance", PERCENTAGE, VAR, int),
     "companion_greet_on_start": Item("companionGreetOnStart", BOOLEAN, VAR, bool, block=True),
     "companion_window_awareness": Item("companionWindowAware", BOOLEAN, VAR, bool, danger=Danger(DangerLevel.MEDIUM, Schema(1), COMPANION_WINDOW_AWARE_DANGER), block=True),
+
+    # Local gamification (XP, levels, achievements). Opt-in, fully local, no
+    # leaderboard or telemetry; progress lives in a plain JSON state file.
+    "gamification": Item("gamification", BOOLEAN, VAR, bool, block=True),
+    "gamification_rewards": Item("gamificationRewards", BOOLEAN, VAR, bool, block=True),
+    "gamification_hud": Item("gamificationHud", BOOLEAN, VAR, bool, block=True),
+    "gamification_hud_corner": Item("gamificationHudCorner", STRING, VAR, str, block=True),
 }
 # fmt: on
 

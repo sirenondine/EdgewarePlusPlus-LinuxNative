@@ -81,6 +81,11 @@ class StoredActuator(TypedDict):
 class Sextoy:
     def __init__(self, settings) -> None:
         self.connected = False
+        # Called with the new bool whenever the connection state changes
+        # (connect / disconnect / dropped). Wired by misc to notifications + tray.
+        # Invoked from the asyncio thread; the callback must marshal to the GTK
+        # main thread itself.
+        self.on_status_change = None
         self._settings = settings
         self._loop = asyncio.new_event_loop()
         Thread(target=self._run_loop, daemon=True).start()
@@ -92,6 +97,10 @@ class Sextoy:
         # Per-device pattern (name, period seconds) and running modulation task.
         self._patterns: dict[int, tuple[str, float]] = {}
         self._modulation: dict[int, object] = {}
+        # Transient one-shot "boost" riding the continuous loop: device -> (end_time, force).
+        # Lets a timed pulse (e.g. image open) bump above the continuous baseline
+        # for its duration, then settle back, instead of being suppressed.
+        self._boost: dict[int, tuple[float, float]] = {}
         self._active_vibrations: dict[int, dict[int, StoredActuator]] = {}
         self._active_rotations: dict[int, dict[int, StoredActuator]] = {}
         self.vibration_index = 0
@@ -100,6 +109,17 @@ class Sextoy:
     def _run_loop(self) -> None:
         asyncio.set_event_loop(self._loop)
         self._loop.run_forever()
+
+    def _set_connected(self, value: bool) -> None:
+        """Update connection state and fire on_status_change on transitions."""
+        if value == self.connected:
+            return
+        self.connected = value
+        if self.on_status_change:
+            try:
+                self.on_status_change(value)
+            except Exception as e:
+                logging.warning(f"Sextoy status callback error: {e}")
 
     @property
     def connection_status(self) -> str:
@@ -123,16 +143,39 @@ class Sextoy:
         self._connector = WebsocketConnector(self._address(), logger=self._client.logger)
         return asyncio.run_coroutine_threadsafe(self._connect_and_scan(), self._loop)
 
+    def reconnect(self):
+        """Reconnect after a drop (tray menu). No-op if already connected."""
+        if self.connected:
+            return None
+        logging.info("Sextoy reconnect requested.")
+        return self.connect()
+
     async def _connect_and_scan(self) -> None:
         try:
             await self._client.connect(self._connector)
-            self.connected = True
             logging.info("Connected to Intiface.")
+            self._set_connected(True)
             self._loop.create_task(self._scan_loop())
+            self._loop.create_task(self._monitor_loop())
         except Exception as e:
             logging.error(f"Sextoy connection error: {e}")
-            self.connected = False
+            self._set_connected(False)
             raise
+
+    async def _monitor_loop(self, interval: float = 3.0) -> None:
+        """Detect a dropped websocket (Intiface closed, toy unplugged at the
+        host, network blip) so the user gets a disconnect notification instead
+        of silent failure."""
+        while self.connected:
+            await asyncio.sleep(interval)
+            try:
+                alive = self._client.connected
+            except Exception:
+                alive = False
+            if not alive:
+                logging.warning("Sextoy connection lost.")
+                self._set_connected(False)
+                break
 
     async def _scan_loop(self, scan_duration: float = 3.0, interval: float = 2.0) -> None:
         while self.connected:
@@ -154,7 +197,7 @@ class Sextoy:
 
         async def _do_disconnect():
             await self._client.disconnect()
-            self.connected = False
+            self._set_connected(False)
 
         asyncio.run_coroutine_threadsafe(_do_disconnect(), self._loop)
 
@@ -201,7 +244,7 @@ class Sextoy:
                         candidate_session_id = session_id
                         candidate_info = session_dict[idx]
 
-            if device_index in self._continuous_forces:
+            if self._contributions.get(device_index):
                 return
 
             if candidate_info is not None:
@@ -220,7 +263,11 @@ class Sextoy:
 
     async def _vibrate_once(self, device_index: int, speed: float, duration: float) -> None:
         if self._contributions.get(device_index):
-            return  # a continuous vibration is holding this device
+            # Continuous holds this device: instead of dropping the pulse, ride a
+            # transient boost on top of the continuous baseline (e.g. a strong
+            # bump on image open that then settles into a light continuous hum).
+            self._boost[device_index] = (time.monotonic() + duration, speed)
+            return
         dev = self._client.devices.get(device_index)
         if not dev:
             logging.warning(f"vibrate_once: device {device_index} not found")
@@ -270,13 +317,24 @@ class Sextoy:
         t0 = time.monotonic()
         try:
             while self._contributions.get(device_index):
-                total = min(1.0, sum(self._contributions[device_index].values()))
-                name, period = self._patterns.get(device_index, ("constant", 2.0))
-                factor = PATTERNS.get(name, _p_constant)(time.monotonic() - t0, period)
-                await self._send(device_index, round(total * factor, 3))
+                now = time.monotonic()
+                boost = self._boost.get(device_index)
+                if boost and now < boost[0]:
+                    # Hold the boost force flat (ignore the pattern) so the bump
+                    # reads crisp, then fall back to the continuous baseline.
+                    level = boost[1]
+                else:
+                    if boost:
+                        self._boost.pop(device_index, None)
+                    total = min(1.0, sum(self._contributions[device_index].values()))
+                    name, period = self._patterns.get(device_index, ("constant", 2.0))
+                    factor = PATTERNS.get(name, _p_constant)(now - t0, period)
+                    level = total * factor
+                await self._send(device_index, round(level, 3))
                 await asyncio.sleep(self._TICK)
         finally:
             await self._send(device_index, 0.0)
+            self._boost.pop(device_index, None)
             self._modulation.pop(device_index, None)
 
     def add_contribution(self, device_index: int, token: str, force: float) -> None:

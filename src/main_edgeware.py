@@ -72,6 +72,7 @@ from features.power import handle_power
 from features.misc import (
     handle_companion,
     handle_discord,
+    handle_gamification,
     handle_keyboard,
     handle_mitosis_mode,
     handle_panic_lockout,
@@ -148,8 +149,9 @@ if __name__ == "__main__":
             Thread(target=lambda: replace_images(settings, pack), daemon=True).start()  # Thread for performance reasons
             handle_corruption(settings, pack, state)
             handle_discord(settings, pack)
-            handle_sextoy(settings, state)
+            handle_sextoy(settings, pack, state)
             handle_companion(settings, pack, state)
+            handle_gamification(settings, pack, state)
             handle_lock_screen(settings, state)
             handle_niri_watch(settings, state)
             handle_power(settings, state)

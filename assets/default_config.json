@@ -1,6 +1,6 @@
 {
   "version": "2.4.2_A",
-  "versionplusplus": "1.2.1",
+  "versionplusplus": "1.3.0",
   "delay": 5000,
   "fill": 0,
   "replace": 0,
@@ -35,6 +35,11 @@
   "booruMinScore": -5,
   "desktopIcons": 1,
   "tagList": "all",
+  "booruSite": "gelbooru",
+  "booruApiKey": "",
+  "booruUserId": "",
+  "booruExclude": "",
+  "booruRating": "any",
   "downloadEnabled": 0,
   "runOnSaveQuit": 0,
   "timerMode": 0,
@@ -109,5 +114,9 @@
   "companionApiKey": "",
   "companionChatterChance": 20,
   "companionGreetOnStart": 1,
-  "companionWindowAware": 0
+  "companionWindowAware": 0,
+  "gamification": 0,
+  "gamificationRewards": 1,
+  "gamificationHud": 1,
+  "gamificationHudCorner": "top-right"
 }
