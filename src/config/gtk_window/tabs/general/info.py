@@ -12,6 +12,8 @@
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 # GNU General Public License for more details.
 
+import os
+
 from gi import require_version
 
 require_version("Gtk", "4.0")
@@ -19,11 +21,8 @@ require_version("Adw", "1")
 from gi.repository import Adw, GLib, Gtk
 
 from pack import Pack
+from paths import Data
 
-MULTI_PACK_TEXT = (
-    "If you have multiple packs loaded, make sure to apply the one you want using "
-    "\"Switch Pack\" at the bottom of the window."
-)
 INFO_TEXT = (
     "Requires an optional \"information file\" that pack creators can add. If this is "
     "greyed out but other sections work, the pack just doesn't have one."
@@ -35,11 +34,82 @@ DISCORD_TEXT = (
 
 
 class InfoTab(Adw.PreferencesPage):
-    def __init__(self, pack: Pack) -> None:
+    def __init__(self, pack: Pack, vars=None) -> None:
         super().__init__()
+        self._pack = pack
+        self._vars = vars
+
+        # ---- Pack management ---------------------------------------------
+        mgmt = Adw.PreferencesGroup(title="Pack Management")
+        self.add(mgmt)
+
+        current_row = Adw.ActionRow(
+            title="Active Pack",
+            subtitle=pack.info.name,
+        )
+        current_row.add_suffix(Gtk.Image.new_from_icon_name("media-playback-start-symbolic"))
+        mgmt.add(current_row)
+
+        import_row = Adw.ActionRow(
+            title="Import New Pack",
+            subtitle="Copy a .zip pack into data/packs/ for easy switching.",
+        )
+        import_btn = Gtk.Button(label="Import…")
+        import_btn.set_valign(Gtk.Align.CENTER)
+        import_btn.connect("clicked", lambda _: self._on_import_new())
+        import_row.add_suffix(import_btn)
+        import_row.set_activatable_widget(import_btn)
+        mgmt.add(import_row)
+
+        change_row = Adw.ActionRow(
+            title="Change Default Pack",
+            subtitle="Overwrites resource/ — use Import New for multi-pack setups.",
+        )
+        change_btn = Gtk.Button(label="Choose…")
+        change_btn.set_valign(Gtk.Align.CENTER)
+        change_btn.connect("clicked", lambda _: self._on_change_default())
+        change_row.add_suffix(change_btn)
+        change_row.set_activatable_widget(change_btn)
+        mgmt.add(change_row)
+
+        # Switch pack list
+        pack_list = sorted(os.listdir(Data.PACKS)) if Data.PACKS.exists() else []
+        if pack_list:
+            switch_group = Adw.PreferencesGroup(
+                title="Installed Packs",
+                description="Click a pack to switch to it. Changes save automatically.",
+            )
+            self.add(switch_group)
+
+            current_name = vars.pack_path.get() if vars else ""
+            for name in pack_list:
+                row = Adw.ActionRow(title=name)
+                if name == current_name:
+                    check = Gtk.Image.new_from_icon_name("object-select-symbolic")
+                    check.add_css_class("accent")
+                    check.set_valign(Gtk.Align.CENTER)
+                    row.add_suffix(check)
+                else:
+                    sw_btn = Gtk.Button(label="Switch")
+                    sw_btn.set_valign(Gtk.Align.CENTER)
+                    sw_btn.connect("clicked", lambda _b, n=name: self._on_switch(n))
+                    row.add_suffix(sw_btn)
+                    row.set_activatable_widget(sw_btn)
+                switch_group.add(row)
+
+            default_row = Adw.ActionRow(
+                title="Default Pack",
+                subtitle="The built-in resource/ pack.",
+            )
+            def_btn = Gtk.Button(label="Switch")
+            def_btn.set_valign(Gtk.Align.CENTER)
+            def_btn.connect("clicked", lambda _: self._on_switch("default"))
+            default_row.add_suffix(def_btn)
+            default_row.set_activatable_widget(def_btn)
+            switch_group.add(default_row)
 
         # ---- Status ------------------------------------------------------
-        status = Adw.PreferencesGroup(title="Pack Status", description=MULTI_PACK_TEXT)
+        status = Adw.PreferencesGroup(title="Pack Status")
         self.add(status)
         status.add(_status_row("Pack Loaded", pack.paths.root.exists()))
         status.add(_status_row("Info File", pack.paths.info.is_file()))
@@ -92,6 +162,22 @@ class InfoTab(Adw.PreferencesPage):
             "accessed without permissions, so it can't be previewed here."
         )
         discord.add(image_row)
+
+
+    def _on_import_new(self) -> None:
+        from config.gtk_window.import_pack import import_pack
+        import_pack(False)
+
+    def _on_change_default(self) -> None:
+        from config.gtk_window.import_pack import import_pack
+        import_pack(True)
+
+    def _on_switch(self, name: str) -> None:
+        if self._vars:
+            from config.gtk_window.utils import write_save, refresh
+            self._vars.pack_path.set(name)
+            write_save(self._vars)
+            refresh()
 
 
 def _status_row(title: str, ok: bool, tooltip: str | None = None) -> Adw.ActionRow:
