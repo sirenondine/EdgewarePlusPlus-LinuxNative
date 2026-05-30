@@ -28,10 +28,15 @@ from pack import Pack
 
 
 class SubliminalPopup(Gtk.Window):
-    def __init__(self, settings: Settings, pack: Pack, subliminal: str | None = None) -> None:
+    def __init__(self, settings: Settings, pack: Pack, state=None, subliminal: str | None = None) -> None:
         self.subliminal = subliminal or pack.random_subliminal()
         if not self.should_init():
             return
+        if state is not None and self.subliminal:
+            try:
+                state.recent_text.append(self.subliminal)
+            except Exception:
+                pass
         super().__init__()
 
         self.set_decorated(False)

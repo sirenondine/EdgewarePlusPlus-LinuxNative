@@ -196,11 +196,17 @@ def handle_gamification(settings: Settings, pack: Pack, state: State) -> None:
 
 
 def send_notification(
-    settings: Settings, pack: Pack, notification: str | None = None, sextoy: object | None = None
+    settings: Settings, pack: Pack, notification: str | None = None, sextoy: object | None = None, state: object | None = None
 ) -> None:
     notification = notification or pack.random_notification()
     if not notification:
         return
+
+    if state is not None:
+        try:
+            state.recent_text.append(notification)
+        except Exception:
+            pass
 
     image = pack.random_image()
     notify(
