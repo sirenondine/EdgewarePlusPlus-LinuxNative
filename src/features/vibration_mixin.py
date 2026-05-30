@@ -140,6 +140,11 @@ def start_continuous(settings: Any, sextoy: Any, token: str,
         idx = _shared._safe_get_device_id(dev_id)
         if idx is None or idx not in getattr(sextoy, "devices", {}):
             continue
+        # Apply the device's chosen waveform before adding the contribution.
+        if hasattr(sextoy, "set_pattern"):
+            name = ds.get("sextoy_pattern", "constant")
+            period = _shared._get_valid_value(ds, "sextoy_pattern_speed", 2.0, (int, float))
+            sextoy.set_pattern(idx, name if isinstance(name, str) else "constant", period)
         sextoy.add_contribution(idx, token, _shared._normalize_force(force_pct, ds))
 
 

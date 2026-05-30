@@ -23,7 +23,7 @@ require_version("Adw", "1")
 from gi.repository import Adw, GLib, Gtk
 
 from config.vars import Vars
-from features.sextoy import BUTTPLUG_AVAILABLE, Sextoy
+from features.sextoy import BUTTPLUG_AVAILABLE, PATTERN_NAMES, Sextoy
 
 INTRO_TEXT = (
     "Drive a sex toy from Edgeware via Intiface Central. Start Intiface Central, "
@@ -36,6 +36,10 @@ ADDR_TEXT = "Websocket address of the running Intiface Central server."
 _GROUPS: dict[str, list[tuple]] = {
     "General": [
         ("sextoy_general_vibration_force", "General Vibration Force (%)", "pct", 0, 100),
+    ],
+    "Pattern (Continuous Mode)": [
+        ("sextoy_pattern", "Waveform", "combo", 0, 0),
+        ("sextoy_pattern_speed", "Pattern Speed — period (sec)", "float", 0.5, 5.0),
     ],
     "Image — Continuous Mode": [
         ("sextoy_image_continuous", "Vibrate while any image popup is open", "bool", 0, 1),
@@ -86,6 +90,7 @@ _GROUPS: dict[str, list[tuple]] = {
 # reduction (50 silently halves everything, which felt "broken").
 _DEFAULTS: dict[str, object] = {
     "sextoy_general_vibration_force": 100,
+    "sextoy_pattern": "constant", "sextoy_pattern_speed": 2.0,
     "sextoy_image_continuous": 0, "sextoy_image_continuous_force": 30,
     "sextoy_image_open_chance": 50, "sextoy_image_open_vibration_force": 60, "sextoy_image_open_vibration_length": 0.8,
     "sextoy_image_close_chance": 0, "sextoy_image_close_vibration_force": 50, "sextoy_image_close_vibration_length": 0.5,
@@ -249,6 +254,9 @@ class SexToysTab(Adw.PreferencesPage):
             ctrl = self._controls.get((idx, key))
             if isinstance(ctrl, Adw.SwitchRow):
                 ctrl.set_active(bool(default))
+            elif isinstance(ctrl, Adw.ComboRow):
+                if default in PATTERN_NAMES:
+                    ctrl.set_selected(PATTERN_NAMES.index(default))
             elif ctrl is not None:  # Gtk.Adjustment
                 ctrl.set_value(float(default))
 
@@ -264,6 +272,17 @@ class SexToysTab(Adw.PreferencesPage):
             row = Adw.SwitchRow(title=label)
             row.set_active(bool(self._value(idx, key)))
             row.connect("notify::active", lambda r, _p: self._store(idx, key, int(r.get_active())))
+            self._controls[(idx, key)] = row
+            return row
+
+        if kind == "combo":
+            row = Adw.ComboRow(title=label)
+            row.set_model(Gtk.StringList.new([n.capitalize() for n in PATTERN_NAMES]))
+            current = self._value(idx, key)
+            if current in PATTERN_NAMES:
+                row.set_selected(PATTERN_NAMES.index(current))
+            row.connect("notify::selected",
+                        lambda r, _p: self._store(idx, key, PATTERN_NAMES[r.get_selected()]))
             self._controls[(idx, key)] = row
             return row
 

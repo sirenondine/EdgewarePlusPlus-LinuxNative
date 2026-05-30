@@ -22,10 +22,45 @@
 
 import asyncio
 import logging
+import math
 import random
 import time
 from threading import Thread
 from typing import TypedDict
+
+
+# Vibration patterns: f(t_seconds, period_seconds) -> intensity multiplier 0..1.
+# The device's summed continuous total is multiplied by this each tick.
+def _p_constant(t: float, period: float) -> float:
+    return 1.0
+
+
+def _p_pulse(t: float, period: float) -> float:
+    return 1.0 if (t % period) < period / 2 else 0.0
+
+
+def _p_wave(t: float, period: float) -> float:
+    return 0.5 + 0.5 * math.sin(2 * math.pi * t / period)
+
+
+def _p_ramp(t: float, period: float) -> float:
+    return (t % period) / period
+
+
+def _p_random(t: float, period: float) -> float:
+    # Steps to a new random level every quarter-period (deterministic per step).
+    step = int(t / (period / 4)) if period else 0
+    return (math.sin(step * 12.9898) * 43758.5453) % 1.0
+
+
+PATTERNS = {
+    "constant": _p_constant,
+    "pulse": _p_pulse,
+    "wave": _p_wave,
+    "ramp": _p_ramp,
+    "random": _p_random,
+}
+PATTERN_NAMES = list(PATTERNS.keys())
 
 # buttplug-py is an optional dependency. If it isn't installed the feature
 # degrades gracefully: Sextoy can still be constructed but never connects.
@@ -54,6 +89,9 @@ class Sextoy:
         # continuous popup is one token; the device runs at the summed total
         # (capped at 1.0) so concurrent popups stack. Plus one-shot state.
         self._contributions: dict[int, dict[str, float]] = {}
+        # Per-device pattern (name, period seconds) and running modulation task.
+        self._patterns: dict[int, tuple[str, float]] = {}
+        self._modulation: dict[int, object] = {}
         self._active_vibrations: dict[int, dict[int, StoredActuator]] = {}
         self._active_rotations: dict[int, dict[int, StoredActuator]] = {}
         self.vibration_index = 0
@@ -209,24 +247,46 @@ class Sextoy:
             self._vibrate_once(device_index, speed, duration), self._loop)
 
     # ------------------------------------------------------------------
-    # Continuous (held) vibration — contributions stack into a per-device total
-    async def _apply_total(self, device_index: int) -> None:
+    # Continuous (held) vibration — contributions stack into a per-device total,
+    # modulated by the device's pattern via a ticking task.
+    _TICK = 0.15  # seconds between pattern updates (~7/s, BLE-friendly)
+
+    def set_pattern(self, device_index: int, name: str, period: float) -> None:
+        if name not in PATTERNS:
+            name = "constant"
+        self._patterns[device_index] = (name, max(0.2, float(period)))
+
+    async def _send(self, device_index: int, level: float) -> None:
         dev = self._client.devices.get(device_index)
         if not dev:
             return
-        total = min(1.0, sum(self._contributions.get(device_index, {}).values()))
         clockwise = bool(random.getrandbits(1))
         for act in dev.actuators:
-            await act.command(total)
+            await act.command(level)
         for rot in dev.rotatory_actuators:
-            await rot.command(total, clockwise)
+            await rot.command(level, clockwise)
+
+    async def _modulate(self, device_index: int) -> None:
+        t0 = time.monotonic()
+        try:
+            while self._contributions.get(device_index):
+                total = min(1.0, sum(self._contributions[device_index].values()))
+                name, period = self._patterns.get(device_index, ("constant", 2.0))
+                factor = PATTERNS.get(name, _p_constant)(time.monotonic() - t0, period)
+                await self._send(device_index, round(total * factor, 3))
+                await asyncio.sleep(self._TICK)
+        finally:
+            await self._send(device_index, 0.0)
+            self._modulation.pop(device_index, None)
 
     def add_contribution(self, device_index: int, token: str, force: float) -> None:
-        """Add a named force contribution and re-apply the summed total."""
+        """Add a named force contribution; start the modulation loop if needed."""
         if not self.connected:
             return
         self._contributions.setdefault(device_index, {})[token] = force
-        asyncio.run_coroutine_threadsafe(self._apply_total(device_index), self._loop)
+        if device_index not in self._modulation:
+            self._modulation[device_index] = asyncio.run_coroutine_threadsafe(
+                self._modulate(device_index), self._loop)
 
     def remove_contribution(self, device_index: int, token: str) -> None:
         if not self.connected:
@@ -237,7 +297,7 @@ class Sextoy:
         bucket.pop(token, None)
         if not bucket:
             self._contributions.pop(device_index, None)
-        asyncio.run_coroutine_threadsafe(self._apply_total(device_index), self._loop)
+            # The modulation loop sees the empty dict, sends 0 and exits.
 
     def remove_token(self, token: str) -> None:
         """Remove a contribution token from every device (used on popup close
