@@ -75,6 +75,32 @@ def handle_sextoy(settings: Settings, state: State) -> None:
     state.sextoy.connect()
 
 
+def handle_companion(settings: Settings, pack: Pack, state: State) -> None:
+    """Build the optional AI companion (engine + on-screen window) and greet, if
+    enabled. No-op otherwise. Backend errors degrade gracefully (the engine logs
+    and the window stays hidden)."""
+    if not getattr(settings, "companion_enabled", False):
+        return
+    try:
+        from features.companion.engine import Companion, _DEFAULT_PERSONA
+        from features.companion.window import CompanionWindow
+
+        persona = pack.companion or _DEFAULT_PERSONA
+        window = CompanionWindow(settings, pack, persona)
+        companion = Companion(
+            settings, pack,
+            on_start=window.begin, on_token=window.append, on_done=window.finish,
+        )
+        state.companion = companion
+        state.companion_window = window
+        if getattr(settings, "companion_greet_on_start", False):
+            companion.greet()
+    except Exception as e:
+        logging.warning(f"Failed to start AI companion: {e}")
+        state.companion = None
+        state.companion_window = None
+
+
 def send_notification(
     settings: Settings, pack: Pack, notification: str | None = None, sextoy: object | None = None
 ) -> None:

@@ -66,6 +66,8 @@ class State:
     alt_held = False
 
     sextoy: object | None = None  # features.sextoy.Sextoy when toy support is active
+    companion: object | None = None  # features.companion.engine.Companion when enabled
+    companion_window: object | None = None  # features.companion.window.CompanionWindow
 
     @property
     def popup_number(self) -> int:

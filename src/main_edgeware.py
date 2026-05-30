@@ -70,6 +70,7 @@ from features.lockscreen import handle_lock_screen
 from features.niri_watch import handle_niri_watch
 from features.power import handle_power
 from features.misc import (
+    handle_companion,
     handle_discord,
     handle_keyboard,
     handle_mitosis_mode,
@@ -134,6 +135,7 @@ if __name__ == "__main__":
             RollTarget(lambda: play_audio(settings, pack, state), lambda: settings.audio_chance),
             RollTarget(lambda: open_web(pack), lambda: settings.web_chance),
             RollTarget(lambda: send_notification(settings, pack, sextoy=state.sextoy), lambda: settings.notification_chance),
+            RollTarget(lambda: state.companion and state.companion.idle_chatter(), lambda: settings.companion_chatter_chance if state.companion else 0),
         ]
 
         def start_main() -> None:
@@ -147,6 +149,7 @@ if __name__ == "__main__":
             handle_corruption(settings, pack, state)
             handle_discord(settings, pack)
             handle_sextoy(settings, state)
+            handle_companion(settings, pack, state)
             handle_lock_screen(settings, state)
             handle_niri_watch(settings, state)
             handle_power(settings, state)

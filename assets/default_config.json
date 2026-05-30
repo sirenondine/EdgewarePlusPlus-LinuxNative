@@ -101,5 +101,13 @@
   "spawnOnActiveMonitor": 0,
   "pauseOnBattery": 0,
   "pauseApps": "",
-  "escalation": 0
+  "escalation": 0,
+  "companionEnabled": 0,
+  "companionBackend": "ollama",
+  "companionBaseUrl": "http://localhost:11434",
+  "companionModel": "",
+  "companionApiKey": "",
+  "companionChatterChance": 20,
+  "companionGreetOnStart": 1,
+  "companionWindowAware": 0
 }

@@ -91,6 +91,8 @@ HIBERNATE_DELAY_MAX_DANGER = "You are running Hibernate Mode with a short maximu
 SHOW_ON_DISCORD_DANGER = "Show on Discord is enabled! This could lead to potential embarassment if you're on your main account!"
 PANIC_DISABLED_DANGER = "Panic Hotkey is disabled! Panic is still available from the tray icon and the panic command."
 RUN_ON_SAVE_QUIT_DANGER = "Edgeware will run on Save & Exit (AKA: when you hit Yes!)"
+COMPANION_CLOUD_DANGER = "The AI companion is set to a cloud backend! Your prompts and pack content will be sent to a third party. Use a local backend (Ollama) to keep everything on your machine."
+COMPANION_WINDOW_AWARE_DANGER = "Companion window awareness is enabled! The names of apps you focus will be fed to the companion, and sent to the backend. With a cloud backend, that information leaves your machine."
 
 
 # fmt: off
@@ -217,6 +219,19 @@ CONFIG_ITEMS = {
     # individual values via its sliders.
     "sextoys": Item("sextoys", Schema({str: dict}), VAR, lambda value: value, block=True),
     "intiface_address": Item("intifaceAddress", STRING, VAR, str, block=True),
+
+    # AI companion. Bring-your-own inference: local Ollama by default (nothing
+    # leaves the machine), any OpenAI-compatible endpoint, or a no-network
+    # scripted fallback. Cloud backend + window awareness are danger-gated
+    # because they send data off the machine.
+    "companion_enabled": Item("companionEnabled", BOOLEAN, VAR, bool, block=True),
+    "companion_backend": Item("companionBackend", STRING, VAR, str, danger=Danger(DangerLevel.MEDIUM, Schema("openai"), COMPANION_CLOUD_DANGER), block=True),
+    "companion_base_url": Item("companionBaseUrl", STRING, VAR, str, block=True),
+    "companion_model": Item("companionModel", STRING, VAR, str, block=True),
+    "companion_api_key": Item("companionApiKey", STRING, VAR, str, block=True),
+    "companion_chatter_chance": Item("companionChatterChance", PERCENTAGE, VAR, int),
+    "companion_greet_on_start": Item("companionGreetOnStart", BOOLEAN, VAR, bool, block=True),
+    "companion_window_awareness": Item("companionWindowAware", BOOLEAN, VAR, bool, danger=Danger(DangerLevel.MEDIUM, Schema(1), COMPANION_WINDOW_AWARE_DANGER), block=True),
 }
 # fmt: on
 
