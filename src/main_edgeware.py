@@ -51,7 +51,12 @@ import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Gtk4LayerShell", "1.0")
-from gi.repository import Gio, Gtk
+from gi.repository import Gio, GLib, Gtk
+
+# Give standalone runtime windows (the warning/safeword dialogs) a stable Wayland
+# app-id instead of the bare "python3", so compositors can target them (e.g. a
+# niri float rule). Must be set before any window is created.
+GLib.set_prgname("io.github.sirenondine.EdgewarePlusPlusRuntime")
 
 import utils
 from config import first_launch_configure
