@@ -23,15 +23,9 @@ from typing import Callable
 from voluptuous import All, Range, Schema, Union
 from voluptuous.error import Invalid
 
-from config.themes import THEMES, Theme
-
 # Sentinel marking a config item as user-editable in the config window. Only its
 # truthiness is checked (see Vars), so a single shared value suffices.
 VAR = True
-
-
-def _resolve_theme(value: str) -> Theme:
-    return THEMES.get(value, THEMES["Original"])
 
 BROKEN = True  # For config items that can't be changed by corruption
 
@@ -102,7 +96,7 @@ RUN_ON_SAVE_QUIT_DANGER = "Edgeware will run on Save & Exit (AKA: when you hit Y
 CONFIG_ITEMS = {
     # Start
     "pack_path": Item("packPath", Schema(Union(str, None)), VAR, lambda value: value),
-    "theme": Item("themeType", STRING, VAR, _resolve_theme),
+    "theme": Item("themeType", STRING, VAR, str),  # vestigial: never read at runtime (popups use GTK CSS)
     "theme_ignore_config": Item("themeNoConfig", BOOLEAN, VAR, None, block=True),
     "startup_splash": Item("showLoadingFlair", BOOLEAN, VAR, bool, block=True),
     "run_on_save_quit": Item("runOnSaveQuit", BOOLEAN, VAR, None, danger=Danger(DangerLevel.MINOR, Schema(1), RUN_ON_SAVE_QUIT_DANGER), block=True),
