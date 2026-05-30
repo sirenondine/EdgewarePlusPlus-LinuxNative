@@ -33,9 +33,11 @@ from gi.repository import Adw, GLib, Gtk
 
 
 def show_onboarding(parent: Gtk.Window, vars, pack) -> None:
-    """Show the onboarding dialog attached to *parent*."""
+    """Show the onboarding dialog, hiding *parent* until it closes."""
     dialog = _OnboardingDialog(vars, pack)
     dialog.set_transient_for(parent)
+    parent.set_visible(False)
+    dialog.connect("destroy", lambda _: parent.set_visible(True))
     dialog.present()
 
 
