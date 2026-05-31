@@ -95,6 +95,7 @@ COMPANION_CLOUD_DANGER = "The AI companion is set to a cloud backend! Your promp
 COMPANION_WINDOW_AWARE_DANGER = "Companion window awareness is enabled! The names of apps you focus will be fed to the companion, and sent to the backend. With a cloud backend, that information leaves your machine."
 COMPANION_SCREENSHOT_DANGER = "Companion screen awareness is enabled! Screenshots of your WHOLE screen (including popups and anything else open) are sent to the companion's backend. With a cloud backend, your screen contents leave your machine. Only enable this with a trusted local backend."
 COMPANION_CLIPBOARD_DANGER = "Companion clipboard awareness is enabled! Every image you COPY is sent to the companion's backend. That can include private screenshots or documents. With a cloud backend it leaves your machine. Only enable this with a trusted local backend."
+COMPANION_CONTROL_DANGER = "Companion control is enabled! The AI can trigger popups, prompts, notifications, wallpaper changes and toy vibrations on its own. Actions are limited to safe ones and rate-limited, and Panic always works."
 
 
 # fmt: off
@@ -249,6 +250,8 @@ CONFIG_ITEMS = {
     "companion_window_awareness": Item("companionWindowAware", BOOLEAN, VAR, bool, danger=Danger(DangerLevel.MEDIUM, Schema(1), COMPANION_WINDOW_AWARE_DANGER), block=True),
     "companion_screenshot_awareness": Item("companionScreenshotAware", BOOLEAN, VAR, bool, danger=Danger(DangerLevel.EXTREME, Schema(1), COMPANION_SCREENSHOT_DANGER), block=True),
     "companion_clipboard_awareness": Item("companionClipboardAware", BOOLEAN, VAR, bool, danger=Danger(DangerLevel.EXTREME, Schema(1), COMPANION_CLIPBOARD_DANGER), block=True),
+    "companion_control": Item("companionControl", BOOLEAN, VAR, bool, danger=Danger(DangerLevel.MEDIUM, Schema(1), COMPANION_CONTROL_DANGER), block=True),
+    "companion_control_mode": Item("companionControlMode", STRING, VAR, str, block=True),
 
     # Local gamification (XP, levels, achievements). Opt-in, fully local, no
     # leaderboard or telemetry; progress lives in a plain JSON state file.

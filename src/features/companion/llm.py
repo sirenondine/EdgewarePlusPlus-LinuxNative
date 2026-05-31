@@ -56,6 +56,8 @@ class LLMBackend(Protocol):
         *,
         stop: Stop | None = None,
         image_b64: str | None = None,
+        tools: list | None = None,
+        on_tool_calls=None,
     ) -> None:
         """Stream a completion for `messages`. Calls on_token per chunk, then
         on_done(full_text) once, or on_error(exc) on failure. Blocking; run on a
@@ -74,10 +76,14 @@ class OllamaBackend:
         self.model = model
         self.timeout = timeout
 
-    def stream(self, messages, on_token, on_done, on_error, *, stop=None, image_b64=None) -> None:
+    def stream(self, messages, on_token, on_done, on_error, *, stop=None, image_b64=None,
+               tools=None, on_tool_calls=None) -> None:
         url = f"{self.base_url}/api/chat"
         payload = {"model": self.model, "messages": _attach_image_ollama(messages, image_b64), "stream": True}
+        if tools:
+            payload["tools"] = tools
         acc: list[str] = []
+        calls: list[tuple[str, dict]] = []
         try:
             with requests.post(url, json=payload, stream=True, timeout=self.timeout) as r:
                 r.raise_for_status()
@@ -89,12 +95,18 @@ class OllamaBackend:
                     obj = json.loads(line)
                     if obj.get("error"):
                         raise RuntimeError(obj["error"])
-                    chunk = (obj.get("message") or {}).get("content", "")
+                    message = obj.get("message") or {}
+                    chunk = message.get("content", "")
                     if chunk:
                         acc.append(chunk)
                         on_token(chunk)
+                    for tc in message.get("tool_calls") or []:
+                        fn = tc.get("function") or {}
+                        calls.append((fn.get("name", ""), fn.get("arguments") or {}))
                     if obj.get("done"):
                         break
+            if calls and on_tool_calls:
+                on_tool_calls(calls)
             on_done("".join(acc))
         except Exception as e:
             on_error(e)
@@ -115,12 +127,16 @@ class OpenAIBackend:
             return f"{self.base_url}/chat/completions"
         return f"{self.base_url}/v1/chat/completions"
 
-    def stream(self, messages, on_token, on_done, on_error, *, stop=None, image_b64=None) -> None:
+    def stream(self, messages, on_token, on_done, on_error, *, stop=None, image_b64=None,
+               tools=None, on_tool_calls=None) -> None:
         headers = {"Content-Type": "application/json"}
         if self.api_key:
             headers["Authorization"] = f"Bearer {self.api_key}"
         payload = {"model": self.model, "messages": _attach_image_openai(messages, image_b64), "stream": True}
+        if tools:
+            payload["tools"] = tools
         acc: list[str] = []
+        tool_frags: dict[int, dict] = {}  # index -> {name, args(str)}
         try:
             with requests.post(self._endpoint(), json=payload, headers=headers, stream=True, timeout=self.timeout) as r:
                 r.raise_for_status()
@@ -136,10 +152,26 @@ class OpenAIBackend:
                     choices = obj.get("choices") or []
                     if not choices:
                         continue
-                    delta = (choices[0].get("delta") or {}).get("content", "")
-                    if delta:
-                        acc.append(delta)
-                        on_token(delta)
+                    delta = choices[0].get("delta") or {}
+                    if delta.get("content"):
+                        acc.append(delta["content"])
+                        on_token(delta["content"])
+                    for tc in delta.get("tool_calls") or []:
+                        slot = tool_frags.setdefault(tc.get("index", 0), {"name": "", "args": ""})
+                        fn = tc.get("function") or {}
+                        if fn.get("name"):
+                            slot["name"] = fn["name"]
+                        if fn.get("arguments"):
+                            slot["args"] += fn["arguments"]
+            if tool_frags and on_tool_calls:
+                calls = []
+                for slot in tool_frags.values():
+                    try:
+                        args = json.loads(slot["args"]) if slot["args"] else {}
+                    except Exception:
+                        args = {}
+                    calls.append((slot["name"], args))
+                on_tool_calls(calls)
             on_done("".join(acc))
         except Exception as e:
             on_error(e)
@@ -161,7 +193,8 @@ class ScriptedBackend:
         lines = list(self._corpus or [])
         return random.choice(lines) if lines else ""
 
-    def stream(self, messages, on_token, on_done, on_error, *, stop=None, image_b64=None) -> None:
+    def stream(self, messages, on_token, on_done, on_error, *, stop=None, image_b64=None,
+               tools=None, on_tool_calls=None) -> None:
         try:
             line = self._line()
             if line:

@@ -38,6 +38,16 @@ BACKENDS = {
     "openai": "OpenAI-compatible",
     "scripted": "Scripted (no AI)",
 }
+CONTROL_MODES = {
+    "tags": "Command tags (any model)",
+    "tools": "Tool calling (needs a tool-capable model)",
+}
+CONTROL_TEXT = (
+    "Let the companion act in Edgeware: spawn popups and prompts, send "
+    "notifications, change the wallpaper and pulse the toy. Only safe, "
+    "rate-limited actions are exposed and Panic always works. Tags work with "
+    "any model; tool calling needs a model that supports it."
+)
 PRIVACY_TEXT = (
     "Window awareness feeds the name of the app you are focused on to the "
     "companion. With a cloud backend, that — and the companion's prompts — "
@@ -103,6 +113,11 @@ class CompanionTab(Adw.PreferencesPage):
             "Screen Awareness", vars.companion_screenshot_awareness, subtitle=SCREENSHOT_TEXT))
         behaviour.add(AdwSwitchRow(
             "Clipboard Awareness", vars.companion_clipboard_awareness, subtitle=CLIPBOARD_TEXT))
+
+        control = Adw.PreferencesGroup(title="Control", description=CONTROL_TEXT)
+        self.add(control)
+        control.add(AdwSwitchRow("Let Companion Control Edgeware", vars.companion_control))
+        control.add(AdwComboRow("Control Method", vars.companion_control_mode, CONTROL_MODES))
 
         # ---- Test --------------------------------------------------------
         test_group = Adw.PreferencesGroup(

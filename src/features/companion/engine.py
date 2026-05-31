@@ -119,9 +119,21 @@ class Companion:
             scripted_corpus=corpus or (lambda: self.pack.random_caption()),
         )
 
+    def _control_mode(self) -> str:
+        """'tags', 'tools', or '' depending on companion control settings."""
+        if not getattr(self.settings, "companion_control", False):
+            return ""
+        mode = (getattr(self.settings, "companion_control_mode", "tags") or "tags").lower()
+        return "tools" if mode == "tools" else "tags"
+
     def _messages(self, user_text: str) -> list[dict]:
         system = self.persona.system_prompt or _DEFAULT_SYSTEM
         messages = [{"role": "system", "content": system}]
+        if self._control_mode() == "tags":
+            from features.companion import actions
+            messages.append({"role": "system", "content":
+                "You can take actions in Edgeware by adding a tag anywhere in your reply. "
+                "Use them sparingly and in character. Available:\n" + actions.vocabulary()})
         context = self._context_block()
         if context:
             messages.append({"role": "system", "content": context})
@@ -223,8 +235,16 @@ class Companion:
             acc["text"] += t
             self._on_token(t)
 
+        control = self._control_mode()  # "", "tags", or "tools"
+
         def done(full: str) -> None:
             text = (full or acc["text"]).strip()
+            if control == "tags":
+                # Pull [do:...] tags out of the spoken text and run them.
+                from features.companion import actions
+                text, acts = actions.parse_tags(text)
+                for name, arg in acts:
+                    actions.execute(name, arg, self.settings, self.pack, self.state)
             if text:
                 # Store only the text in history, never the image.
                 self._history.append({"role": "user", "content": user_text})
@@ -239,9 +259,20 @@ class Companion:
             self._busy = False
             self._on_error(e)
 
+        tools = on_tool_calls = None
+        if control == "tools":
+            from features.companion import actions
+            tools = actions.tool_schemas()
+
+            def on_tool_calls(calls) -> None:
+                from features.companion import actions as a
+                for name, arg in calls:
+                    a.execute(name, arg, self.settings, self.pack, self.state)
+
         self._on_start()
         self.backend.stream(self._messages(user_text), tok, done, err,
-                            stop=self._cancel.is_set, image_b64=image_b64)
+                            stop=self._cancel.is_set, image_b64=image_b64,
+                            tools=tools, on_tool_calls=on_tool_calls)
 
     def observe(self) -> None:
         """Capture the screen and react to what's on it via a vision model.
