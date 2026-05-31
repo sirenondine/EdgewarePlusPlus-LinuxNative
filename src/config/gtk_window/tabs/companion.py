@@ -77,6 +77,7 @@ class CompanionTab(Adw.PreferencesPage):
         group.add(AdwComboRow("Backend", vars.companion_backend, BACKENDS))
         group.add(AdwEntryRow("Server URL", vars.companion_base_url))
         group.add(AdwEntryRow("Model", vars.companion_model))
+        group.add(self._model_picker(vars))
         group.add(AdwEntryRow("API key", vars.companion_api_key, password=True))
 
         persona = Adw.PreferencesGroup(
@@ -173,6 +174,49 @@ class CompanionTab(Adw.PreferencesPage):
         frame.set_child(scroller)
         box.append(frame)
         return box
+
+    def _model_picker(self, vars: Vars) -> Gtk.Widget:
+        """A dropdown of models detected on the Ollama server, tagged with their
+        capabilities (vision/tools). Selecting one fills the Model field. A
+        Refresh button re-queries. Empty for non-Ollama / offline backends."""
+        row = Adw.ComboRow(title="Detected models", subtitle="Pick from the Ollama server above")
+        refresh = Gtk.Button(icon_name="view-refresh-symbolic", valign=Gtk.Align.CENTER)
+        refresh.set_tooltip_text("Refresh model list")
+        row.add_suffix(refresh)
+        self._model_names: list[str] = []
+        self._model_suppress = False
+
+        def populate(items) -> bool:
+            self._model_names = [n for n, _ in items]
+            labels = [f"{n}  ·  {', '.join(sorted(c & {'vision', 'tools'})) or 'text'}" for n, c in items] \
+                or ["(none detected — type the name above)"]
+            self._model_suppress = True
+            row.set_model(Gtk.StringList.new(labels))
+            cur = vars.companion_model.get()
+            if cur in self._model_names:
+                row.set_selected(self._model_names.index(cur))
+            self._model_suppress = False
+            return False
+
+        def on_selected(r, _p) -> None:
+            if self._model_suppress:
+                return
+            i = r.get_selected()
+            if 0 <= i < len(self._model_names):
+                vars.companion_model.set(self._model_names[i])
+        row.connect("notify::selected", on_selected)
+
+        def refresh_now(*_a) -> None:
+            base = vars.companion_base_url.get() or ""
+
+            def work() -> None:
+                from features.companion import ollama
+                items = ollama.models_with_capabilities(base)
+                GLib.idle_add(populate, items)
+            threading.Thread(target=work, daemon=True).start()
+        refresh.connect("clicked", refresh_now)
+        refresh_now()
+        return row
 
     def _memory_facts_editor(self) -> Gtk.Widget:
         """Editor for the learned-memory facts file (one fact per line), with a
