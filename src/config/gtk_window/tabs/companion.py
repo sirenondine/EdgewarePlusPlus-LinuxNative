@@ -15,6 +15,7 @@
 # You should have received a copy of the GNU General Public License
 # along with Edgeware++.  If not, see <https://www.gnu.org/licenses/>.
 
+import os
 import threading
 
 from gi import require_version
@@ -65,6 +66,26 @@ CLIPBOARD_TEXT = (
     "private screenshots — so only use a trusted LOCAL backend."
 )
 
+# niri blurs layer-shell surfaces behind anything translucent. That looks good
+# behind popups but wrong behind the companion's rounded bubble. Guide niri
+# users to a layer-rule that blurs the popups but excludes the companion + HUD.
+_NIRI_BLUR_SNIPPET = (
+    '// Add to ~/.config/niri/layer-rules.kdl:\n'
+    'layer-rule {\n'
+    '    match namespace="^edgeware-.*$"\n'
+    '    exclude namespace="^edgeware-companion$"\n'
+    '    exclude namespace="^edgeware-hud$"\n'
+    '    background-effect {\n'
+    '        blur true\n'
+    '        xray false\n'
+    '    }\n'
+    '}'
+)
+
+
+def _is_niri() -> bool:
+    return bool(os.environ.get("NIRI_SOCKET"))
+
 
 class CompanionTab(Adw.PreferencesPage):
     def __init__(self, vars: Vars) -> None:
@@ -79,6 +100,14 @@ class CompanionTab(Adw.PreferencesPage):
         group.add(AdwEntryRow("Model", vars.companion_model))
         group.add(self._model_picker(vars, vars.companion_model))
         group.add(AdwEntryRow("API key", vars.companion_api_key, password=True))
+
+        # niri-only: stop the compositor blurring behind the companion bubble.
+        if _is_niri():
+            niri_group = Adw.PreferencesGroup(
+                title="niri Display",
+                description="niri blurs behind translucent layer-shell surfaces. That suits popups but looks wrong behind the companion bubble.")
+            self.add(niri_group)
+            niri_group.add(self._niri_blur_row())
 
         persona = Adw.PreferencesGroup(
             title="Persona",
@@ -177,6 +206,62 @@ class CompanionTab(Adw.PreferencesPage):
         frame.set_child(scroller)
         box.append(frame)
         return box
+
+    def _niri_blur_row(self) -> Gtk.Widget:
+        """A copy-pastable niri layer-rule that keeps blur on the popups but
+        excludes the companion bubble and HUD. niri reloads it automatically.
+        Mirrors the panic-key niri keybind helper on the Start tab."""
+        row = Adw.ActionRow()
+        row.set_activatable(False)
+
+        vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        vbox.set_margin_start(12)
+        vbox.set_margin_end(12)
+        vbox.set_margin_top(10)
+        vbox.set_margin_bottom(10)
+
+        info_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        info_icon = Gtk.Image.new_from_icon_name("dialog-information-symbolic")
+        info_icon.set_valign(Gtk.Align.START)
+        info_label = Gtk.Label(wrap=True, xalign=0, hexpand=True)
+        info_label.set_text(
+            "Seeing a blur behind the companion? Add this layer-rule. It keeps "
+            "the frosted blur on popups but excludes the companion and the "
+            "gamification HUD so they render crisp:")
+        info_row.append(info_icon)
+        info_row.append(info_label)
+        vbox.append(info_row)
+
+        code_view = Gtk.TextView()
+        code_view.set_editable(False)
+        code_view.set_monospace(True)
+        code_view.set_wrap_mode(Gtk.WrapMode.NONE)
+        code_view.set_cursor_visible(False)
+        code_view.add_css_class("card")
+        code_view.get_buffer().set_text(_NIRI_BLUR_SNIPPET)
+        vbox.append(code_view)
+
+        hint = Gtk.Label(
+            label="Paste into ~/.config/niri/layer-rules.kdl — niri reloads it automatically.",
+            xalign=0, wrap=True)
+        hint.add_css_class("dim-label")
+        vbox.append(hint)
+
+        copy_btn = Gtk.Button(icon_name="edit-copy-symbolic")
+        copy_btn.set_tooltip_text("Copy layer-rule to clipboard")
+        copy_btn.set_halign(Gtk.Align.END)
+
+        def on_copy(_b) -> None:
+            clipboard = copy_btn.get_clipboard()
+            if clipboard:
+                clipboard.set(_NIRI_BLUR_SNIPPET)
+            from config.gtk_window.toast import toast
+            toast("Layer-rule copied")
+        copy_btn.connect("clicked", on_copy)
+        vbox.append(copy_btn)
+
+        row.set_child(vbox)
+        return row
 
     def _avatar_row(self, vars: Vars) -> Gtk.Widget:
         """Avatar image path (shown beside the chat bubble and on the

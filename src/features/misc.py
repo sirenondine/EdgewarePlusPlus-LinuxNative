@@ -257,6 +257,17 @@ def make_tray_icon(
         if state.tray and hasattr(state.tray, "set_pause_label"):
             state.tray.set_pause_label(paused)
 
+    # Left click opens the companion chat (when enabled); without a companion
+    # it falls back to panic, preserving the old behaviour.
+    def activate() -> None:
+        win = getattr(state, "companion_window", None)
+        if win is not None:
+            from gi.repository import GLib
+            GLib.idle_add(win.open_chat)
+        else:
+            request_panic(settings, state)
+    companion_on = getattr(settings, "companion_enabled", False)
+
     # Offer a reconnect entry only when toy support is actually usable.
     from features.sextoy import BUTTPLUG_AVAILABLE
     toy_configured = BUTTPLUG_AVAILABLE and getattr(settings, "sextoys", None)
@@ -276,8 +287,9 @@ def make_tray_icon(
     try:
         state.tray = StatusNotifierItem(
             icon_name=os_utils.APP_ID,
-            tooltip="Edgeware++ — click to panic",
+            tooltip="Edgeware++ — click to talk" if companion_on else "Edgeware++ — click to panic",
             on_panic=lambda: request_panic(settings, state),
+            on_activate=activate if companion_on else None,
             on_skip_hibernate=skip_hibernate if settings.hibernate_mode else None,
             on_open_config=open_config,
             on_toggle_pause=toggle_pause,

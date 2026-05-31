@@ -288,14 +288,21 @@ class CompanionWindow(Gtk.Window):
     # ------------------------------------------------------------------
     # Click-to-chat.
     def _on_clicked(self, _gesture, _n, _x, _y) -> None:
+        self.open_chat()
+
+    def open_chat(self) -> bool:
+        """Show the companion and focus the chat entry. Safe to call from
+        GLib.idle_add (e.g. the tray left-click). Returns False so it can be a
+        one-shot idle source."""
         if self._input_handler is None:
-            return
+            return False
         self._cancel_hide()
         self._text_col.set_visible(True)
         self.set_visible(True)
         self.present()
         self._entry.set_visible(True)
         self._entry.grab_focus()
+        return False
 
     def _on_entry_key(self, _ctrl, keyval, _code, _mods) -> bool:
         from gi.repository import Gdk
@@ -377,6 +384,12 @@ class CompanionWindow(Gtk.Window):
 
     def _hide_impl(self) -> bool:
         self._hide_id = None
+        # Don't close while the user is typing to the companion (entry focused
+        # or holding unsent text); re-check shortly instead.
+        if self._entry.get_visible() and (self._entry.has_focus() or self._entry.get_text().strip()):
+            self._hide_id = GLib.timeout_add(2000, self._hide_impl)
+            return False
+        self._entry.set_visible(False)
         self._text_col.set_visible(False)
         if self._sprite:
             # Pet stays on screen, back to idling.

@@ -18,8 +18,9 @@ Replaces AppIndicator3, which is GTK3-only and cannot load in our GTK4
 process. Works on any Wayland panel that hosts a StatusNotifierWatcher
 (KDE, waybar, noctalia, …).
 
-Left click  -> panic
+Left click  -> open the companion (else panic, if no companion)
 Middle click-> skip to hibernate (when hibernate mode is on)
+Right click -> menu (Panic is always here)
 """
 
 import logging
@@ -215,10 +216,11 @@ class DBusMenu:
 
 
 class StatusNotifierItem:
-    def __init__(self, icon_name: str, tooltip: str, on_panic: Callable[[], None], on_skip_hibernate: Callable[[], None] | None = None, on_open_config: Callable[[], None] | None = None, on_toggle_pause: Callable[[], None] | None = None, on_reconnect_toy: Callable[[], None] | None = None, on_quit: Callable[[], None] | None = None, quit_hidden: bool = False) -> None:
+    def __init__(self, icon_name: str, tooltip: str, on_panic: Callable[[], None], on_skip_hibernate: Callable[[], None] | None = None, on_open_config: Callable[[], None] | None = None, on_toggle_pause: Callable[[], None] | None = None, on_reconnect_toy: Callable[[], None] | None = None, on_quit: Callable[[], None] | None = None, quit_hidden: bool = False, on_activate: Callable[[], None] | None = None) -> None:
         self._icon_name = icon_name
         self._tooltip = tooltip
         self._on_panic = on_panic
+        self._on_activate = on_activate
         self._on_skip_hibernate = on_skip_hibernate
         self._on_open_config = on_open_config
         self._on_toggle_pause = on_toggle_pause
@@ -299,9 +301,13 @@ class StatusNotifierItem:
 
     def _on_method_call(self, conn, sender, path, iface, method, params, invocation) -> None:
         invocation.return_value(None)
-        # Run directly so left-click panic works even when the main loop is busy.
+        # Left click (Activate): open the companion if wired, else panic. Panic
+        # runs directly so it still works when the main loop is busy.
         if method == "Activate":
-            self._on_panic()
+            if self._on_activate:
+                self._on_activate()
+            else:
+                self._on_panic()
         elif method == "SecondaryActivate":
             if self._on_skip_hibernate:
                 self._on_skip_hibernate()
