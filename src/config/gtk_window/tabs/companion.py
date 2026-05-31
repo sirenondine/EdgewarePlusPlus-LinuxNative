@@ -135,7 +135,8 @@ class CompanionTab(Adw.PreferencesPage):
         behaviour.add(AdwSliderRow("Reaction Chance", vars.companion_react_chance, 0, 100,
                                    subtitle="How often the companion reacts to popups and denials."))
         behaviour.add(AdwSliderRow("Observe Interval", vars.companion_observe_interval, 0, 300,
-                                   subtitle="Seconds between timed check-ins (0 = react to focus changes instead)."))
+                                   subtitle="Time between timed check-ins (0 = react to focus changes instead).",
+                                   unit="s"))
         behaviour.add(AdwSwitchRow(
             "Follow Around", vars.companion_follow,
             subtitle="Roam the screen and move to whichever monitor you're using, instead of sitting in a corner."))

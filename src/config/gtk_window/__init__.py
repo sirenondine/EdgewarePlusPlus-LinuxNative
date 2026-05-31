@@ -12,23 +12,12 @@ from gi.repository import Adw, Gdk, GLib, Gtk
 
 from config import load_default_config
 from config.gtk_window.toast import toast, name_popover
-from config.gtk_window.tabs.annoyance.booru import BooruTab
-from config.gtk_window.tabs.annoyance.dangerous_settings import DangerousSettingsTab
-from config.gtk_window.tabs.annoyance.moods import MoodsTab
-from config.gtk_window.tabs.annoyance.popup_tweaks import PopupTweaksTab
-from config.gtk_window.tabs.annoyance.popup_types import PopupTypesTab
-from config.gtk_window.tabs.annoyance.sextoys import SexToysTab
-from config.gtk_window.tabs.annoyance.wallpaper import WallpaperTab
-from config.gtk_window.tabs.companion import CompanionTab
-from config.gtk_window.tabs.corruption import CorruptionModeTab
-from config.gtk_window.tabs.progress import ProgressTab
-from config.gtk_window.tabs.general.default_file import DefaultFileTab
-from config.gtk_window.tabs.general.info import InfoTab
-from config.gtk_window.tabs.general.start import StartTab
-from config.gtk_window.tabs.modes import BasicModesTab
-from config.gtk_window.tabs.troubleshooting import TroubleshootingTab
-from config.gtk_window.tabs.tutorial import TutorialTab
-from config.gtk_window.utils import config, get_live_version, write_save
+# Only the (cheap) Home tab is imported eagerly. The settings tabs are imported
+# lazily inside the Settings window so the Dashboard, which shows only Home,
+# doesn't pay ~170ms loading every settings tab (booru, sextoys, companion, ...).
+from config.gtk_window.tabs.home import HomeTab
+from config.gtk_window.utils import config, get_live_version, persist
+from config.items import CONFIG_DANGER
 from config.vars import Vars
 from pack import Pack
 from paths import DEFAULT_PACK_PATH, CustomAssets, Data
@@ -40,7 +29,40 @@ pil_logger = logging.getLogger("PIL")
 pil_logger.setLevel(logging.INFO)
 
 # Pages whose widgets depend on the loaded pack — rebuilt on pack switch.
-_PACK_PAGE_NAMES = {"Overview", "Packs", "Assets", "Wallpaper", "Moods", "Corruption", "Troubleshooting"}
+_PACK_PAGE_NAMES = {"General", "Packs", "Assets", "Wallpaper", "Moods", "Corruption", "Troubleshooting"}
+
+# Symbolic icons for the settings sidebar rows (Adwaita icon set).
+_SIDEBAR_ICONS = {
+    "General": "emblem-system-symbolic",
+    "Packs": "folder-symbolic",
+    "Assets": "image-x-generic-symbolic",
+    "Popup Types": "view-grid-symbolic",
+    "Popup Tweaks": "preferences-other-symbolic",
+    "Wallpaper": "preferences-desktop-wallpaper-symbolic",
+    "Moods": "emblem-favorite-symbolic",
+    "Booru": "folder-pictures-symbolic",
+    "Sex Toys": "preferences-system-devices-symbolic",
+    "Companion": "avatar-default-symbolic",
+    "Modes": "applications-games-symbolic",
+    "Corruption": "dialog-warning-symbolic",
+    "Dangerous": "security-low-symbolic",
+    "Gamification": "starred-symbolic",
+    "Troubleshooting": "dialog-question-symbolic",
+    "Tutorial": "help-about-symbolic",
+}
+
+# Sidebar grouping. Rendered as category headers above the first page of each
+# group (via ListBox header_func, so page rows stay index-aligned).
+_SIDEBAR_CATEGORIES = [
+    ("Setup", ["General", "Packs", "Assets"]),
+    ("Annoyances", ["Popup Types", "Popup Tweaks", "Wallpaper", "Moods", "Booru"]),
+    ("Integrations", ["Sex Toys", "Companion"]),
+    ("Advanced", ["Modes", "Corruption", "Dangerous"]),
+    ("Progress", ["Gamification"]),
+    ("Help", ["Troubleshooting", "Tutorial"]),
+]
+_PAGE_CATEGORY = {page: cat for cat, pages in _SIDEBAR_CATEGORIES for page in pages}
+_CATEGORY_FIRST = {pages[0]: cat for cat, pages in _SIDEBAR_CATEGORIES}
 
 
 def _load_pack(pack_name: str) -> Pack:
@@ -58,19 +80,26 @@ def _ensure_mood_file(pack: Pack) -> None:
 def _make_pack_page(name: str, vars: Vars, pack: Pack,
                     local_version: str, live_version: str,
                     on_switch_pack) -> Gtk.Widget:
-    if name == "Overview":
+    if name == "General":
+        from config.gtk_window.tabs.general.start import StartTab
         return StartTab(vars, local_version, live_version, pack)
     if name == "Packs":
+        from config.gtk_window.tabs.general.info import InfoTab
         return InfoTab(pack, vars, on_switch_pack=on_switch_pack)
     if name == "Assets":
+        from config.gtk_window.tabs.general.default_file import DefaultFileTab
         return DefaultFileTab(pack)
     if name == "Wallpaper":
+        from config.gtk_window.tabs.annoyance.wallpaper import WallpaperTab
         return WallpaperTab(vars, pack)
     if name == "Moods":
+        from config.gtk_window.tabs.annoyance.moods import MoodsTab
         return MoodsTab(pack)
     if name == "Corruption":
+        from config.gtk_window.tabs.corruption import CorruptionModeTab
         return CorruptionModeTab(vars, pack)
     if name == "Troubleshooting":
+        from config.gtk_window.tabs.troubleshooting import TroubleshootingTab
         return TroubleshootingTab(vars, pack)
     raise ValueError(f"Unknown pack page: {name}")
 
@@ -155,16 +184,56 @@ class _SearchResultsPage(Adw.PreferencesPage):
             self._group.add(row)
 
 
-class ConfigWindow(Adw.ApplicationWindow):
-    def __init__(self, app: Gtk.Application) -> None:
-        global config, vars
+def build_session() -> tuple:
+    """Build the shared config state (vars, pack, versions) once so the Dashboard
+    and Settings windows operate on the same Vars instance (a single source of
+    truth — edits and saves never clobber each other).
 
-        # Load pack inside __init__ so reload_pack can swap it without restart.
-        pack_name = config.get("packPath") or "default"
-        self._pack = _load_pack(pack_name)
-        _ensure_mood_file(self._pack)
+    The live version is left blank here and fetched in the background (see
+    fetch_live_version_async) — get_live_version() does a blocking network
+    request that would otherwise stall the window from appearing."""
+    pack_name = config.get("packPath") or "default"
+    pack = _load_pack(pack_name)
+    _ensure_mood_file(pack)
+    vars = Vars(config)
+    return vars, pack, default_config["versionplusplus"], ""
 
-        self._base_title = f"Edgeware++ Config — {self._pack.info.name}"
+
+def fetch_live_version_async(on_done) -> None:
+    """Fetch the latest published version off the main thread; call on_done(str)
+    back on the main thread (empty string on failure / when offline)."""
+    from threading import Thread
+
+    def work() -> None:
+        version = get_live_version()
+        GLib.idle_add(lambda: (on_done(version), False)[1])
+    Thread(target=work, daemon=True).start()
+
+
+def maybe_prompt_update(local_version: str, live_version: str) -> None:
+    """Offer to open the repo when a newer version is published. Called once per
+    process, by whichever window opens first."""
+    if live_version and local_version.split("_")[0] != live_version.split("_")[0] and not (
+        local_version.endswith("DEV") or config.get("toggleInternet")
+    ):
+        from gtk_dialog import ask_yes_no
+        if ask_yes_no(
+            "Update Available",
+            f"A newer version of Edgeware++ LinuxNative is available "
+            f"({live_version}). Visit the repository to download it?",
+            heading="New version available",
+        ):
+            import webbrowser
+            webbrowser.open("https://github.com/sirenondine/EdgewarePlusPlus-LinuxNative")
+
+
+class SettingsWindow(Adw.ApplicationWindow):
+    def __init__(self, app: Gtk.Application, vars: Vars, pack: Pack,
+                 local_version: str, live_version: str, *, on_pack_changed=None) -> None:
+        self._pack = pack
+        self._on_pack_changed = on_pack_changed
+
+        self._base_title = f"Edgeware++ Settings — {self._pack.info.name}"
         super().__init__(application=app, title=self._base_title)
         self._dirty = False
         self._loading_overlay = None
@@ -184,23 +253,34 @@ class ConfigWindow(Adw.ApplicationWindow):
             .loading-overlay {
                 background: alpha(@window_bg_color, 0.85);
             }
+            .danger-confirm {
+                background-color: alpha(@warning_color, 0.16);
+                padding: 8px 12px;
+            }
         """)
         Gtk.StyleContext.add_provider_for_display(
             self.get_display(), css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
         )
 
-        vars = Vars(config)
         self._vars = vars
-        for var in vars.entries.values():
-            var.trace_add(lambda _: self._mark_dirty())
-        self._local_version = default_config["versionplusplus"]
-        self._live_version = get_live_version()
+        self._local_version = local_version
+        self._live_version = live_version
+
+        # Live autosave + inline danger confirmation. Every change persists
+        # (debounced); flipping a setting into a dangerous value first asks for
+        # confirmation via the inline bar (see _on_var_change).
+        self._known = {key: var.get() for key, var in vars.entries.items()}
+        self._save_source = None
+        self._suppress = False
+        self._danger_pending = None
+        for key, var in vars.entries.items():
+            var.trace_add(lambda value, k=key: self._on_var_change(k, value))
 
         # Adwaita chrome
         toolbar_view = Adw.ToolbarView()
         header = Adw.HeaderBar()
         header.set_title_widget(Adw.WindowTitle(
-            title="Edgeware++ Config", subtitle=self._pack.info.name))
+            title="Edgeware++ Settings", subtitle=self._pack.info.name))
         self._header_title = header.get_title_widget()
 
         # Sidebar toggle (hamburger) — always visible so user can manually
@@ -214,21 +294,7 @@ class ConfigWindow(Adw.ApplicationWindow):
         ))
         header.pack_start(self._sidebar_toggle)
 
-        save_exit_btn = Gtk.Button()
-        save_exit_btn.set_child(Adw.ButtonContent(
-            label="Save & Exit", icon_name="document-save-symbolic"))
-        save_exit_btn.add_css_class("suggested-action")
-        save_exit_btn.set_tooltip_text("Save settings and close the window")
-        save_exit_btn.connect("clicked", lambda _: write_save(vars, True))
-        header.pack_end(save_exit_btn)
-
-        save_btn = Gtk.Button()
-        save_btn.set_child(Adw.ButtonContent(
-            label="Save", icon_name="document-save-symbolic"))
-        save_btn.set_tooltip_text("Save without closing the window (Ctrl+S)")
-        save_btn.connect("clicked", lambda _: write_save(vars, False))
-        header.pack_end(save_btn)
-
+        # No Save button: settings autosave live (see _on_var_change).
         toolbar_view.add_top_bar(header)
 
         # Root overlay covers the entire window (header + content) for the
@@ -237,52 +303,68 @@ class ConfigWindow(Adw.ApplicationWindow):
         self._root_overlay.set_child(toolbar_view)
         self.set_content(self._root_overlay)
 
-        # --- Responsive split view: sidebar list + page stack ---------------
-        static_pages = [
-            ("Popup Types",  PopupTypesTab(vars)),
-            ("Popup Tweaks", PopupTweaksTab(vars)),
-            ("Booru",        BooruTab(vars)),
-            ("Sex Toys",     SexToysTab(vars)),
-            ("Companion",    CompanionTab(vars)),
-            ("Modes",        BasicModesTab(vars)),
-            ("Dangerous",    DangerousSettingsTab(vars)),
-            ("Progress",     ProgressTab(vars)),
-            ("Tutorial",     TutorialTab()),
-        ]
+        # --- Responsive split view: sidebar list + lazily-built page stack ---
+        # Pages are built the first time they are shown, so opening Settings does
+        # not construct all ~16 tabs at once (that was the visible hitch). A
+        # background idle backfills the rest, so search has a full index and
+        # later clicks are instant. Tab modules are imported here (not at module
+        # top) so opening only the Dashboard never loads the heavier tabs.
+        from config.gtk_window.tabs.annoyance.booru import BooruTab
+        from config.gtk_window.tabs.annoyance.dangerous_settings import DangerousSettingsTab
+        from config.gtk_window.tabs.annoyance.popup_tweaks import PopupTweaksTab
+        from config.gtk_window.tabs.annoyance.popup_types import PopupTypesTab
+        from config.gtk_window.tabs.annoyance.sextoys import SexToysTab
+        from config.gtk_window.tabs.companion import CompanionTab
+        from config.gtk_window.tabs.modes import BasicModesTab
+        from config.gtk_window.tabs.progress import ProgressTab
+        from config.gtk_window.tabs.tutorial import TutorialTab
 
-        # Full ordered page list (pack pages built first pass)
+        def _pack_builder(page_name):
+            # self._pack is read at build time, so a pack switch is picked up.
+            return lambda: _make_pack_page(
+                page_name, vars, self._pack,
+                self._local_version, self._live_version, self.reload_pack)
+
+        self._page_builders = {
+            "General": _pack_builder("General"),
+            "Packs": _pack_builder("Packs"),
+            "Assets": _pack_builder("Assets"),
+            "Wallpaper": _pack_builder("Wallpaper"),
+            "Moods": _pack_builder("Moods"),
+            "Corruption": _pack_builder("Corruption"),
+            "Troubleshooting": _pack_builder("Troubleshooting"),
+            "Popup Types": lambda: PopupTypesTab(vars),
+            "Popup Tweaks": lambda: PopupTweaksTab(vars),
+            "Booru": lambda: BooruTab(vars),
+            "Sex Toys": lambda: SexToysTab(vars),
+            "Companion": lambda: CompanionTab(vars),
+            "Modes": lambda: BasicModesTab(vars),
+            "Dangerous": lambda: DangerousSettingsTab(vars),
+            "Gamification": lambda: ProgressTab(vars),
+            "Tutorial": lambda: TutorialTab(),
+        }
+        self._built_pages: dict = {}
+        self._search_index = None  # built after backfill, or on demand by search
+
+        # Full ordered page list
         all_page_names = [
-            "Overview", "Packs", "Assets",
+            "General", "Packs", "Assets",
             "Popup Types", "Popup Tweaks",
             "Wallpaper", "Moods", "Booru", "Sex Toys", "Companion",
             "Modes", "Corruption", "Dangerous",
-            "Progress", "Troubleshooting", "Tutorial",
+            "Gamification", "Troubleshooting", "Tutorial",
         ]
 
         self._stack = Gtk.Stack()
         self._stack.set_transition_type(Gtk.StackTransitionType.CROSSFADE)
 
-        # Add static pages
-        for name, widget in static_pages:
-            self._stack.add_named(widget, name)
-
-        # Add pack-dependent pages
-        for name in _PACK_PAGE_NAMES:
-            widget = _make_pack_page(
-                name, vars, self._pack,
-                self._local_version, self._live_version,
-                self.reload_pack,
-            )
-            self._stack.add_named(widget, name)
-
-        # Build search index from all preference rows across all pages
-        self._search_index = _build_search_index(
-            [(n, self._stack.get_child_by_name(n)) for n in all_page_names]
-        )
-
         # Search results page (added to stack, not in sidebar)
         self._search_page = _SearchResultsPage()
         self._stack.add_named(self._search_page, "__search__")
+
+        # Build only the landing page up front; the rest are lazy.
+        self._ensure_page(all_page_names[0])
+        self._stack.set_visible_child_name(all_page_names[0])
 
         # Sidebar
         sidebar_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
@@ -313,14 +395,36 @@ class ConfigWindow(Adw.ApplicationWindow):
         self._sidebar_rows: list[Gtk.ListBoxRow] = []
         for name in all_page_names:
             row = Gtk.ListBoxRow()
+            box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+            box.set_margin_start(12)
+            box.set_margin_end(12)
+            box.set_margin_top(8)
+            box.set_margin_bottom(8)
+            icon = Gtk.Image.new_from_icon_name(
+                _SIDEBAR_ICONS.get(name, "application-x-executable-symbolic"))
+            box.append(icon)
             lbl = Gtk.Label(label=name, xalign=0)
-            lbl.set_margin_start(12)
-            lbl.set_margin_end(12)
-            lbl.set_margin_top(8)
-            lbl.set_margin_bottom(8)
-            row.set_child(lbl)
+            box.append(lbl)
+            row.set_child(box)
             sidebar_list.append(row)
             self._sidebar_rows.append(row)
+
+        # Category headers above the first page of each group.
+        def _sidebar_header(row, _before):
+            name = all_page_names[row.get_index()]
+            cat = _CATEGORY_FIRST.get(name)
+            if cat is None:
+                row.set_header(None)
+                return
+            label = Gtk.Label(label=cat.upper(), xalign=0)
+            label.add_css_class("dim-label")
+            label.add_css_class("caption-heading")
+            label.set_margin_start(12)
+            label.set_margin_end(12)
+            label.set_margin_top(12)
+            label.set_margin_bottom(4)
+            row.set_header(label)
+        sidebar_list.set_header_func(_sidebar_header)
 
         sidebar_list.select_row(sidebar_list.get_row_at_index(0))
 
@@ -351,6 +455,7 @@ class ConfigWindow(Adw.ApplicationWindow):
             if row is None:
                 return
             name = all_page_names[row.get_index()]
+            self._ensure_page(name)
             self._stack.set_visible_child_name(name)
             self._content_nav.set_title(name)
             split.set_show_content(True)
@@ -383,14 +488,19 @@ class ConfigWindow(Adw.ApplicationWindow):
                 sel = sidebar_list.get_selected_row()
                 if sel:
                     name = all_page_names[sel.get_index()]
+                    self._ensure_page(name)
                     self._stack.set_visible_child_name(name)
                     self._content_nav.set_title(name)
                 return
+            # Search needs every page's rows; build any not yet backfilled.
+            if self._search_index is None:
+                self._ensure_all_pages()
+                self._rebuild_search_index()
             results = [
                 (tab, title, sub) for tab, title, sub in self._search_index
                 if query in tab.lower() or query in title.lower() or query in sub.lower()
             ]
-            self._search_page.show_results(results, self._navigate_to)
+            self._search_page.show_results(results, self.navigate_to)
             self._stack.set_visible_child_name("__search__")
             self._content_nav.set_title("Search Results")
             split.set_show_content(True)
@@ -406,13 +516,24 @@ class ConfigWindow(Adw.ApplicationWindow):
         # Ctrl+F shortcut — toggle search
         self._search_bar = search_bar
         self._search_entry = search_entry
+        # Kept so _navigate_to (e.g. Home's buttons, search results) can sync
+        # the sidebar selection to the page it jumps to.
+        self._sidebar_list = sidebar_list
+        self._all_page_names = all_page_names
 
         toolbar_view.set_content(split)
+
+        # Inline danger confirmation: a popover anchored to the control that was
+        # changed (built in _begin_danger), not a separate dialog.
+        self._confirm_popover = Gtk.Popover()
+        self._confirm_popover.set_child(self._build_confirm_bar())
+        self._confirm_popover.connect("closed", self._on_confirm_closed)
 
         key_ctrl = Gtk.EventControllerKey.new()
         key_ctrl.connect("key-pressed", self._on_key_pressed)
         self.add_controller(key_ctrl)
 
+        self.connect("close-request", self._on_close_request)
         self.present()
 
         import sys
@@ -422,26 +543,148 @@ class ConfigWindow(Adw.ApplicationWindow):
             from config.gtk_window.onboarding import show_onboarding
             GLib.idle_add(lambda: (show_onboarding(self, vars, self._pack), False)[1])
 
-        if self._live_version and self._local_version.split("_")[0] != self._live_version.split("_")[0] and not (
-            self._local_version.endswith("DEV") or config.get("toggleInternet")
-        ):
-            from gtk_dialog import ask_yes_no
-            if ask_yes_no(
-                "Update Available",
-                f"A newer version of Edgeware++ LinuxNative is available "
-                f"({self._live_version}). Visit the repository to download it?",
-                heading="New version available",
-            ):
-                import webbrowser
-                webbrowser.open("https://github.com/sirenondine/EdgewarePlusPlus-LinuxNative")
+    # ------------------------------------------------------------------
+    # Lazy page building.
+    def _ensure_page(self, name: str) -> Gtk.Widget:
+        """Build and register a page the first time it is needed."""
+        widget = self._built_pages.get(name)
+        if widget is None:
+            widget = self._page_builders[name]()
+            self._built_pages[name] = widget
+            self._stack.add_named(widget, name)
+        return widget
+
+    def _ensure_all_pages(self) -> None:
+        for name in self._all_page_names:
+            self._ensure_page(name)
+
+    def _rebuild_search_index(self) -> None:
+        self._search_index = _build_search_index(
+            [(n, self._built_pages.get(n)) for n in self._all_page_names])
+
+    # ------------------------------------------------------------------
+    # Live autosave + inline danger confirmation.
+    def _build_confirm_bar(self) -> Gtk.Widget:
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        for m in ("top", "bottom", "start", "end"):
+            getattr(box, f"set_margin_{m}")(12)
+        box.set_size_request(280, -1)
+
+        head = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        icon = Gtk.Image.new_from_icon_name("dialog-warning-symbolic")
+        icon.add_css_class("warning")
+        icon.set_valign(Gtk.Align.START)
+        head.append(icon)
+        self._confirm_label = Gtk.Label(xalign=0, wrap=True, hexpand=True, max_width_chars=34)
+        head.append(self._confirm_label)
+        box.append(head)
+
+        buttons = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8, halign=Gtk.Align.END)
+        cancel = Gtk.Button(label="Cancel")
+        cancel.connect("clicked", lambda _b: self._resolve_danger(False))
+        buttons.append(cancel)
+        enable = Gtk.Button(label="Enable anyway")
+        enable.add_css_class("destructive-action")
+        enable.connect("clicked", lambda _b: self._resolve_danger(True))
+        buttons.append(enable)
+        box.append(buttons)
+        return box
+
+    def _on_var_change(self, key: str, value) -> None:
+        if self._suppress:
+            return
+        danger = CONFIG_DANGER.get(key)
+        old = self._known.get(key)
+        # Flipping a setting INTO a dangerous value asks first, inline — unless
+        # the user turned off "Warn if Dangerous Settings Active".
+        if (danger and self._vars.safe_mode.get()
+                and danger.check(value) and not danger.check(old)):
+            self._begin_danger(key, old, value, danger)
+            return
+        # Retreating from a still-pending dangerous value cancels the prompt.
+        if self._danger_pending and self._danger_pending[0] == key:
+            self._danger_pending = None
+            self._confirm_popover.popdown()
+        self._known[key] = value
+        self._schedule_save()
+
+    def _begin_danger(self, key: str, old, new, danger) -> None:
+        # Only one pending at a time: revert any prior unconfirmed change.
+        if self._danger_pending and self._danger_pending[0] != key:
+            pk, po, _pn = self._danger_pending
+            self._suppress = True
+            self._vars.entries[pk].set(po)
+            self._suppress = False
+        self._danger_pending = (key, old, new)
+        level = danger.level.value.capitalize()
+        self._confirm_label.set_text(f"{level} risk: {danger.warning or key}")
+        # Anchor the popover to the control that changed (fallback: the window).
+        anchor = getattr(self._vars.entries[key], "widget", None) or self
+        if self._confirm_popover.get_parent() is not anchor:
+            if self._confirm_popover.get_parent() is not None:
+                self._confirm_popover.unparent()
+            self._confirm_popover.set_parent(anchor)
+        self._confirm_popover.popup()
+
+    def _resolve_danger(self, accept: bool) -> None:
+        if not self._danger_pending:
+            self._confirm_popover.popdown()
+            return
+        key, old, new = self._danger_pending
+        self._danger_pending = None
+        self._confirm_popover.popdown()
+        if accept:
+            self._known[key] = new
+            self._schedule_save()
+        else:
+            self._suppress = True
+            self._vars.entries[key].set(old)
+            self._suppress = False
+            self._known[key] = old
+
+    def _on_confirm_closed(self, _popover) -> None:
+        # Dismissed by clicking away (not via the buttons) == cancel.
+        if self._danger_pending:
+            self._resolve_danger(False)
+
+    def _schedule_save(self) -> None:
+        if self._save_source is not None:
+            GLib.source_remove(self._save_source)
+        self._save_source = GLib.timeout_add(300, self._flush_save)
+
+    def _flush_save(self) -> bool:
+        self._save_source = None
+        persist(self._vars)
+        return False
+
+    def _on_close_request(self, _win) -> bool:
+        # Cancel any unconfirmed dangerous change, then flush pending writes.
+        if self._danger_pending:
+            key, old, _new = self._danger_pending
+            self._danger_pending = None
+            self._suppress = True
+            self._vars.entries[key].set(old)
+            self._suppress = False
+            self._known[key] = old
+        if self._save_source is not None:
+            GLib.source_remove(self._save_source)
+            self._save_source = None
+        persist(self._vars)
+        # When attached to a dashboard, hide rather than destroy so it can be
+        # reused (recreating would stack duplicate autosave callbacks on the
+        # vars). Standalone (`edgeware config`), really close so the app quits.
+        if self.get_transient_for() is not None:
+            self.set_visible(False)
+            return True  # veto destroy, keep for reuse
+        return False  # allow close → last window gone → app quits
 
     def reload_pack(self, pack_name: str) -> None:
         """Switch to a different pack in-place — no process restart."""
         from threading import Thread
 
-        # Save immediately (fast, stays on main thread)
+        # Save immediately (the autosave is debounced; the pack load needs it now)
         self._vars.pack_path.set(pack_name if pack_name != "default" else "")
-        write_save(self._vars, exit_at_end=False)
+        persist(self._vars)
 
         # Show loading overlay — keeps the UI responsive while I/O runs
         self._show_loading(f"Loading {pack_name}…")
@@ -491,30 +734,31 @@ class ConfigWindow(Adw.ApplicationWindow):
 
     def _finish_reload(self, new_pack) -> None:
         """Called on main thread after background load completes."""
+        visible = self._stack.get_visible_child_name()
         self._pack = new_pack
 
-        # Rebuild pack-dependent pages
+        # Drop built pack-dependent pages so they rebuild against the new pack
+        # the next time they're shown (the builders read self._pack at call time).
         for name in _PACK_PAGE_NAMES:
-            old = self._stack.get_child_by_name(name)
+            old = self._built_pages.pop(name, None)
             if old:
                 self._stack.remove(old)
-            widget = _make_pack_page(
-                name, self._vars, self._pack,
-                self._local_version, self._live_version,
-                self.reload_pack,
-            )
-            self._stack.add_named(widget, name)
+        self._search_index = None  # rows changed; rebuild lazily
 
-        # Navigate to Packs tab if we were on a pack-dependent page
-        visible = self._stack.get_visible_child_name()
+        # If we were on a (now-dropped) pack page or search, show the Packs tab.
         if visible in _PACK_PAGE_NAMES or visible == "__search__":
+            self._ensure_page("Packs")
             self._stack.set_visible_child_name("Packs")
             self._content_nav.set_title("Packs")
 
+        # Let the Dashboard window (if open) refresh its pack card.
+        if self._on_pack_changed:
+            self._on_pack_changed(new_pack)
+
         # Update window chrome
-        self._base_title = f"Edgeware++ Config — {self._pack.info.name}"
+        self._base_title = f"Edgeware++ Settings — {self._pack.info.name}"
         self.set_title(self._base_title)
-        self._header_title.set_title("Edgeware++ Config")
+        self._header_title.set_title("Edgeware++ Settings")
         self._header_title.set_subtitle(self._pack.info.name)
         self._dirty = False
 
@@ -524,20 +768,18 @@ class ConfigWindow(Adw.ApplicationWindow):
         if not self._dirty:
             self._dirty = True
             self.set_title(f"* {self._base_title}")
-            self._header_title.set_title("Edgeware++ Config ●")
+            self._header_title.set_title("Edgeware++ Settings ●")
             self._header_title.set_subtitle("unsaved changes")
 
     def clear_dirty(self) -> None:
         self._dirty = False
         self.set_title(self._base_title)
-        self._header_title.set_title("Edgeware++ Config")
+        self._header_title.set_title("Edgeware++ Settings")
         self._header_title.set_subtitle(self._pack.info.name)
 
     def _on_key_pressed(self, _ctrl, keyval: int, _keycode: int, state: Gdk.ModifierType) -> bool:
         ctrl = state & Gdk.ModifierType.CONTROL_MASK
-        if keyval == Gdk.KEY_s and ctrl:
-            write_save(self._vars, False)
-            return True
+        # No Ctrl+S — settings autosave live.
         if keyval == Gdk.KEY_f and ctrl:
             self._search_bar.set_search_mode(
                 not self._search_bar.get_search_mode())
@@ -549,18 +791,26 @@ class ConfigWindow(Adw.ApplicationWindow):
             return True
         return False
 
-    def _navigate_to(self, tab_name: str) -> None:
-        """Navigate to a tab by name and close search."""
+    def set_live_version(self, version: str) -> None:
+        """Hook for the async version fetch. Settings no longer shows the version
+        (it lives on the dashboard), so this only keeps the value current."""
+        if version:
+            self._live_version = version
+
+    def navigate_to(self, tab_name: str) -> None:
+        """Navigate to a tab by name and close search. Public so the Dashboard
+        window can open Settings at a specific tab."""
         self._search_bar.set_search_mode(False)
+        if tab_name in self._page_builders:
+            self._ensure_page(tab_name)
         self._stack.set_visible_child_name(tab_name)
         self._content_nav.set_title(tab_name)
         self._split.set_show_content(True)
-        # Select the matching sidebar row
-        for i, row in enumerate(self._sidebar_rows):
-            lbl = row.get_child()
-            if isinstance(lbl, Gtk.Label) and lbl.get_text() == tab_name:
-                row.get_parent().select_row(row)
-                break
+        # Keep the sidebar selection in sync with the jumped-to page.
+        if tab_name in self._all_page_names:
+            row = self._sidebar_list.get_row_at_index(self._all_page_names.index(tab_name))
+            if row and not row.is_selected():
+                self._sidebar_list.select_row(row)
 
     def _show_toast(self, message: str) -> None:
         # HIG-standard Adw.Toast via the toast overlay.
@@ -606,3 +856,109 @@ class ConfigWindow(Adw.ApplicationWindow):
         cancel_btn.connect("clicked", lambda _: popover.popdown())
         popover.popup()
         entry.grab_focus()
+
+
+class DashboardWindow(Adw.ApplicationWindow):
+    """The Home dashboard as its own lightweight window. Settings opens as a
+    separate window (lazily), sharing the same Vars/pack session."""
+
+    def __init__(self, app: Gtk.Application, vars: Vars, pack: Pack,
+                 local_version: str, live_version: str) -> None:
+        super().__init__(application=app, title="Edgeware++")
+        self._app = app
+        self._vars = vars
+        self._pack = pack
+        self._local_version = local_version
+        self._live_version = live_version
+        self._settings_win = None
+        self.set_default_size(480, 720)
+        self.set_size_request(360, 480)
+        try:
+            self.set_icon_from_file(str(CustomAssets.config_icon()))
+        except Exception:
+            logging.warning("failed to set icon.")
+
+        toolbar = Adw.ToolbarView()
+        self._header = Adw.HeaderBar()
+        settings_btn = Gtk.Button(icon_name="preferences-system-symbolic")
+        settings_btn.set_tooltip_text("Open settings")
+        settings_btn.connect("clicked", lambda _b: self._open_settings("General"))
+        self._header.pack_end(settings_btn)
+        toolbar.add_top_bar(self._header)
+
+        self._toast_overlay = Adw.ToastOverlay()
+        toolbar.set_content(self._toast_overlay)
+        self.set_content(toolbar)
+        self._install_home()
+        self.connect("close-request", self._on_close_request)
+        self.present()
+
+    def _on_close_request(self, _win) -> bool:
+        # Persist (shared vars capture any settings edits too), then quit the
+        # whole app — otherwise the hidden Settings child keeps it alive.
+        persist(self._vars)
+        self._app.quit()
+        return False
+
+    def _install_home(self) -> None:
+        """(Re)build the Home view and reflect it in the header: a ViewSwitcher
+        when there are multiple views (gamification on), else a plain title."""
+        home = HomeTab(self._vars, self._pack, self._local_version, self._live_version,
+                       on_navigate=self._open_settings, on_launch=self._launch_runtime)
+        self._toast_overlay.set_child(home)
+        if home.has_multiple_views:
+            switcher = Adw.ViewSwitcher(
+                stack=home.view_stack, policy=Adw.ViewSwitcherPolicy.WIDE)
+            self._header.set_title_widget(switcher)
+        else:
+            self._header.set_title_widget(
+                Adw.WindowTitle(title="Edgeware++", subtitle=self._pack.info.name))
+
+    def _show_toast(self, message: str) -> None:
+        toast = Adw.Toast.new(message)
+        toast.set_timeout(3)
+        self._toast_overlay.add_toast(toast)
+
+    def refresh_pack(self, new_pack) -> None:
+        """Rebuild the Home view after a pack switch in the Settings window."""
+        self._pack = new_pack
+        self.set_title("Edgeware++")
+        self._install_home()
+
+    def set_live_version(self, version: str) -> None:
+        """Update the displayed latest-version once the async fetch returns."""
+        if version and version != self._live_version:
+            self._live_version = version
+            self._install_home()
+
+    def _open_settings(self, tab_name: str = "General") -> None:
+        # Built once and reused (it hides on close), so autosave callbacks are
+        # never stacked on the shared vars.
+        if self._settings_win is None:
+            self._settings_win = SettingsWindow(
+                self._app, self._vars, self._pack,
+                self._local_version, self._live_version,
+                on_pack_changed=self.refresh_pack)
+            # Attach to the dashboard: grouped together, centred over it, and
+            # destroyed with it. Non-modal so both stay usable.
+            self._settings_win.set_transient_for(self)
+            self._settings_win.set_destroy_with_parent(True)
+        self._settings_win.set_visible(True)
+        self._settings_win.present()
+        self._settings_win.navigate_to(tab_name)
+
+    def _launch_runtime(self) -> None:
+        """Save settings, start the runtime, and quit the GUI. Refuses if a
+        runtime is already running (single instance)."""
+        from panic import query_status
+        if query_status() is not None:
+            self._toast_overlay.add_toast(Adw.Toast.new("Edgeware is already running."))
+            return
+        persist(self._vars)  # flush any unsaved dashboard edits before launching
+        import subprocess
+        import sys
+
+        from paths import Process
+        # --run so the runtime starts directly instead of bouncing back here.
+        subprocess.Popen([sys.executable, str(Process.MAIN), "--run"])
+        self._app.quit()

@@ -218,6 +218,21 @@ def get_live_version() -> str:
         return ""
 
 
+def persist(vars: Vars) -> None:
+    """Write current settings to disk with no prompts or exit. Used by live
+    autosave; danger confirmation happens inline at edit time, not here."""
+    temp = config.copy()
+    temp["wallpaperDat"] = str(config["wallpaperDat"])
+    os_utils.toggle_run_at_startup(vars.run_at_startup.get())
+    for key, var in vars.entries.items():
+        value = var.get()
+        if key == "packPath":
+            value = value if value != "default" else None
+        temp[key] = (1 if value else 0) if type(value) is bool else value
+    with open(Data.CONFIG, "w") as file:
+        file.write(json.dumps(temp))
+
+
 def write_save(vars: Vars, exit_at_end: bool = False) -> None:
     if vars.safe_mode.get() and exit_at_end and not safe_check(vars):
         return

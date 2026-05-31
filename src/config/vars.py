@@ -27,6 +27,8 @@ class ConfigVar:
     def __init__(self, initial_value: bool | int | str = False) -> None:
         self._value = initial_value
         self._callbacks: list[callable] = []
+        self.key: str | None = None      # config key, set by Vars
+        self.widget = None               # bound row, set by the widget factory (for inline danger confirm)
 
     def get(self) -> bool | int | str:
         return self._value
@@ -65,5 +67,6 @@ class Vars:
                 value = default_value
 
             var = ConfigVar(value)
+            var.key = item.key
             setattr(self, name, var)
             self.entries[item.key] = var

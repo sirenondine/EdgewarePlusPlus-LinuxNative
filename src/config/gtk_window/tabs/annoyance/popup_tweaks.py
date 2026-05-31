@@ -72,7 +72,7 @@ class PopupTweaksTab(Adw.PreferencesPage):
         timeout = Adw.PreferencesGroup(title="Popup Timeout", description=TIMEOUT_TEXT)
         self.add(timeout)
         timeout.add(AdwSwitchRow("Enable Popup Timeout", vars.timeout_enabled))
-        timeout.add(AdwSliderRow("Timeout (seconds)", vars.timeout, 1, 120))
+        timeout.add(AdwSliderRow("Timeout", vars.timeout, 1, 120, unit="s"))
 
         misc = Adw.PreferencesGroup(title="Misc. Tweaks")
         self.add(misc)

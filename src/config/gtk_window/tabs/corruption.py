@@ -88,7 +88,7 @@ class CorruptionModeTab(Adw.PreferencesPage):
         self.add(triggers)
         triggers.add(AdwComboRow("Trigger Type", vars.corruption_trigger, _TRIGGER_TYPES))
         triggers.add(AdwComboRow("Fade Type", vars.corruption_fade, _FADE_TYPES))
-        triggers.add(AdwSliderRow("Level Time (seconds)", vars.corruption_time, 5, 1800))
+        triggers.add(AdwSliderRow("Level Time", vars.corruption_time, 5, 1800, unit="s"))
         triggers.add(AdwSliderRow("Level Popups", vars.corruption_popups, 1, 100))
         triggers.add(AdwSliderRow("Level Launches", vars.corruption_launches, 2, 31))
 

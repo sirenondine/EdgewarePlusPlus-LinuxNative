@@ -13,7 +13,6 @@
 # GNU General Public License for more details.
 
 import json
-import os
 from pathlib import Path
 
 from gi import require_version
@@ -164,61 +163,8 @@ class InfoTab(Adw.PreferencesPage):
             default_row.set_activatable_widget(def_btn)
             switch_group.add(default_row)
 
-        # ---- Status ------------------------------------------------------
-        status = Adw.PreferencesGroup(title="Pack Status")
-        self.add(status)
-        status.add(_status_row("Pack Loaded", pack.paths.root.exists()))
-        status.add(_status_row("Info File", pack.paths.info.is_file()))
-        status.add(_status_row("Wallpaper", pack.paths.wallpaper.is_file()))
-        status.add(_status_row(
-            "Custom Startup", bool(pack.paths.splash),
-            "For older packs, put the file in /resource/ named \"loading_splash.png\"."))
-        status.add(_status_row("Custom Discord Status", pack.paths.discord.is_file()))
-        status.add(_status_row(
-            "Custom Icon", pack.paths.icon.is_file(),
-            "Put the file in /resource/ named \"icon.ico\"."))
-        status.add(_status_row(
-            "Corruption", pack.paths.corruption.is_file(),
-            "An Edgeware++ feature that changes content over time."))
-
-        # ---- Content counts ----------------------------------------------
-        content = Adw.PreferencesGroup(title="Content")
-        self.add(content)
-        content.add(_count_row("Images", len(pack.images)))
-        content.add(_count_row("Audio Files", len(pack.audio)))
-        content.add(_count_row("Videos", len(pack.videos)))
-        content.add(_count_row("Web Links", _list_length(pack, "web")))
-        content.add(_count_row("Prompts", _list_length(pack, "prompts")))
-        content.add(_count_row("Captions", _list_length(pack, "captions")))
-        content.add(_count_row("Hypnos", len(pack.hypnos)))
-
-        # ---- Information -------------------------------------------------
-        has_info = pack.paths.info.is_file()
-        info = Adw.PreferencesGroup(title="Information", description=INFO_TEXT)
-        info.set_sensitive(has_info)
-        self.add(info)
-        info.add(_value_row("Pack Name", pack.info.name))
-        info.add(_value_row("Author Name", pack.info.creator))
-        info.add(_value_row("Version", pack.info.version))
-        desc_row = Adw.ActionRow(title="Description")
-        desc_row.set_subtitle(GLib.markup_escape_text(pack.info.description or ""))
-        info.add(desc_row)
-
-        # ---- Discord -----------------------------------------------------
-        discord = Adw.PreferencesGroup(title="Discord Information", description=DISCORD_TEXT)
-        discord.set_sensitive(pack.paths.discord.is_file())
-        self.add(discord)
-        status_row = Adw.ActionRow(title="Custom Discord Status")
-        status_row.set_subtitle(GLib.markup_escape_text(pack.discord.text or ""))
-        discord.add(status_row)
-        image_row = Adw.ActionRow(title="Discord Status Image")
-        image_row.set_subtitle(GLib.markup_escape_text(pack.discord.image or ""))
-        image_row.set_tooltip_text(
-            "The image is fetched from the Discord application API, which can't be "
-            "accessed without permissions, so it can't be previewed here."
-        )
-        discord.add(image_row)
-
+        # Pack status / content / information / Discord now live on the
+        # dashboard's Pack view (see pack_detail_groups).
 
     def _on_load_pack_config(self) -> None:
         from config.gtk_window.preset import apply_preset, compute_diff, show_config_diff
@@ -258,6 +204,63 @@ class InfoTab(Adw.PreferencesPage):
     def _on_switch(self, name: str) -> None:
         if self._on_switch_pack:
             self._on_switch_pack(name)
+
+
+def pack_detail_groups(pack: Pack) -> list[Adw.PreferencesGroup]:
+    """The read-only pack detail groups (status, content, information, Discord)
+    shown on the dashboard's Pack view."""
+    groups: list[Adw.PreferencesGroup] = []
+
+    status = Adw.PreferencesGroup(title="Pack Status")
+    status.add(_status_row("Pack Loaded", pack.paths.root.exists()))
+    status.add(_status_row("Info File", pack.paths.info.is_file()))
+    status.add(_status_row("Wallpaper", pack.paths.wallpaper.is_file()))
+    status.add(_status_row(
+        "Custom Startup", bool(pack.paths.splash),
+        "For older packs, put the file in /resource/ named \"loading_splash.png\"."))
+    status.add(_status_row("Custom Discord Status", pack.paths.discord.is_file()))
+    status.add(_status_row(
+        "Custom Icon", pack.paths.icon.is_file(),
+        "Put the file in /resource/ named \"icon.ico\"."))
+    status.add(_status_row(
+        "Corruption", pack.paths.corruption.is_file(),
+        "An Edgeware++ feature that changes content over time."))
+    groups.append(status)
+
+    content = Adw.PreferencesGroup(title="Content")
+    content.add(_count_row("Images", len(pack.images)))
+    content.add(_count_row("Audio Files", len(pack.audio)))
+    content.add(_count_row("Videos", len(pack.videos)))
+    content.add(_count_row("Web Links", _list_length(pack, "web")))
+    content.add(_count_row("Prompts", _list_length(pack, "prompts")))
+    content.add(_count_row("Captions", _list_length(pack, "captions")))
+    content.add(_count_row("Hypnos", len(pack.hypnos)))
+    groups.append(content)
+
+    info = Adw.PreferencesGroup(title="Information", description=INFO_TEXT)
+    info.set_sensitive(pack.paths.info.is_file())
+    info.add(_value_row("Pack Name", pack.info.name))
+    info.add(_value_row("Author Name", pack.info.creator))
+    info.add(_value_row("Version", pack.info.version))
+    desc_row = Adw.ActionRow(title="Description")
+    desc_row.set_subtitle(GLib.markup_escape_text(pack.info.description or ""))
+    info.add(desc_row)
+    groups.append(info)
+
+    discord = Adw.PreferencesGroup(title="Discord Information", description=DISCORD_TEXT)
+    discord.set_sensitive(pack.paths.discord.is_file())
+    status_row = Adw.ActionRow(title="Custom Discord Status")
+    status_row.set_subtitle(GLib.markup_escape_text(pack.discord.text or ""))
+    discord.add(status_row)
+    image_row = Adw.ActionRow(title="Discord Status Image")
+    image_row.set_subtitle(GLib.markup_escape_text(pack.discord.image or ""))
+    image_row.set_tooltip_text(
+        "The image is fetched from the Discord application API, which can't be "
+        "accessed without permissions, so it can't be previewed here."
+    )
+    discord.add(image_row)
+    groups.append(discord)
+    return groups
 
 
 def _pack_icon_prefix(pack_dir: Path) -> Gtk.Widget:

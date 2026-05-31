@@ -40,28 +40,40 @@ def AdwSwitchRow(title: str, variable: ConfigVar, subtitle: str | None = None) -
         if row.get_active() != active:
             row.set_active(active)
     variable.trace_add(_sync)
+    variable.widget = row
     return row
 
 
-def AdwSliderRow(title: str, variable: ConfigVar, from_: int, to: int, subtitle: str | None = None) -> Adw.ActionRow:
+def _fmt_unit(raw: float, factor: float, unit: str | None) -> str:
+    """Format a raw slider value in human units, rounded to a whole number,
+    e.g. 60000ms -> '60 s', 6572ms -> '7 s'."""
+    text = str(round(raw / factor))
+    return f"{text} {unit}" if unit else text
+
+
+def AdwSliderRow(title: str, variable: ConfigVar, from_: int, to: int, subtitle: str | None = None,
+                 *, unit: str | None = None, factor: float = 1) -> Adw.ActionRow:
     """An ActionRow with an inline slider + spin button bound to a ConfigVar
-    through a shared adjustment. The valid range shows as the subtitle."""
+    through a shared adjustment. The valid range shows as the subtitle.
+
+    The adjustment stays in the stored (raw) unit so danger checks and save
+    transforms are unaffected; `unit`/`factor` only change how the value is
+    *displayed* (shown = raw / factor, with `unit` appended). e.g. a delay
+    stored in ms shows as seconds with unit='s', factor=1000."""
     row = Adw.ActionRow(title=title)
-    row.set_subtitle(subtitle or f"{from_}–{to}")
+    if subtitle:
+        row.set_subtitle(subtitle)
+    elif unit:
+        row.set_subtitle(f"{_fmt_unit(from_, factor, unit)} – {_fmt_unit(to, factor, unit)}")
+    else:
+        row.set_subtitle(f"{from_}–{to}")
 
     adj = Gtk.Adjustment(value=variable.get(), lower=from_, upper=to, step_increment=1)
+    if unit:
+        # Step by one whole display unit (e.g. 1 s = 1000 ms) so +/- is sensible.
+        adj.set_step_increment(factor)
+        adj.set_page_increment(factor * 10)
     adj.connect("value-changed", lambda a: variable.set(int(a.get_value())))
-
-    # Reflect external changes (preset / pack-config apply) into the slider,
-    # guarded against the adjustment's own write-back looping.
-    def _sync(value: object) -> None:
-        try:
-            v = int(value)
-        except (TypeError, ValueError):
-            return
-        if int(adj.get_value()) != v:
-            adj.set_value(v)
-    variable.trace_add(_sync)
 
     scale = Gtk.Scale(orientation=Gtk.Orientation.HORIZONTAL, adjustment=adj)
     scale.set_draw_value(False)
@@ -71,14 +83,48 @@ def AdwSliderRow(title: str, variable: ConfigVar, from_: int, to: int, subtitle:
     scale.set_valign(Gtk.Align.CENTER)
 
     spin = Gtk.SpinButton(adjustment=adj, climb_rate=1, digits=0)
-    spin.set_numeric(True)
     spin.set_valign(Gtk.Align.CENTER)
+    if unit:
+        # Show the value in friendly units (e.g. "5 s"); typed input is read in
+        # that same unit and converted back to the raw stored value.
+        import re
+        spin.set_numeric(False)
+        spin.set_width_chars(7)
+
+        def _output(s) -> bool:
+            s.set_text(_fmt_unit(s.get_value(), factor, unit))
+            return True
+
+        def _input(s):
+            m = re.search(r"-?\d+(?:\.\d+)?", s.get_text())
+            if not m:
+                return (False, 0.0)
+            return (True, float(m.group()) * factor)
+        spin.connect("output", _output)
+        spin.connect("input", _input)
+    else:
+        spin.set_numeric(True)
+
+    # Reflect external changes (preset / pack apply / danger revert) into the
+    # slider. Force the scale's value too: after a programmatic adjustment set
+    # the Range can fail to repaint the thumb (the spin updates, the scale
+    # doesn't), so set it explicitly.
+    def _sync(value: object) -> None:
+        try:
+            v = int(value)
+        except (TypeError, ValueError):
+            return
+        if int(adj.get_value()) != v:
+            adj.set_value(v)
+            scale.set_value(v)
+    variable.trace_add(_sync)
 
     box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
     box.set_hexpand(True)
     box.append(scale)
     box.append(spin)
     row.add_suffix(box)
+    variable.widget = row
     return row
 
 
@@ -114,6 +160,7 @@ def AdwComboRow(title: str, variable: ConfigVar, options: dict[str, str]) -> Adw
                 row.set_selected(idx)
             row.set_subtitle(options.get(str(value), ""))
     variable.trace_add(_sync)
+    variable.widget = row
     return row
 
 
@@ -129,4 +176,5 @@ def AdwEntryRow(title: str, variable: ConfigVar, password: bool = False) -> Adw.
         if row.get_text() != text:
             row.set_text(text)
     variable.trace_add(_sync)
+    variable.widget = row
     return row

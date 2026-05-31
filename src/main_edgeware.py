@@ -112,6 +112,16 @@ if __name__ == "__main__":
     first_launch_configure()
 
     settings = Settings()
+
+    # Single instance: refuse to start a second runtime (it would clobber the
+    # panic socket and double the popups). The `edgeware` launcher routes the
+    # dashboard separately, so this only guards real runtime starts.
+    from panic import query_status
+    if query_status() is not None:
+        import sys
+        print("Edgeware++ is already running. Use the tray icon or `edgeware panic` to control it.")
+        sys.exit(0)
+
     pack = Pack(settings.pack_path)
     state = State()
 

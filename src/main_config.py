@@ -58,8 +58,27 @@ def main() -> None:
                 logging.info(f"Pack import {'succeeded' if ok else 'failed'}: {message}")
 
         try:
-            from config.gtk_window import ConfigWindow
-            ConfigWindow(app)
+            from config.gtk_window import (
+                DashboardWindow,
+                SettingsWindow,
+                build_session,
+                fetch_live_version_async,
+                maybe_prompt_update,
+            )
+            vars, pack, local_version, _live = build_session()
+            # `edgeware` (dashboard mode) passes --dashboard; `edgeware config`
+            # opens the Settings window directly.
+            if "--dashboard" in sys.argv:
+                window = DashboardWindow(app, vars, pack, local_version, "")
+            else:
+                window = SettingsWindow(app, vars, pack, local_version, "")
+
+            # The live version is fetched off-thread so the window appears at
+            # once; update the display and offer the update prompt when it lands.
+            def _on_version(v: str) -> None:
+                window.set_live_version(v)
+                maybe_prompt_update(local_version, v)
+            fetch_live_version_async(_on_version)
         except Exception as e:
             logging.fatal(f"Config encountered fatal error: {e}\n\n{traceback.format_exc()}")
             dialog = Gtk.AlertDialog()

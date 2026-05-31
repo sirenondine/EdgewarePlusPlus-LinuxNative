@@ -69,7 +69,9 @@ class BasicModesTab(Adw.PreferencesPage):
         hibernate.add(AdwSwitchRow(
             "Fix Wallpaper", vars.hibernate_fix_wallpaper,
             subtitle="Reverts wallpaper to panic wallpaper after the hibernate payload."))
-        hibernate.add(AdwSliderRow("Minimum Sleep Duration (sec)", vars.hibernate_delay_min, 1, 7200))
-        hibernate.add(AdwSliderRow("Maximum Sleep Duration (sec)", vars.hibernate_delay_max, 2, 14400))
-        hibernate.add(AdwSliderRow("Awaken Activity", vars.hibernate_activity, 1, 50))
-        hibernate.add(AdwSliderRow("Max Activity Length (sec)", vars.hibernate_activity_length, 5, 300))
+        hibernate.add(AdwSliderRow("Minimum Sleep Duration", vars.hibernate_delay_min, 1, 7200, unit="min", factor=60))
+        hibernate.add(AdwSliderRow("Maximum Sleep Duration", vars.hibernate_delay_max, 2, 14400, unit="min", factor=60))
+        hibernate.add(AdwSliderRow("Awaken Activity", vars.hibernate_activity, 1, 50,
+                                   subtitle="How many popups burst when Edgeware wakes from hibernation."))
+        hibernate.add(AdwSliderRow("Max Activity Length", vars.hibernate_activity_length, 5, 300, unit="s",
+                                   subtitle="How long the wakeup burst lasts before sleeping again."))

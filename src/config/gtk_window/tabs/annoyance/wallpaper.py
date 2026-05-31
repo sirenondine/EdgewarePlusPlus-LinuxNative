@@ -16,12 +16,13 @@ import logging
 import os
 import shutil
 from pathlib import Path
+from threading import Thread
 
 from gi import require_version
 
 require_version("Gtk", "4.0")
 require_version("Adw", "1")
-from gi.repository import Adw, Gtk
+from gi.repository import Adw, GLib, Gtk
 
 from config.gtk_window.widgets import AdwSliderRow, AdwSwitchRow
 from config.gtk_window.toast import name_popover
@@ -105,8 +106,8 @@ class WallpaperTab(Adw.PreferencesPage):
         list_frame.set_child(scroller)
         rot.add(list_frame)
 
-        rot.add(AdwSliderRow("Rotate Timer (sec)", vars.wallpaper_timer, 5, 300))
-        rot.add(AdwSliderRow("Rotate Variation (sec)", vars.wallpaper_variance, 0, 300))
+        rot.add(AdwSliderRow("Rotate Timer", vars.wallpaper_timer, 5, 300, unit="s"))
+        rot.add(AdwSliderRow("Rotate Variation", vars.wallpaper_variance, 0, 300, unit="s"))
 
     def _on_set_panic(self, _btn: Gtk.Button) -> None:
         fd = Gtk.FileDialog.new()
@@ -139,15 +140,19 @@ class WallpaperTab(Adw.PreferencesPage):
             logging.warning(f"Failed to auto import panic wallpaper: {e}")
 
     def _load_panic_preview(self) -> None:
-        # Downscale to a sensible preview size rather than decoding the full
-        # wallpaper (often multi-megapixel) for a ~240px preview.
-        try:
-            from gi.repository import GdkPixbuf
-            pb = GdkPixbuf.Pixbuf.new_from_file_at_scale(
-                str(CustomAssets.panic_wallpaper()), 640, 360, True)
-            self._panic_preview.set_pixbuf(pb)
-        except Exception:
-            pass
+        # Decode off the main thread — a full-res panic wallpaper (PNG can be
+        # multi-megapixel) would otherwise stall the tab as it opens. Downscale
+        # to a sensible preview size, then apply on the main thread.
+        path = str(CustomAssets.panic_wallpaper())
+
+        def work() -> None:
+            try:
+                from gi.repository import GdkPixbuf
+                pb = GdkPixbuf.Pixbuf.new_from_file_at_scale(path, 640, 360, True)
+            except Exception:
+                return
+            GLib.idle_add(lambda: (self._panic_preview.set_pixbuf(pb), False)[1])
+        Thread(target=work, daemon=True).start()
 
     def _on_add(self, btn: Gtk.Button) -> None:
         self._add_btn_anchor = btn
@@ -265,24 +270,45 @@ class WallpaperTab(Adw.PreferencesPage):
 
         filename = config.get("wallpaperDat", {}).get(name)
         path = self._pack.paths.root / filename if filename else None
+        thumb.set_paintable(None)
         if path and path.is_file():
-            # Load a downscaled pixbuf, not the full image: wallpapers are often
-            # multi-megapixel and set_filename would decode each at full size
-            # (hundreds of MB across the list). 128x72 covers the 96x54 cell.
-            try:
-                from gi.repository import GdkPixbuf
-                pb = GdkPixbuf.Pixbuf.new_from_file_at_scale(str(path), 128, 72, True)
-                thumb.set_pixbuf(pb)
-                missing_icon.set_visible(False)
-                box.set_tooltip_text(None)
-            except Exception:
-                thumb.set_paintable(None)
-                missing_icon.set_visible(True)
-                box.set_tooltip_text(f"Could not load {filename}")
+            missing_icon.set_visible(False)
+            box.set_tooltip_text(None)
+            # Decode the downscaled thumbnail off the main thread; binding the
+            # initially-visible rows would otherwise decode several full-size
+            # (often multi-megapixel) images synchronously as the tab opens.
+            # The label text is the recycle token: ListView reuses item widgets,
+            # so a finished decode only applies if the row still shows this name.
+            p = str(path)
+
+            def work(token=name) -> None:
+                try:
+                    from gi.repository import GdkPixbuf
+                    pb = GdkPixbuf.Pixbuf.new_from_file_at_scale(p, 128, 72, True)
+                except Exception:
+                    GLib.idle_add(lambda: (self._thumb_missing(label, thumb, missing_icon, box, token, filename), False)[1])
+                    return
+                GLib.idle_add(lambda: (self._thumb_apply(label, thumb, missing_icon, box, token, pb), False)[1])
+            Thread(target=work, daemon=True).start()
         else:
-            thumb.set_paintable(None)
             missing_icon.set_visible(True)
             box.set_tooltip_text(
                 f"File not found: {filename}\n"
                 "Remove this entry and re-add the wallpaper file."
             )
+
+    @staticmethod
+    def _thumb_apply(label, thumb, missing_icon, box, token, pb) -> None:
+        if label.get_text() != token:
+            return  # row was recycled to a different wallpaper
+        thumb.set_pixbuf(pb)
+        missing_icon.set_visible(False)
+        box.set_tooltip_text(None)
+
+    @staticmethod
+    def _thumb_missing(label, thumb, missing_icon, box, token, filename) -> None:
+        if label.get_text() != token:
+            return
+        thumb.set_paintable(None)
+        missing_icon.set_visible(True)
+        box.set_tooltip_text(f"Could not load {filename}")

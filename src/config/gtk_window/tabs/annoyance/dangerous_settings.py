@@ -57,7 +57,7 @@ class DangerousSettingsTab(Adw.PreferencesPage):
         entry.connect("changed", lambda e: vars.panic_lockout_password.set(e.get_text()))
         safeword_row.add_suffix(entry)
         lockout.add(safeword_row)
-        lockout.add(AdwSliderRow("Lockout Duration (minutes)", vars.panic_lockout_time, 1, 1440))
+        lockout.add(AdwSliderRow("Lockout Duration", vars.panic_lockout_time, 1, 1440, unit="min"))
 
         # ---- Misc. dangerous ---------------------------------------------
         misc = Adw.PreferencesGroup(title="Misc. Dangerous Settings", description=MISC_TEXT)
@@ -65,7 +65,9 @@ class DangerousSettingsTab(Adw.PreferencesPage):
         misc.add(AdwSwitchRow(
             "Disable Panic Hotkey", vars.panic_disabled,
             subtitle="Also disables panic in the system tray."))
-        misc.add(AdwSwitchRow("Launch on PC Startup", vars.run_at_startup))
+        misc.add(AdwSwitchRow(
+            "Launch on PC Startup", vars.run_at_startup,
+            subtitle="Start Edgeware automatically when you log in (adds an autostart entry)."))
         misc.add(AdwSwitchRow(
             "Show on Discord", vars.show_on_discord,
             subtitle="Displays a lewd status on Discord while Edgeware is running."))

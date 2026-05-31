@@ -107,6 +107,7 @@ CONFIG_ITEMS = {
     "startup_splash": Item("showLoadingFlair", BOOLEAN, VAR, bool, block=True),
     "run_on_save_quit": Item("runOnSaveQuit", BOOLEAN, VAR, None, danger=Danger(DangerLevel.MINOR, Schema(1), RUN_ON_SAVE_QUIT_DANGER), block=True),
     "desktop_icons": Item("desktopIcons", BOOLEAN, VAR, bool, block=True),
+    "dashboard_on_launch": Item("dashboardOnLaunch", BOOLEAN, VAR, bool, block=True),
     "safe_mode": Item("safeMode", BOOLEAN, VAR, None, block=True),
     "message_off": Item("messageOff", BOOLEAN, VAR, None, block=True),
     "global_panic_key": Item("globalPanicButton", STRING, VAR, str, block=True),  # while disabling panic could be used for danger-chasing fetishists, changing the hotkey serves little purpose

@@ -44,7 +44,7 @@ class PopupTypesTab(Adw.PreferencesPage):
 
         freq = Adw.PreferencesGroup(title="General Popup Frequency", description=FREQUENCY_TEXT)
         self.add(freq)
-        freq.add(AdwSliderRow("Popup Timer Delay (ms)", vars.delay, 10, 60000))
+        freq.add(AdwSliderRow("Popup Timer Delay", vars.delay, 10, 60000, unit="s", factor=1000))
         freq.add(AdwSwitchRow("Single Popup Per Roll", vars.single_mode, subtitle=SINGLE_TEXT))
         freq.add(AdwSwitchRow(
             "Escalation Mode", vars.escalation,
@@ -60,8 +60,8 @@ class PopupTypesTab(Adw.PreferencesPage):
         audio.add(AdwSliderRow("Audio Popup Chance (%)", vars.audio_chance, 0, 100))
         audio.add(AdwSliderRow("Max Audio Popups", vars.max_audio, 1, 50))
         audio.add(AdwSliderRow("Audio Volume (%)", vars.audio_volume, 1, 100))
-        audio.add(AdwSliderRow("Fade-In Duration (ms)", vars.fade_in_duration, 0, 10000))
-        audio.add(AdwSliderRow("Fade-Out Duration (ms)", vars.fade_out_duration, 0, 10000))
+        audio.add(AdwSliderRow("Fade-In Duration", vars.fade_in_duration, 0, 10000, unit="s", factor=1000))
+        audio.add(AdwSliderRow("Fade-Out Duration", vars.fade_out_duration, 0, 10000, unit="s", factor=1000))
 
         video = Adw.PreferencesGroup(title="Video Popups", description=VIDEO_TEXT)
         self.add(video)
@@ -82,7 +82,7 @@ class PopupTypesTab(Adw.PreferencesPage):
         sub = Adw.PreferencesGroup(title="Subliminal Popups", description=SUBLIMINAL_TEXT)
         self.add(sub)
         sub.add(AdwSliderRow("Subliminal Popup Chance (%)", vars.subliminal_chance, 0, 100))
-        sub.add(AdwSliderRow("Subliminal Popup Length (ms)", vars.subliminal_timeout, 1, 1000))
+        sub.add(AdwSliderRow("Subliminal Popup Length", vars.subliminal_timeout, 1, 1000, unit="ms"))
         sub.add(AdwSliderRow("Subliminal Popup Opacity (%)", vars.subliminal_opacity, 1, 100))
 
         notif = Adw.PreferencesGroup(title="Notification Popups", description=NOTIFICATION_TEXT)

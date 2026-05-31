@@ -34,6 +34,7 @@
   "booruName": "",
   "booruMinScore": -5,
   "desktopIcons": 1,
+  "dashboardOnLaunch": 1,
   "tagList": "all",
   "booruSite": "gelbooru",
   "booruApiKey": "",

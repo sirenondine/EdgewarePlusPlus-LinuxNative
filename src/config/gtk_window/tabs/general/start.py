@@ -175,16 +175,7 @@ class StartTab(Adw.PreferencesPage):
         download_row.add_suffix(download_btn)
         download_row.set_activatable_widget(download_btn)
         info.add(download_row)
-
-        local_row = Adw.ActionRow(title="Installed Version")
-        local_row.add_suffix(_value_label(local_version))
-        info.add(local_row)
-
-        github_ver_row = Adw.ActionRow(title="Latest on GitHub")
-        mismatch = bool(live_version) and local_version != live_version
-        github_ver_row.add_suffix(_value_label(
-            live_version or "unknown", mismatch=mismatch))
-        info.add(github_ver_row)
+        # Version rows live on the Home dashboard now.
 
         # ---- Panic -------------------------------------------------------
         panic_group = Adw.PreferencesGroup(title="Panic Settings", description=PANIC_TEXT)
@@ -229,7 +220,10 @@ class StartTab(Adw.PreferencesPage):
         general.add(AdwSwitchRow(
             "Show Loading Flair", vars.startup_splash,
             subtitle="Displays a brief \"loading\" image before Edgeware startup."))
-        general.add(AdwSwitchRow("Run Edgeware on Save &amp; Exit", vars.run_on_save_quit))
+        general.add(AdwSwitchRow(
+            "Open Dashboard on Launch", vars.dashboard_on_launch,
+            subtitle="Running \"edgeware\" opens the Home dashboard instead of starting "
+                     "immediately. Use \"edgeware run\" to skip it."))
         general.add(AdwSwitchRow("Create Desktop Icons", vars.desktop_icons))
         general.add(AdwSwitchRow(
             "Pause When Screen Locks", vars.pause_on_lock,
@@ -245,7 +239,9 @@ class StartTab(Adw.PreferencesPage):
         general.add(AdwSwitchRow(
             "Warn if \"Dangerous\" Settings Active", vars.safe_mode,
             subtitle="Asks you to confirm before saving if certain settings are enabled."))
-        general.add(AdwSwitchRow("Disable Config Help Messages", vars.message_off))
+        general.add(AdwSwitchRow(
+            "Disable Config Help Messages", vars.message_off,
+            subtitle="Hide the descriptive help text shown under settings and groups."))
 
         pause_apps_row = Adw.EntryRow(title="Pause for Focused Apps")
         pause_apps_row.set_text(str(vars.pause_apps.get()))
@@ -385,10 +381,3 @@ class StartTab(Adw.PreferencesPage):
         else:
             self._preset_desc_row.set_subtitle("")
             self._diff_expander.set_title("Preview Changes")
-
-
-def _value_label(text: str, mismatch: bool = False) -> Gtk.Label:
-    lbl = Gtk.Label(label=text)
-    lbl.set_valign(Gtk.Align.CENTER)
-    lbl.add_css_class("dim-label" if not mismatch else "version-mismatch")
-    return lbl
