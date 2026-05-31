@@ -240,6 +240,17 @@ def send_toggle_pause() -> bool:
     return _send(TOGGLE_MESSAGE)
 
 
+def is_running() -> bool:
+    """Whether a runtime is alive — a fast connect-only probe (no round-trip,
+    so it never blocks the caller waiting on a reply)."""
+    path = _socket_path()
+    try:
+        with Client(address=path, family="AF_UNIX", authkey=AUTHKEY):
+            return True
+    except Exception:
+        return False
+
+
 def query_status() -> dict | None:
     """Ask a running runtime for its status. Returns None if not running."""
     path = _socket_path()

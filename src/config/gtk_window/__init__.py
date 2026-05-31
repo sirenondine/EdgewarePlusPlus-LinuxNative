@@ -17,7 +17,7 @@ from config.gtk_window.toast import toast, name_popover
 # doesn't pay ~170ms loading every settings tab (booru, sextoys, companion, ...).
 from config.gtk_window.tabs.home import HomeTab
 from config.gtk_window.utils import config, get_live_version, persist
-from config.items import CONFIG_DANGER
+from config.items import CONFIG_DANGER, RESTART_REQUIRED
 from config.vars import Vars
 from pack import Pack
 from paths import DEFAULT_PACK_PATH, CustomAssets, Data
@@ -605,8 +605,7 @@ class SettingsWindow(Adw.ApplicationWindow):
         if self._danger_pending and self._danger_pending[0] == key:
             self._danger_pending = None
             self._confirm_popover.popdown()
-        self._known[key] = value
-        self._schedule_save()
+        self._commit(key, value)
 
     def _begin_danger(self, key: str, old, new, danger) -> None:
         # Only one pending at a time: revert any prior unconfirmed change.
@@ -634,8 +633,7 @@ class SettingsWindow(Adw.ApplicationWindow):
         self._danger_pending = None
         self._confirm_popover.popdown()
         if accept:
-            self._known[key] = new
-            self._schedule_save()
+            self._commit(key, new)
         else:
             self._suppress = True
             self._vars.entries[key].set(old)
@@ -656,6 +654,16 @@ class SettingsWindow(Adw.ApplicationWindow):
         self._save_source = None
         persist(self._vars)
         return False
+
+    def _commit(self, key: str, value) -> None:
+        """Accept a setting change: remember it, schedule the autosave, and warn
+        if it won't take effect until Edgeware restarts."""
+        self._known[key] = value
+        self._schedule_save()
+        if key in RESTART_REQUIRED:
+            from panic import is_running
+            if is_running():
+                self._show_toast("Edgeware is running — restart it for this change to take effect.")
 
     def _on_close_request(self, _win) -> bool:
         # Cancel any unconfirmed dangerous change, then flush pending writes.

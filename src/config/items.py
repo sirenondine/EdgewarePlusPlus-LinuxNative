@@ -269,3 +269,26 @@ CONFIG_DANGER: dict[str, Danger] = {
     item.key: item.danger for item in CONFIG_ITEMS.values() if item.danger
 }
 CORRUPTION_BLOCK: set[str] = {item.key for item in CONFIG_ITEMS.values() if item.block}
+
+# Config keys whose effect is set up once at runtime start (windows, timers,
+# watchers, daemons, system integration) and so do NOT hot-reload — changing
+# them while Edgeware is running needs a restart. Everything else (chances,
+# delays, mods, volumes, limits, ...) is read per-roll and applies live.
+RESTART_REQUIRED: set[str] = {
+    # Gamification (HUD/progress wiring built at start)
+    "gamification", "gamificationHud", "gamificationHudCorner", "gamificationRewards",
+    # Companion (engine + window built once; chatter/react CHANCE are live)
+    "companionEnabled", "companionBackend", "companionBaseUrl", "companionModel",
+    "companionApiKey", "companionName", "companionSystemPrompt", "companionAvatar",
+    "companionMemory", "companionMemoryModel", "companionAutoMemory",
+    "companionObserveInterval", "companionFollow", "companionGreetOnStart",
+    "companionWindowAware", "companionScreenshotAware", "companionClipboardAware",
+    "companionControl", "companionControlMode",
+    # Modes / corruption / hibernate (start-time branches + timers)
+    "hibernateMode", "corruptionMode",
+    # Devices + integrations (connected at start)
+    "sextoys", "intifaceAddress",
+    # System integration (registered once)
+    "desktopIcons", "panicButton", "globalPanicButton", "panicDisabled",
+    "pauseOnLock", "pauseOnScreenshare", "pauseOnBattery", "pauseApps",
+}
