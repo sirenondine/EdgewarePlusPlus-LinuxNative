@@ -133,7 +133,7 @@ def quit_session(settings: Settings, state: State) -> None:
     companion = getattr(state, "companion", None)
     if companion is not None:
         try:
-            companion.extract_memory()  # blocking, short timeout; we're exiting
+            companion.detach_memory_extraction()  # hands off to a subprocess; quit stays instant
         except Exception as e:
             logging.warning(f"quit: companion memory extraction failed: {e}")
     if getattr(settings, "gamification", False):

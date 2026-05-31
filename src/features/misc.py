@@ -96,10 +96,12 @@ def handle_companion(settings: Settings, pack: Pack, state: State) -> None:
     if not getattr(settings, "companion_enabled", False):
         return
     try:
-        from features.companion.engine import Companion, _DEFAULT_PERSONA
+        from features.companion.engine import Companion, resolve_persona
         from features.companion.window import CompanionWindow
 
-        persona = pack.companion or _DEFAULT_PERSONA
+        # Resolve the persona the same way the engine does, so the window's name
+        # label and avatar match the configured companion (not just the pack's).
+        persona = resolve_persona(settings, pack)
         window = CompanionWindow(settings, pack, persona)
         companion = Companion(
             settings, pack, state,

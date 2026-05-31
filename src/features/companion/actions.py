@@ -106,10 +106,10 @@ def execute(name: str, arg, settings, pack, state) -> None:
             from features.prompt import Prompt
             GLib.idle_add(lambda: (Prompt(settings, pack, state), False)[1])
         elif name == "denial":
-            _notify(pack, pack.random_denial())
+            _notify(pack.random_denial(), settings, pack, state)
         elif name == "notify":
             text = arg_str.get("text") if isinstance(arg_str, dict) else str(arg_str)
-            _notify(pack, (text or pack.random_notification() or "…").strip()[:200])
+            _notify((text or pack.random_notification() or "…").strip()[:200], settings, pack, state)
         elif name == "wallpaper":
             _rotate_wallpaper(settings, pack)
         elif name == "vibrate":
@@ -118,11 +118,15 @@ def execute(name: str, arg, settings, pack, state) -> None:
         logging.warning(f"companion action '{name}' failed: {e}")
 
 
-def _notify(pack, message: str) -> None:
+def _notify(message: str, settings, pack, state) -> None:
     if not message:
         return
+    from features.companion import resolve_avatar
     from features.misc import notify
-    notify("Companion", message, icon=getattr(pack, "icon", None))
+    persona = getattr(getattr(state, "companion", None), "persona", None)
+    title = getattr(persona, "name", None) or "Companion"
+    icon = resolve_avatar(settings, pack, persona)
+    notify(title, message, icon=str(icon) if icon else None)
 
 
 def _rotate_wallpaper(settings, pack) -> None:

@@ -40,7 +40,7 @@ from gi.repository import Gtk4LayerShell as LayerShell
 
 import utils
 
-_FOLLOW_SIZE = (220, 240)   # approx companion footprint, for keeping it on-screen
+_FOLLOW_SIZE = (420, 260)   # approx companion footprint, for keeping it on-screen
 _ROAM_STEP_MS = 30          # ms between roam steps
 _ROAM_SPEED = 8             # px per step
 _ROAM_DWELL_MS = (6000, 14000)  # pause range between wanders
@@ -64,11 +64,12 @@ def _ensure_css() -> None:
             background-color: alpha(@theme_bg_color, 0.94);
             color: @theme_fg_color;
             border: 1px solid @borders;
-            border-radius: 14px;
-            padding: 12px;
+            border-radius: 16px;
+            padding: 16px 18px;
             box-shadow: 0 1px 4px rgba(0,0,0,0.35);
         }
-        .companion-name { color: @theme_selected_bg_color; font-weight: bold; }
+        .companion-name { color: @theme_selected_bg_color; font-weight: bold; font-size: 1.05em; }
+        .companion-bubble { font-size: 1.15em; }
         .companion-avatar { border-radius: 10px; }
     """)
     Gtk.StyleContext.add_provider_for_display(
@@ -96,18 +97,19 @@ class CompanionWindow(Gtk.Window):
         box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         box.set_valign(Gtk.Align.END)
 
-        # Animated sprite (pet) takes precedence over a static avatar.
-        self._sprite = self._load_sprite(pack, persona)
+        # Animated sprite (pet) takes precedence over a static avatar — unless
+        # the user explicitly set their own avatar image, which wins over the
+        # pack's spritesheet.
+        user_avatar = (getattr(settings, "companion_avatar", "") or "").strip()
+        self._sprite = None if user_avatar else self._load_sprite(pack, persona)
         if self._sprite:
             box.append(self._sprite)
         else:
             avatar_path = self._resolve_avatar(pack, persona)
             if avatar_path:
-                avatar = Gtk.Picture.new_for_filename(str(avatar_path))
-                avatar.set_size_request(96, 96)
-                avatar.set_content_fit(Gtk.ContentFit.COVER)
-                avatar.add_css_class("companion-avatar")
-                box.append(avatar)
+                avatar = self._build_avatar(avatar_path)
+                if avatar:
+                    box.append(avatar)
 
         self._text_col = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
         self._text_col.add_css_class("companion-bg")  # only the speech bubble paints; the pet floats free
@@ -115,7 +117,8 @@ class CompanionWindow(Gtk.Window):
         name = Gtk.Label(label=persona.name, halign=Gtk.Align.START)
         name.add_css_class("companion-name")
         self._bubble = Gtk.Label(label="", wrap=True, halign=Gtk.Align.START, xalign=0.0)
-        self._bubble.set_max_width_chars(34)
+        self._bubble.set_width_chars(28)       # roomy minimum so short lines aren't cramped
+        self._bubble.set_max_width_chars(52)   # wrap point for long replies
         self._bubble.add_css_class("companion-bubble")
         # Click-to-chat input, hidden until the companion is clicked.
         self._entry = Gtk.Entry()
@@ -248,15 +251,35 @@ class CompanionWindow(Gtk.Window):
         sheet = sprite.load_sheet(path)
         return sprite.SpriteWidget(sheet) if sheet else None
 
-    def _resolve_avatar(self, pack, persona):
+    _AVATAR_SIZE = 96  # px; fixed on-screen avatar size
+
+    def _build_avatar(self, path):
+        """A fixed-size avatar widget. Loads the image pre-scaled so the
+        Picture's natural size is small — otherwise a large source image would
+        blow the window up (size_request is only a minimum)."""
+        size = self._AVATAR_SIZE
         try:
-            if persona.avatar:
-                p = pack.paths.root / persona.avatar
-                if p.is_file():
-                    return p
-            return pack.icon
-        except Exception:
-            return None
+            import gi as _gi
+            _gi.require_version("GdkPixbuf", "2.0")
+            from gi.repository import Gdk, GdkPixbuf
+            pb = GdkPixbuf.Pixbuf.new_from_file_at_scale(str(path), size, size, True)
+            avatar = Gtk.Picture.new_for_paintable(Gdk.Texture.new_for_pixbuf(pb))
+        except Exception as e:
+            logging.debug(f"avatar load failed ({path}): {e}")
+            avatar = Gtk.Picture.new_for_filename(str(path))
+            avatar.set_can_shrink(True)
+        avatar.set_size_request(size, size)
+        avatar.set_content_fit(Gtk.ContentFit.CONTAIN)
+        avatar.set_halign(Gtk.Align.CENTER)
+        avatar.set_valign(Gtk.Align.END)
+        avatar.set_hexpand(False)
+        avatar.set_vexpand(False)
+        avatar.add_css_class("companion-avatar")
+        return avatar
+
+    def _resolve_avatar(self, pack, persona):
+        from features.companion import resolve_avatar
+        return resolve_avatar(self.settings, pack, persona)
 
     def set_input_handler(self, handler) -> None:
         """handler(text) is called with what the user types into the chat box."""

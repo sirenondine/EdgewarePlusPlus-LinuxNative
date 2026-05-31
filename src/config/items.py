@@ -235,6 +235,7 @@ CONFIG_ITEMS = {
     "companion_enabled": Item("companionEnabled", BOOLEAN, VAR, bool, block=True),
     "companion_name": Item("companionName", STRING, VAR, str, block=True),
     "companion_system_prompt": Item("companionSystemPrompt", STRING, VAR, str, block=True),
+    "companion_avatar": Item("companionAvatar", STRING, VAR, str, block=True),
     "companion_memory": Item("companionMemory", STRING, VAR, str, block=True),
     "companion_auto_memory": Item("companionAutoMemory", BOOLEAN, VAR, bool, block=True),
     "companion_memory_model": Item("companionMemoryModel", STRING, VAR, str, block=True),

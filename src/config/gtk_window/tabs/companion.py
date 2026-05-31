@@ -77,7 +77,7 @@ class CompanionTab(Adw.PreferencesPage):
         group.add(AdwComboRow("Backend", vars.companion_backend, BACKENDS))
         group.add(AdwEntryRow("Server URL", vars.companion_base_url))
         group.add(AdwEntryRow("Model", vars.companion_model))
-        group.add(self._model_picker(vars))
+        group.add(self._model_picker(vars, vars.companion_model))
         group.add(AdwEntryRow("API key", vars.companion_api_key, password=True))
 
         persona = Adw.PreferencesGroup(
@@ -85,6 +85,7 @@ class CompanionTab(Adw.PreferencesPage):
             description="Override the pack's companion. Leave blank to use the pack's companion.json (or the built-in default).")
         self.add(persona)
         persona.add(AdwEntryRow("Name", vars.companion_name))
+        persona.add(self._avatar_row(vars))
         persona.add(self._text_editor("System prompt", vars.companion_system_prompt))
         persona.add(self._text_editor("Memory / about the user", vars.companion_memory))
 
@@ -95,6 +96,8 @@ class CompanionTab(Adw.PreferencesPage):
         self.add(mem_group)
         mem_group.add(AdwSwitchRow("Auto-memory", vars.companion_auto_memory))
         mem_group.add(AdwEntryRow("Memory model (optional)", vars.companion_memory_model))
+        mem_group.add(self._model_picker(vars, vars.companion_memory_model,
+                                         subtitle="Pick the memory-extraction model"))
         mem_group.add(self._memory_facts_editor())
 
         behaviour = Adw.PreferencesGroup(title="Behaviour")
@@ -175,35 +178,83 @@ class CompanionTab(Adw.PreferencesPage):
         box.append(frame)
         return box
 
-    def _model_picker(self, vars: Vars) -> Gtk.Widget:
+    def _avatar_row(self, vars: Vars) -> Gtk.Widget:
+        """Avatar image path (shown beside the chat bubble and on the
+        companion's notifications). Blank falls back to the pack icon. A Browse
+        button opens a file picker."""
+        row = AdwEntryRow("Avatar image", vars.companion_avatar)
+        browse = Gtk.Button(icon_name="document-open-symbolic", valign=Gtk.Align.CENTER)
+        browse.set_tooltip_text("Choose an image (blank = use the pack icon)")
+        browse.add_css_class("flat")
+        row.add_suffix(browse)
+
+        def on_selected(fd, result, _ud) -> None:
+            try:
+                file = fd.open_finish(result)
+            except Exception:
+                return
+            if file:
+                vars.companion_avatar.set(file.get_path())
+
+        def on_browse(_b) -> None:
+            fd = Gtk.FileDialog.new()
+            fd.set_title("Choose Companion Avatar")
+            filt = Gtk.FileFilter()
+            filt.set_name("Image files")
+            for mime in ("image/png", "image/jpeg", "image/gif", "image/webp", "image/bmp"):
+                filt.add_mime_type(mime)
+            fd.set_default_filter(filt)
+            fd.open(self.get_root(), None, on_selected, None)
+        browse.connect("clicked", on_browse)
+        return row
+
+    def _model_picker(self, vars: Vars, target_var, *,
+                      subtitle: str = "Pick from the Ollama server above") -> Gtk.Widget:
         """A dropdown of models detected on the Ollama server, tagged with their
-        capabilities (vision/tools). Selecting one fills the Model field. A
-        Refresh button re-queries. Empty for non-Ollama / offline backends."""
-        row = Adw.ComboRow(title="Detected models", subtitle="Pick from the Ollama server above")
+        capabilities (vision/tools). Selecting one fills target_var. A Refresh
+        button re-queries. Empty for non-Ollama / offline backends. State is
+        kept per-picker (closure-local) so several pickers can coexist."""
+        row = Adw.ComboRow(title="Detected models", subtitle=subtitle)
         refresh = Gtk.Button(icon_name="view-refresh-symbolic", valign=Gtk.Align.CENTER)
         refresh.set_tooltip_text("Refresh model list")
         row.add_suffix(refresh)
-        self._model_names: list[str] = []
-        self._model_suppress = False
+        st = {"names": [], "suppress": False}
+
+        # The collapsed row is narrow and the default factory ellipsizes; a
+        # custom list factory with a plain (non-ellipsizing) label lets the
+        # popup grow to fit the full "name · capabilities" text.
+        factory = Gtk.SignalListItemFactory()
+
+        def on_setup(_f, item) -> None:
+            label = Gtk.Label(xalign=0)
+            label.set_margin_start(4)
+            label.set_margin_end(4)
+            item.set_child(label)
+
+        def on_bind(_f, item) -> None:
+            item.get_child().set_text(item.get_item().get_string())
+        factory.connect("setup", on_setup)
+        factory.connect("bind", on_bind)
+        row.set_list_factory(factory)
 
         def populate(items) -> bool:
-            self._model_names = [n for n, _ in items]
+            st["names"] = [n for n, _ in items]
             labels = [f"{n}  ·  {', '.join(sorted(c & {'vision', 'tools'})) or 'text'}" for n, c in items] \
                 or ["(none detected — type the name above)"]
-            self._model_suppress = True
+            st["suppress"] = True
             row.set_model(Gtk.StringList.new(labels))
-            cur = vars.companion_model.get()
-            if cur in self._model_names:
-                row.set_selected(self._model_names.index(cur))
-            self._model_suppress = False
+            cur = target_var.get()
+            if cur in st["names"]:
+                row.set_selected(st["names"].index(cur))
+            st["suppress"] = False
             return False
 
         def on_selected(r, _p) -> None:
-            if self._model_suppress:
+            if st["suppress"]:
                 return
             i = r.get_selected()
-            if 0 <= i < len(self._model_names):
-                vars.companion_model.set(self._model_names[i])
+            if 0 <= i < len(st["names"]):
+                target_var.set(st["names"][i])
         row.connect("notify::selected", on_selected)
 
         def refresh_now(*_a) -> None:

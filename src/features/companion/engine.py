@@ -72,6 +72,22 @@ _DEFAULT_PERSONA = Persona(
 )
 
 
+def resolve_persona(settings, pack) -> Persona:
+    """Persona precedence: config overrides (name / system prompt from the config
+    window) layered over the pack's companion.json, else the built-in default.
+    Greetings/idle lines (the scripted fallback corpus) come from the pack/
+    default. Shared by the engine and the on-screen window so both agree on the
+    companion's name and avatar."""
+    base = pack.companion or _DEFAULT_PERSONA
+    name = (getattr(settings, "companion_name", "") or "").strip() or base.name
+    prompt = (getattr(settings, "companion_system_prompt", "") or "").strip() or base.system_prompt
+    if name == base.name and prompt == base.system_prompt:
+        return base
+    return Persona(
+        name=name, avatar=base.avatar, spritesheet=base.spritesheet,
+        system_prompt=prompt, greetings=base.greetings, idle_lines=base.idle_lines)
+
+
 class Companion:
     def __init__(self, settings, pack, state=None, *, on_start, on_token, on_done, on_error=None) -> None:
         self.settings = settings
@@ -93,18 +109,7 @@ class Companion:
         logging.info(f"Companion ready: persona='{self.persona.name}' backend={self.backend.name}")
 
     def _resolve_persona(self) -> Persona:
-        """Persona precedence: config overrides (name / system prompt from the
-        config window) layered over the pack's companion.json, else the built-in
-        default. Greetings/idle lines (the scripted fallback corpus) come from
-        the pack/default."""
-        base = self.pack.companion or _DEFAULT_PERSONA
-        name = (getattr(self.settings, "companion_name", "") or "").strip() or base.name
-        prompt = (getattr(self.settings, "companion_system_prompt", "") or "").strip() or base.system_prompt
-        if name == base.name and prompt == base.system_prompt:
-            return base
-        return Persona(
-            name=name, avatar=base.avatar, spritesheet=base.spritesheet,
-            system_prompt=prompt, greetings=base.greetings, idle_lines=base.idle_lines)
+        return resolve_persona(self.settings, self.pack)
 
     # ------------------------------------------------------------------
     def _build_backend(self) -> llm.LLMBackend:
@@ -352,6 +357,49 @@ class Companion:
         if facts:
             memory.add_facts(facts)
             logging.info(f"Companion learned {len(facts)} fact(s).")
+
+    def detach_memory_extraction(self) -> bool:
+        """Hand session-log extraction to a detached subprocess so quitting is
+        instant — the LLM call can take many seconds. The child does the
+        blocking work and persists facts on its own. Returns True if launched.
+        No-op unless auto-memory is on and enough happened this session."""
+        if not getattr(self.settings, "companion_auto_memory", False):
+            return False
+        if len(self._log) < 3:
+            return False
+        import json
+        import os
+        import subprocess
+        import sys
+        import tempfile
+        from pathlib import Path
+
+        s = self.settings
+        model = (getattr(s, "companion_memory_model", "") or "").strip() or getattr(s, "companion_model", "")
+        payload = {
+            "backend": getattr(s, "companion_backend", "scripted"),
+            "base_url": getattr(s, "companion_base_url", None),
+            "model": model,
+            "api_key": (getattr(s, "companion_api_key", None) or None),
+            "log": list(self._log),
+        }
+        try:
+            fd, path = tempfile.mkstemp(prefix="ew-companion-mem-", suffix=".json")
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                json.dump(payload, f)
+            src_root = str(Path(__file__).resolve().parents[2])  # .../src
+            env = dict(os.environ)
+            env["PYTHONPATH"] = src_root + os.pathsep + env.get("PYTHONPATH", "")
+            subprocess.Popen(
+                [sys.executable, "-m", "features.companion.extract", path],
+                cwd=src_root, env=env,
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                start_new_session=True,  # survive our os._exit
+            )
+            return True
+        except Exception as e:
+            logging.warning(f"detached memory extraction failed to launch: {e}")
+            return False
 
     def _extraction_backend(self) -> llm.LLMBackend:
         s = self.settings

@@ -110,6 +110,7 @@
   "companionEnabled": 0,
   "companionName": "",
   "companionSystemPrompt": "",
+  "companionAvatar": "",
   "companionMemory": "",
   "companionAutoMemory": 0,
   "companionMemoryModel": "",
