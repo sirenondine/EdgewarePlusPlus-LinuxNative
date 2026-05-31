@@ -94,6 +94,38 @@ from scripting import run_script
 from state import State
 
 
+def watch_config(settings: Settings, state: State) -> None:
+    """Hot-reload settings when the config file changes (live edits from the
+    config window). Re-reads values in place — the main loop's per-roll reads
+    pick them up next tick. Structural setup (HUD, companion, hibernate, tray)
+    is not re-applied."""
+    import logging
+
+    from paths import Data
+    try:
+        monitor = Gio.File.new_for_path(str(Data.CONFIG)).monitor_file(
+            Gio.FileMonitorFlags.WATCH_MOVES, None)
+    except Exception as e:
+        logging.warning(f"Config hot-reload unavailable: {e}")
+        return
+    state._config_monitor = monitor  # keep a reference so it isn't GC'd
+    pending = {"id": None}
+
+    def do_reload() -> bool:
+        pending["id"] = None
+        if settings.reload():
+            logging.info("Settings hot-reloaded from config change.")
+        return False
+
+    def on_changed(_monitor, _file, _other, _event) -> None:
+        # Coalesce the burst of events an atomic save produces.
+        if pending["id"] is not None:
+            GLib.source_remove(pending["id"])
+        pending["id"] = GLib.timeout_add(250, do_reload)
+
+    monitor.connect("changed", on_changed)
+
+
 def main(settings: Settings, pack: Pack, state: State, targets: list[RollTarget]) -> None:
     roll_targets(settings, targets)  # self-gates on pause
     if not is_paused():
@@ -156,6 +188,7 @@ if __name__ == "__main__":
             make_desktop_icons(settings)
             handle_keyboard(settings, state)
             start_panic_listener(settings, state)
+            watch_config(settings, state)
             Thread(target=lambda: replace_images(settings, pack), daemon=True).start()  # Thread for performance reasons
             handle_corruption(settings, pack, state)
             handle_discord(settings, pack)

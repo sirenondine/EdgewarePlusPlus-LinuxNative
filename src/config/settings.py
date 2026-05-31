@@ -30,6 +30,20 @@ class Settings:
         self.load_settings()
         logging.info(f"Config loaded: {self.config}")
 
+    def reload(self) -> bool:
+        """Re-read config from disk and refresh settings in place (live edits
+        from the config window). Per-tick reads pick up new values immediately;
+        structural setup (HUD, companion, hibernate, tray) is not re-applied.
+        Returns False (keeping the old values) if the file can't be read."""
+        try:
+            new_config = load_config()
+        except Exception as e:
+            logging.warning(f"Settings reload skipped (config unreadable): {e}")
+            return False
+        self.config = new_config
+        self.load_settings()
+        return True
+
     def load_settings(self) -> None:
         default_config = load_default_config()
         for name, item in CONFIG_ITEMS.items():

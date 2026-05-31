@@ -229,8 +229,14 @@ def persist(vars: Vars) -> None:
         if key == "packPath":
             value = value if value != "default" else None
         temp[key] = (1 if value else 0) if type(value) is bool else value
-    with open(Data.CONFIG, "w") as file:
+    # Atomic write so a running instance watching the file never reads a torn
+    # half-written config (see Settings hot-reload).
+    import os
+    import tempfile
+    fd, tmp = tempfile.mkstemp(dir=str(Data.CONFIG.parent), suffix=".tmp")
+    with os.fdopen(fd, "w") as file:
         file.write(json.dumps(temp))
+    os.replace(tmp, Data.CONFIG)
 
 
 def write_save(vars: Vars, exit_at_end: bool = False) -> None:
