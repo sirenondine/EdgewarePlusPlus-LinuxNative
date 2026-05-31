@@ -297,6 +297,17 @@ class SettingsWindow(Adw.ApplicationWindow):
         # No Save button: settings autosave live (see _on_var_change).
         toolbar_view.add_top_bar(header)
 
+        # Persistent banner shown when a changed setting needs a restart to take
+        # effect (only while a runtime is actually running). Stays until the
+        # user dismisses it, so it can't be missed.
+        self._restart_banner = Adw.Banner(
+            title="Restart Edgeware to apply some changes.")
+        self._restart_banner.set_button_label("Dismiss")
+        self._restart_banner.connect(
+            "button-clicked", lambda _b: self._restart_banner.set_revealed(False))
+        self._restart_banner.set_revealed(False)
+        toolbar_view.add_top_bar(self._restart_banner)
+
         # Root overlay covers the entire window (header + content) for the
         # loading screen. Toast overlay (self._overlay) stays inside the stack.
         self._root_overlay = Gtk.Overlay()
@@ -593,8 +604,12 @@ class SettingsWindow(Adw.ApplicationWindow):
     def _on_var_change(self, key: str, value) -> None:
         if self._suppress:
             return
-        danger = CONFIG_DANGER.get(key)
         old = self._known.get(key)
+        # Ignore no-op "changes" — e.g. a lazily-built widget calling set_active
+        # with the already-stored value fires notify without a real edit.
+        if value == old:
+            return
+        danger = CONFIG_DANGER.get(key)
         # Flipping a setting INTO a dangerous value asks first, inline — unless
         # the user turned off "Warn if Dangerous Settings Active".
         if (danger and self._vars.safe_mode.get()
@@ -663,7 +678,7 @@ class SettingsWindow(Adw.ApplicationWindow):
         if key in RESTART_REQUIRED:
             from panic import is_running
             if is_running():
-                self._show_toast("Edgeware is running — restart it for this change to take effect.")
+                self._restart_banner.set_revealed(True)
 
     def _on_close_request(self, _win) -> bool:
         # Cancel any unconfirmed dangerous change, then flush pending writes.
