@@ -94,11 +94,25 @@ from scripting import run_script
 from state import State
 
 
-def watch_config(settings: Settings, state: State) -> None:
+# Config keys that need a structural subsystem re-applied on hot-reload (not
+# just a value refresh). companion CHANCE keys are read per-roll, so they live-
+# update without a rebuild and aren't listed here.
+_HUD_KEYS = {"gamification", "gamificationHud", "gamificationHudCorner", "gamificationRewards"}
+_COMPANION_KEYS = {
+    "companionEnabled", "companionBackend", "companionBaseUrl", "companionModel",
+    "companionApiKey", "companionName", "companionSystemPrompt", "companionAvatar",
+    "companionMemory", "companionMemoryModel", "companionAutoMemory",
+    "companionObserveInterval", "companionFollow", "companionGreetOnStart",
+    "companionWindowAware", "companionScreenshotAware", "companionClipboardAware",
+    "companionControl", "companionControlMode",
+}
+
+
+def watch_config(settings: Settings, pack: Pack, state: State) -> None:
     """Hot-reload settings when the config file changes (live edits from the
-    config window). Re-reads values in place — the main loop's per-roll reads
-    pick them up next tick. Structural setup (HUD, companion, hibernate, tray)
-    is not re-applied."""
+    config window). Values apply next tick; the HUD and companion subsystems are
+    rebuilt when their settings change. Heavier structural setup (hibernate,
+    corruption, tray, watchers) still needs a restart."""
     import logging
 
     from paths import Data
@@ -109,12 +123,21 @@ def watch_config(settings: Settings, state: State) -> None:
         logging.warning(f"Config hot-reload unavailable: {e}")
         return
     state._config_monitor = monitor  # keep a reference so it isn't GC'd
+    managed = _HUD_KEYS | _COMPANION_KEYS
     pending = {"id": None}
 
     def do_reload() -> bool:
         pending["id"] = None
-        if settings.reload():
-            logging.info("Settings hot-reloaded from config change.")
+        before = {k: settings.config.get(k) for k in managed}
+        if not settings.reload():
+            return False
+        changed = {k for k in managed if settings.config.get(k) != before[k]}
+        from features.misc import handle_companion, handle_gamification
+        if changed & _HUD_KEYS:
+            handle_gamification(settings, pack, state)
+        if changed & _COMPANION_KEYS:
+            handle_companion(settings, pack, state)
+        logging.info(f"Settings hot-reloaded{f' (re-applied: {sorted(changed)})' if changed else ''}.")
         return False
 
     def on_changed(_monitor, _file, _other, _event) -> None:
@@ -188,7 +211,7 @@ if __name__ == "__main__":
             make_desktop_icons(settings)
             handle_keyboard(settings, state)
             start_panic_listener(settings, state)
-            watch_config(settings, state)
+            watch_config(settings, pack, state)
             Thread(target=lambda: replace_images(settings, pack), daemon=True).start()  # Thread for performance reasons
             handle_corruption(settings, pack, state)
             handle_discord(settings, pack)

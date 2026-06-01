@@ -91,8 +91,33 @@ def handle_sextoy(settings: Settings, pack: Pack, state: State) -> None:
 
 def handle_companion(settings: Settings, pack: Pack, state: State) -> None:
     """Build the optional AI companion (engine + on-screen window) and greet, if
-    enabled. No-op otherwise. Backend errors degrade gracefully (the engine logs
-    and the window stays hidden)."""
+    enabled. No-op otherwise. Idempotent: re-running tears down the existing
+    companion first, so it can be hot-reloaded when companion settings change.
+    Backend errors degrade gracefully (the engine logs, the window stays hidden)."""
+    from gi.repository import GLib
+
+    # --- Tear down any existing companion (live re-apply) -------------
+    tid = getattr(state, "_companion_observe_timer", None)
+    if tid is not None:
+        GLib.source_remove(tid)
+        state._companion_observe_timer = None
+    stop = getattr(state, "_companion_clip_stop", None)
+    if stop is not None:
+        stop.set()  # retire the clipboard watcher thread
+        state._companion_clip_stop = None
+    if state.companion_window is not None:
+        try:
+            state.companion_window.destroy()
+        except Exception:
+            pass
+        state.companion_window = None
+    if state.companion is not None:
+        try:
+            state.companion.cancel()
+        except Exception:
+            pass
+        state.companion = None
+
     if not getattr(settings, "companion_enabled", False):
         return
     try:
@@ -115,16 +140,19 @@ def handle_companion(settings: Settings, pack: Pack, state: State) -> None:
 
         # React to images the user copies, if enabled.
         if getattr(settings, "companion_clipboard_awareness", False):
+            import threading
+
             from features.companion import vision
+            stop_event = threading.Event()
+            state._companion_clip_stop = stop_event
             vision.watch_clipboard_images(
-                lambda b64: state.companion and state.companion.react_image("the user just copied an image", b64))
+                lambda b64: state.companion and state.companion.react_image("the user just copied an image", b64),
+                stop=stop_event.is_set)
 
         # Optional timer-driven observation, on a cadence instead of on focus
         # changes: screen-aware -> look at the screen; otherwise idle chatter.
         interval = getattr(settings, "companion_observe_interval", 0)
         if interval > 0:
-            from gi.repository import GLib
-
             def observe_tick() -> bool:
                 import roll
                 if state.companion and not roll.is_paused():
@@ -134,7 +162,7 @@ def handle_companion(settings: Settings, pack: Pack, state: State) -> None:
                         state.companion.idle_chatter()
                 return True
 
-            GLib.timeout_add_seconds(interval, observe_tick)
+            state._companion_observe_timer = GLib.timeout_add_seconds(interval, observe_tick)
     except Exception as e:
         logging.warning(f"Failed to start AI companion: {e}")
         state.companion = None
@@ -143,12 +171,31 @@ def handle_companion(settings: Settings, pack: Pack, state: State) -> None:
 
 def handle_gamification(settings: Settings, pack: Pack, state: State) -> None:
     """Load local progress and wire level-up notifications + a playtime ticker.
-    No-op unless gamification is enabled."""
-    if not getattr(settings, "gamification", False):
-        return
+    Idempotent: re-running rewires callbacks and rebuilds the HUD so gamification
+    settings (enable, HUD, corner) hot-reload. No-op body when disabled."""
     from gi.repository import GLib
 
     from features import gamification
+
+    # Tear down the existing HUD first (live re-apply / corner change).
+    if state.hud is not None:
+        try:
+            state.hud.destroy()
+        except Exception:
+            pass
+        state.hud = None
+        gamification.set_progress_callback(None)
+
+    if not getattr(settings, "gamification", False):
+        # Disabled (possibly toggled off live): drop callbacks + ticker.
+        gamification.set_level_up_callback(None)
+        gamification.set_achievement_callback(None)
+        gamification.set_quest_callback(None)
+        tid = getattr(state, "_gam_ticker", None)
+        if tid is not None:
+            GLib.source_remove(tid)
+            state._gam_ticker = None
+        return
 
     def companion_say(event: str, detail: str) -> None:
         # Let the companion comment on milestones (no-op if not enabled).
@@ -195,13 +242,15 @@ def handle_gamification(settings: Settings, pack: Pack, state: State) -> None:
         except Exception as e:
             logging.warning(f"Failed to create gamification HUD: {e}")
 
-    def tick() -> bool:
-        import roll
-        if not roll.is_paused():
-            gamification.record("playtime_minute")
-        return True
+    # Playtime ticker — add once; survives re-applies.
+    if getattr(state, "_gam_ticker", None) is None:
+        def tick() -> bool:
+            import roll
+            if not roll.is_paused():
+                gamification.record("playtime_minute")
+            return True
 
-    GLib.timeout_add_seconds(60, tick)
+        state._gam_ticker = GLib.timeout_add_seconds(60, tick)
 
 
 def send_notification(

@@ -102,10 +102,11 @@ def available() -> bool:
     return bool(os.environ.get("NIRI_SOCKET") and shutil.which("wl-paste")) or shutil.which("grim") is not None
 
 
-def watch_clipboard_images(callback, interval: float = 4.0, max_dim: int = 1024, quality: int = 70) -> None:
+def watch_clipboard_images(callback, interval: float = 4.0, max_dim: int = 1024, quality: int = 70, stop=None) -> None:
     """Poll the clipboard for newly-copied images and pass each (as base64 JPEG)
     to callback. Skips repeats and our own window captures. Daemon thread; no-op
-    without wl-paste."""
+    without wl-paste. `stop` is an optional callable; the loop exits when it
+    returns True (used to retire the watcher on companion hot-reload)."""
     import threading
 
     if not shutil.which("wl-paste"):
@@ -113,7 +114,7 @@ def watch_clipboard_images(callback, interval: float = 4.0, max_dim: int = 1024,
 
     def loop() -> None:
         last = None
-        while True:
+        while not (stop and stop()):
             time.sleep(interval)
             try:
                 raw = subprocess.run(["wl-paste", "--type", "image/png"], capture_output=True, timeout=3).stdout
