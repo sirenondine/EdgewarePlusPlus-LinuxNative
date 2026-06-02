@@ -62,11 +62,12 @@ PATTERNS = {
 }
 PATTERN_NAMES = list(PATTERNS.keys())
 
-# buttplug-py is an optional dependency. If it isn't installed the feature
-# degrades gracefully: Sextoy can still be constructed but never connects.
+# Native Buttplug v3 client (speaks the protocol to Intiface directly). Needs
+# `websockets`; if it's missing the feature degrades gracefully — Sextoy can
+# still be constructed but never connects.
 try:
-    from buttplug import Client, ProtocolSpec, WebsocketConnector
-    from buttplug.client import Actuator
+    import websockets  # noqa: F401  (transport for buttplug_native)
+    from features.buttplug_native import Actuator, Client, ProtocolSpec, WebsocketConnector
     BUTTPLUG_AVAILABLE = True
 except Exception:
     Client = ProtocolSpec = WebsocketConnector = Actuator = None

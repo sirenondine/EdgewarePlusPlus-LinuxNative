@@ -125,8 +125,8 @@ class SexToysTab(Adw.PreferencesPage):
 
         if not BUTTPLUG_AVAILABLE:
             warn = Adw.ActionRow(
-                title="buttplug-py not installed",
-                subtitle="Run edgeware setup / pip install buttplug-py to enable toy support.",
+                title="websockets not installed",
+                subtitle="Run edgeware setup / pip install websockets to enable toy support.",
             )
             warn.add_prefix(Gtk.Image.new_from_icon_name("dialog-warning-symbolic"))
             warn.set_sensitive(False)
