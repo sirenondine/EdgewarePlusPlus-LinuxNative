@@ -47,6 +47,37 @@ DEFAULT_SITE = "gelbooru"
 API_TYPES = ["danbooru", "gelbooru"]
 
 
+def detect_api_type(base_url: str) -> str | None:
+    """Probe a custom endpoint and guess its API flavour ('danbooru' or
+    'gelbooru'), or None if neither responds. Blocking — call off the main thread."""
+    import requests
+    base = (base_url or "").rstrip("/")
+    if not base:
+        return None
+    headers = {"User-Agent": "EdgewarePP/1.0"}
+    # Danbooru: GET /posts.json -> JSON array of post objects.
+    try:
+        r = requests.get(f"{base}/posts.json", params={"limit": 1}, headers=headers, timeout=6)
+        if r.ok and "json" in r.headers.get("content-type", ""):
+            data = r.json()
+            if isinstance(data, list) and (not data or isinstance(data[0], dict)):
+                return "danbooru"
+    except Exception:
+        pass
+    # Gelbooru-style: GET /index.php?page=dapi&s=post&q=index&json=1 -> JSON.
+    try:
+        r = requests.get(f"{base}/index.php",
+                         params={"page": "dapi", "s": "post", "q": "index", "json": "1", "limit": 1},
+                         headers=headers, timeout=6)
+        if r.ok and "json" in r.headers.get("content-type", ""):
+            data = r.json()
+            if isinstance(data, (list, dict)):
+                return "gelbooru"
+    except Exception:
+        pass
+    return None
+
+
 def _custom_search(base_url: str, api_type: str, query: str, limit: int, page: int,
                    api_key: str = "", user_id: str = "") -> list[dict]:
     """Query an arbitrary booru endpoint (Danbooru- or Gelbooru-style JSON API),

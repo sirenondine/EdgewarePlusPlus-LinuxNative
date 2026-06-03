@@ -56,7 +56,12 @@ class BooruTab(Adw.PreferencesPage):
         group.add(AdwComboRow(
             "Site", vars.booru_site,
             {name: name.capitalize() for name in booru.SITE_NAMES}))
-        group.add(AdwEntryRow("Custom Endpoint URL", vars.booru_custom_url))
+        url_row = AdwEntryRow("Custom Endpoint URL", vars.booru_custom_url)
+        detect_btn = Gtk.Button(label="Detect", valign=Gtk.Align.CENTER)
+        detect_btn.set_tooltip_text("Probe the URL and set the API type automatically")
+        detect_btn.connect("clicked", lambda _b: self._on_detect_api())
+        url_row.add_suffix(detect_btn)
+        group.add(url_row)
         group.add(AdwComboRow(
             "Custom API Type", vars.booru_api_type,
             {t: t.capitalize() for t in booru.API_TYPES}))
@@ -116,6 +121,27 @@ class BooruTab(Adw.PreferencesPage):
         frame.add_css_class("card")
         frame.set_child(flow_scroll)
         preview_group.add(frame)
+
+    def _on_detect_api(self) -> None:
+        url = self._vars.booru_custom_url.get() or ""
+        if not url:
+            self._status.set_text("Enter a custom endpoint URL first.")
+            return
+        self._status.set_text(f"Detecting API type for {url}…")
+
+        def work() -> None:
+            kind = booru.detect_api_type(url)
+            GLib.idle_add(self._apply_detected_api, kind)
+        threading.Thread(target=work, daemon=True).start()
+
+    def _apply_detected_api(self, kind) -> bool:
+        if kind in booru.API_TYPES:
+            self._vars.booru_api_type.set(kind)  # combo resyncs via its trace
+            self._vars.booru_site.set("custom")
+            self._status.set_text(f"Detected API type: {kind}. Site set to custom.")
+        else:
+            self._status.set_text("Could not detect the API type — set it manually.")
+        return False
 
     # ---- Preview handlers ------------------------------------------------
     def _on_preview(self, _btn: Gtk.Button) -> None:
