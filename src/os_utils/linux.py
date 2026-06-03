@@ -94,6 +94,41 @@ def open_directory(url: str) -> None:
     subprocess.Popen(["xdg-open", url])
 
 
+def open_url(url: str) -> None:
+    """Open a URL in the user's browser via the XDG Desktop Portal (OpenURI).
+
+    The portal opens the URL from its own process tree, so the browser does not
+    inherit this GTK app's Wayland/GTK state or signal handlers — launching a
+    GTK-based browser directly as our child can crash it
+    ("gdk_display_manager_get() called before gtk_init()"). It also avoids
+    parenting any chooser to a layer-shell surface (Wayland protocol Error 71).
+    Falls back to a detached xdg-open if the portal is unavailable."""
+    try:
+        from gi.repository import Gio, GLib
+
+        bus = Gio.bus_get_sync(Gio.BusType.SESSION, None)
+        bus.call_sync(
+            "org.freedesktop.portal.Desktop",
+            "/org/freedesktop/portal/desktop",
+            "org.freedesktop.portal.OpenURI",
+            "OpenURI",
+            GLib.Variant("(ssa{sv})", ("", url, {})),
+            None,
+            Gio.DBusCallFlags.NONE,
+            -1,
+            None,
+        )
+        return
+    except Exception as e:
+        logging.warning(f"open_url: portal OpenURI failed ({e}); falling back to xdg-open")
+    try:
+        # start_new_session detaches the browser from our process group so it
+        # doesn't share our signal handlers / controlling state.
+        subprocess.Popen(["xdg-open", url], start_new_session=True)
+    except Exception as e:
+        logging.error(f"open_url: failed to open {url}: {e}")
+
+
 def _desktop_entry(name: str, exec_cmd: str, icon: str, wm_class: str | None = None, no_display: bool = False, mime_type: str | None = None) -> str:
     lines = [
         "[Desktop Entry]",

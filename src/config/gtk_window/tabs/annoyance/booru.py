@@ -259,7 +259,9 @@ class BooruTab(Adw.PreferencesPage):
 
         remove_btn = Gtk.Button(icon_name="list-remove-symbolic")
         remove_btn.set_tooltip_text("Remove selected")
-        remove_btn.set_sensitive(False)
+        # SingleSelection auto-selects row 0, but notify::selected won't fire for
+        # that initial pick, so seed sensitivity from the current selection.
+        remove_btn.set_sensitive(selection.get_selected() != Gtk.INVALID_LIST_POSITION)
         selection.connect("notify::selected", lambda sel, _p: remove_btn.set_sensitive(
             sel.get_selected() != Gtk.INVALID_LIST_POSITION))
 

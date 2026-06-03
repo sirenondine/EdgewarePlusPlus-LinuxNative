@@ -22,13 +22,13 @@ from threading import Thread
 from typing import Callable
 
 from gi.repository import GLib, Gtk
+from PIL import Image
 
 import utils
 from config.settings import Settings
 from features.gtk_media import pil_to_pixbuf, stop_media, video_widget
 from features.popup import Popup
 from pack import Pack
-from PIL import Image
 from roll import roll
 from state import State
 
@@ -47,6 +47,7 @@ class ImagePopup(Popup):
 
         self._media_file = None
         self._booru_tmp = None  # temp file for downloaded booru media, cleaned on close
+        self._booru_post_url = None  # link back to the booru post page, if any
         # Pick the monitor on the main thread (GDK / screeninfo are not
         # thread-safe). Everything expensive — the optional booru network
         # fetch, decode and resize — runs on a worker thread so it never
@@ -65,9 +66,13 @@ class ImagePopup(Popup):
                 import tempfile
 
                 from features import booru
+
                 site = getattr(self.settings, "booru_site", "gelbooru")
-                url = booru.random_media_url(
-                    site, self.settings.booru_tags,
+                custom_url = getattr(self.settings, "booru_custom_url", "") or ""
+                api_type = getattr(self.settings, "booru_api_type", "danbooru") or "danbooru"
+                post = booru.random_media(
+                    site,
+                    self.settings.booru_tags,
                     api_key=getattr(self.settings, "booru_api_key", "") or "",
                     user_id=getattr(self.settings, "booru_user_id", "") or "",
                     exclude=getattr(self.settings, "booru_exclude", "") or "",
@@ -75,10 +80,14 @@ class ImagePopup(Popup):
                     images=getattr(self.settings, "booru_images", True),
                     gifs=getattr(self.settings, "booru_gifs", True),
                     videos=getattr(self.settings, "booru_videos", True),
-                    custom_url=getattr(self.settings, "booru_custom_url", "") or "",
-                    api_type=getattr(self.settings, "booru_api_type", "danbooru") or "danbooru",
-                    sort=getattr(self.settings, "booru_sort", "") or "")
-                if url:
+                    custom_url=custom_url,
+                    api_type=api_type,
+                    sort=getattr(self.settings, "booru_sort", "") or "",
+                )
+                url = post.get("file_url") if post else None
+                if post and url:
+                    self._booru_post_url = booru.post_url(site, post, custom_url, api_type)
+                    logging.info(f"booru post: id={post.get('id')} site={site} -> {self._booru_post_url}")
                     data = booru.fetch_bytes(url)
                     fd, tmp = tempfile.mkstemp(suffix=f".{booru.url_ext(url)}")
                     with os.fdopen(fd, "wb") as f:
@@ -93,11 +102,13 @@ class ImagePopup(Popup):
     def _prepare(self, denial_filter) -> None:
         try:
             from features import booru
+
             source = self._acquire_source()
             # Video (mp4/webm/...) plays through GStreamer; probe dimensions with
             # videoprops since PIL can't open it.
             if booru.url_ext(str(source)) in booru.VIDEO_EXTS:
                 from videoprops import get_video_properties
+
                 props = get_video_properties(str(source))
                 GLib.idle_add(self._finish_animated, str(source), props["width"], props["height"])
                 return
@@ -133,10 +144,16 @@ class ImagePopup(Popup):
     def _finish_animated(self, source, src_w: int, src_h: int) -> bool:
         self.compute_geometry(src_w, src_h)
         video, self._media_file = video_widget(
-            source, self.width, self.height, loop=True,
-            volume=self.settings.video_volume / 100, blur=self.denial,
-            hardware_acceleration=self.settings.video_hardware_acceleration)
+            source,
+            self.width,
+            self.height,
+            loop=True,
+            volume=self.settings.video_volume / 100,
+            blur=self.denial,
+            hardware_acceleration=self.settings.video_hardware_acceleration,
+        )
         self.set_media_widget(video)
+        self._add_source_button()
         self.init_finish()
         return False
 
@@ -155,8 +172,37 @@ class ImagePopup(Popup):
         else:
             self.set_media_widget(picture)
 
+        self._add_source_button()
         self.init_finish()
         return False
+
+    def _add_source_button(self) -> None:
+        """If this popup shows a booru post, overlay a small button (top-right)
+        that opens the post page in the browser."""
+        if not self._booru_post_url:
+            return
+        logging.info(f"booru post: adding source button -> {self._booru_post_url}")
+        button = Gtk.Button(icon_name="applications-internet-symbolic")
+        button.add_css_class("popup-close")
+        button.set_tooltip_text("Open booru post")
+        button.set_halign(Gtk.Align.END)
+        button.set_valign(Gtk.Align.START)
+        button.set_margin_end(10)
+        button.set_margin_top(10)
+        button.connect("clicked", self._open_source)
+        self._overlay.add_overlay(button)
+
+    def _open_source(self, _button: Gtk.Button) -> None:
+        url = self._booru_post_url
+        if not url:
+            return
+        logging.info(f"booru post: opening {url}")
+        # Hand off to the desktop portal (see os_utils.open_url). Do NOT use
+        # Gtk.UriLauncher (parents to our layer-shell surface -> Wayland Error
+        # 71) or spawn the browser as our direct child (inherits GTK state and
+        # can crash it).
+        import os_utils
+        os_utils.open_url(url)
 
     def should_init(self, settings: Settings, state: State) -> bool:
         if self.media and state.image_number < settings.max_image:
@@ -169,6 +215,7 @@ class ImagePopup(Popup):
         if self._booru_tmp:
             try:
                 import os
+
                 os.unlink(self._booru_tmp)
             except OSError:
                 pass

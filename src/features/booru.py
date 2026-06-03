@@ -47,6 +47,23 @@ SITE_CLASSES = {
 SITE_NAMES = [*SITE_CLASSES.keys(), "custom"]
 DEFAULT_SITE = "gelbooru"
 
+# Public web domain for each built-in site, used to build a link back to the
+# post page (post_url). Kept alongside SITE_CLASSES so the two stay in sync.
+SITE_DOMAINS = {
+    "gelbooru": "gelbooru.com",
+    "rule34": "rule34.xxx",
+    "safebooru": "safebooru.org",
+    "danbooru": "danbooru.donmai.us",
+    "e621": "e621.net",
+    "e926": "e926.net",
+    "yandere": "yande.re",
+    "konachan": "konachan.com",
+    "xbooru": "xbooru.com",
+    "realbooru": "realbooru.com",
+    "tbib": "tbib.org",
+    "hypnohub": "hypnohub.net",
+}
+
 # Custom-endpoint API flavours. Most self-hosted / alt boorus run one of these.
 API_TYPES = ["danbooru", "gelbooru", "moebooru"]
 
@@ -355,6 +372,33 @@ def thumb_url(post: dict) -> str | None:
     return post.get("preview_url") or post.get("sample_url") or post.get("file_url")
 
 
+def _post_page(base: str, engine: str, post_id) -> str:
+    """Build the human-facing post-view URL for a given engine."""
+    base = (base or "").rstrip("/")
+    if engine == "danbooru":
+        return f"{base}/posts/{post_id}"
+    if engine == "moebooru":
+        return f"{base}/post/show/{post_id}"
+    # gelbooru-style
+    return f"{base}/index.php?page=post&s=view&id={post_id}"
+
+
+def post_url(site: str, post: dict, custom_url: str = "", api_type: str = "danbooru") -> str | None:
+    """The browser URL of `post`'s page on `site`, or None if it can't be built
+    (missing id, unknown site, or custom site with no URL)."""
+    post_id = post.get("id")
+    if post_id is None:
+        return None
+    if site == "custom":
+        if not custom_url:
+            return None
+        return _post_page(custom_url, api_type, post_id)
+    domain = SITE_DOMAINS.get(site)
+    if not domain:
+        return None
+    return _post_page(f"https://{domain}", _SITE_ENGINE.get(site, "gelbooru"), post_id)
+
+
 # Media categories by file extension.
 GIF_EXTS = {"gif"}
 VIDEO_EXTS = {"mp4", "webm", "m4v", "mov"}
@@ -376,13 +420,14 @@ def media_category(url: str) -> str:
     return "image"
 
 
-def random_media_url(site: str, tags: str, limit: int = 20, api_key: str = "",
-                     user_id: str = "", exclude: str = "", rating: str = "any",
-                     images: bool = True, gifs: bool = True, videos: bool = True,
-                     custom_url: str = "", api_type: str = "danbooru",
-                     sort: str = "") -> str | None:
-    """Pick a random media URL for `tags`, restricted to the enabled categories
-    (still images / GIFs / videos), or None."""
+def random_media(site: str, tags: str, limit: int = 20, api_key: str = "",
+                 user_id: str = "", exclude: str = "", rating: str = "any",
+                 images: bool = True, gifs: bool = True, videos: bool = True,
+                 custom_url: str = "", api_type: str = "danbooru",
+                 sort: str = "") -> dict | None:
+    """Pick a random post for `tags`, restricted to the enabled categories
+    (still images / GIFs / videos), or None. The returned dict carries file_url
+    plus id (for post_url())."""
     allowed = {c for c, on in (("image", images), ("gif", gifs), ("video", videos)) if on}
     # Use positive filetype: filter when a single non-image type is requested
     # so the API only returns matching posts instead of wasting the window.
@@ -398,11 +443,23 @@ def random_media_url(site: str, tags: str, limit: int = 20, api_key: str = "",
     posts = search(site, tags, limit=limit, api_key=api_key, user_id=user_id,
                    exclude=exclude, rating=rating, custom_url=custom_url,
                    api_type=api_type, sort=sort)
-    urls = [p.get("file_url") for p in posts
-            if p.get("file_url") and media_category(p["file_url"]) in allowed]
-    if posts and not urls:
+    matching = [p for p in posts
+                if p.get("file_url") and media_category(p["file_url"]) in allowed]
+    if posts and not matching:
         logging.info(f"booru: {len(posts)} result(s) but none matched enabled types {sorted(allowed)}.")
-    return random.choice(urls) if urls else None
+    return random.choice(matching) if matching else None
+
+
+def random_media_url(site: str, tags: str, limit: int = 20, api_key: str = "",
+                     user_id: str = "", exclude: str = "", rating: str = "any",
+                     images: bool = True, gifs: bool = True, videos: bool = True,
+                     custom_url: str = "", api_type: str = "danbooru",
+                     sort: str = "") -> str | None:
+    """A random media URL for `tags`, restricted to the enabled categories, or
+    None. Thin wrapper over random_media() for callers that only need the URL."""
+    post = random_media(site, tags, limit, api_key, user_id, exclude, rating,
+                        images, gifs, videos, custom_url, api_type, sort)
+    return post.get("file_url") if post else None
 
 
 def random_image_url(site: str, tags: str, limit: int = 20, api_key: str = "",
