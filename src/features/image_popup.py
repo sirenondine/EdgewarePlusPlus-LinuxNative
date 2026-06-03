@@ -46,6 +46,7 @@ class ImagePopup(Popup):
         super().__init__(settings, pack, state, on_close)
 
         self._media_file = None
+        self._booru_tmp = None  # temp file for downloaded booru media, cleaned on close
         # Pick the monitor on the main thread (GDK / screeninfo are not
         # thread-safe). Everything expensive — the optional booru network
         # fetch, decode and resize — runs on a worker thread so it never
@@ -54,35 +55,53 @@ class ImagePopup(Popup):
         denial_filter = self.try_denial_filter()
         Thread(target=self._prepare, args=(denial_filter,), daemon=True).start()
 
-    def _acquire_image(self) -> Image.Image:
-        """Worker-thread image source: booru network fetch (when enabled) or the
-        local pack image. Network I/O must stay off the main thread."""
+    def _acquire_source(self):
+        """Worker-thread media source: a booru network fetch (when enabled),
+        downloaded to a temp file, else the local pack image. Network I/O must
+        stay off the main thread. Returns a filesystem path."""
         if self.settings.booru_download and roll(self.settings.booru_chance):
             try:
-                import io
+                import os
+                import tempfile
 
                 from features import booru
                 site = getattr(self.settings, "booru_site", "gelbooru")
-                url = booru.random_image_url(
+                url = booru.random_media_url(
                     site, self.settings.booru_tags,
                     api_key=getattr(self.settings, "booru_api_key", "") or "",
                     user_id=getattr(self.settings, "booru_user_id", "") or "",
                     exclude=getattr(self.settings, "booru_exclude", "") or "",
-                    rating=getattr(self.settings, "booru_rating", "any") or "any")
+                    rating=getattr(self.settings, "booru_rating", "any") or "any",
+                    include_animated=getattr(self.settings, "booru_include_animated", True))
                 if url:
-                    return Image.open(io.BytesIO(booru.fetch_bytes(url)))
+                    data = booru.fetch_bytes(url)
+                    fd, tmp = tempfile.mkstemp(suffix=f".{booru.url_ext(url)}")
+                    with os.fdopen(fd, "wb") as f:
+                        f.write(data)
+                    self._booru_tmp = tmp
+                    return tmp
                 logging.error(f'No results for tags "{self.settings.booru_tags}" on {site}')
             except Exception as e:
                 logging.error(f"Booru fetch failed: {e}")
-        return Image.open(self.media)
+        return self.media
 
     def _prepare(self, denial_filter) -> None:
         try:
-            image = self._acquire_image()
+            from features import booru
+            source = self._acquire_source()
+            # Video (mp4/webm/...) plays through GStreamer; probe dimensions with
+            # videoprops since PIL can't open it.
+            if booru.url_ext(str(source)) in booru.VIDEO_EXTS:
+                from videoprops import get_video_properties
+                props = get_video_properties(str(source))
+                GLib.idle_add(self._finish_animated, str(source), props["width"], props["height"])
+                return
+            image = Image.open(source)
             src_w, src_h = image.width, image.height
             if getattr(image, "n_frames", 0) > 1:
-                # Animated — must build the GStreamer widget on the main thread.
-                GLib.idle_add(self._finish_animated, src_w, src_h)
+                # Animated (GIF) — build the GStreamer widget on the main thread,
+                # playing the actual source file (booru temp or pack media).
+                GLib.idle_add(self._finish_animated, str(source), src_w, src_h)
                 return
             # Geometry is pure math now that the monitor is already chosen.
             self.compute_geometry(src_w, src_h)
@@ -106,9 +125,12 @@ class ImagePopup(Popup):
             return
         GLib.idle_add(self._finish_still, pixbuf)
 
-    def _finish_animated(self, src_w: int, src_h: int) -> bool:
+    def _finish_animated(self, source, src_w: int, src_h: int) -> bool:
         self.compute_geometry(src_w, src_h)
-        video, self._media_file = video_widget(self.media, self.width, self.height, loop=True, muted=True, blur=self.denial, hardware_acceleration=self.settings.video_hardware_acceleration)
+        video, self._media_file = video_widget(
+            source, self.width, self.height, loop=True,
+            volume=self.settings.video_volume / 100, blur=self.denial,
+            hardware_acceleration=self.settings.video_hardware_acceleration)
         self.set_media_widget(video)
         self.init_finish()
         return False
@@ -139,5 +161,12 @@ class ImagePopup(Popup):
 
     def close(self) -> None:
         stop_media(self._media_file)
+        if self._booru_tmp:
+            try:
+                import os
+                os.unlink(self._booru_tmp)
+            except OSError:
+                pass
+            self._booru_tmp = None
         super().close()
         self.state.image_number -= 1

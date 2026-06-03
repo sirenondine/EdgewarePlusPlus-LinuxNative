@@ -97,12 +97,32 @@ def thumb_url(post: dict) -> str | None:
     return post.get("preview_url") or post.get("sample_url") or post.get("file_url")
 
 
-def random_image_url(site: str, tags: str, limit: int = 20, api_key: str = "",
-                     user_id: str = "", exclude: str = "", rating: str = "any") -> str | None:
-    """Pick a random full-resolution image URL for `tags`, or None."""
+# Media extensions that are played (animated) rather than shown as a still.
+VIDEO_EXTS = {"mp4", "webm", "m4v", "mov"}
+ANIMATED_EXTS = VIDEO_EXTS | {"gif"}
+
+
+def url_ext(url: str) -> str:
+    """Lower-case file extension of a URL, ignoring any query string."""
+    return (url or "").split("?")[0].rsplit(".", 1)[-1].lower()
+
+
+def random_media_url(site: str, tags: str, limit: int = 20, api_key: str = "",
+                     user_id: str = "", exclude: str = "", rating: str = "any",
+                     include_animated: bool = True) -> str | None:
+    """Pick a random full-resolution media URL for `tags`, or None. When
+    include_animated is False, GIFs and videos are skipped (stills only)."""
     posts = search(site, tags, limit=limit, api_key=api_key, user_id=user_id, exclude=exclude, rating=rating)
     urls = [p.get("file_url") for p in posts if p.get("file_url")]
+    if not include_animated:
+        urls = [u for u in urls if url_ext(u) not in ANIMATED_EXTS]
     return random.choice(urls) if urls else None
+
+
+def random_image_url(site: str, tags: str, limit: int = 20, api_key: str = "",
+                     user_id: str = "", exclude: str = "", rating: str = "any") -> str | None:
+    """Back-compat: a random still-image URL (no animated media)."""
+    return random_media_url(site, tags, limit, api_key, user_id, exclude, rating, include_animated=False)
 
 
 def fetch_bytes(url: str, timeout: int = 10) -> bytes:
