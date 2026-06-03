@@ -160,7 +160,9 @@ CONFIG_ITEMS = {
     # Booru
     "booru_download": Item("downloadEnabled", BOOLEAN, VAR, bool),
     "booru_chance": Item("booruChance", PERCENTAGE, VAR, int),
-    "booru_include_animated": Item("booruIncludeAnimated", BOOLEAN, VAR, bool),
+    "booru_images": Item("booruImages", BOOLEAN, VAR, bool),
+    "booru_gifs": Item("booruGifs", BOOLEAN, VAR, bool),
+    "booru_videos": Item("booruVideos", BOOLEAN, VAR, bool),
     "booru_site": Item("booruSite", STRING, VAR, str),
     "booru_api_key": Item("booruApiKey", STRING, VAR, str, block=True),
     "booru_user_id": Item("booruUserId", STRING, VAR, str, block=True),

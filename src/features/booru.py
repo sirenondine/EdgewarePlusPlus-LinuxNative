@@ -97,9 +97,10 @@ def thumb_url(post: dict) -> str | None:
     return post.get("preview_url") or post.get("sample_url") or post.get("file_url")
 
 
-# Media extensions that are played (animated) rather than shown as a still.
+# Media categories by file extension.
+GIF_EXTS = {"gif"}
 VIDEO_EXTS = {"mp4", "webm", "m4v", "mov"}
-ANIMATED_EXTS = VIDEO_EXTS | {"gif"}
+ANIMATED_EXTS = GIF_EXTS | VIDEO_EXTS  # played, not shown as a still
 
 
 def url_ext(url: str) -> str:
@@ -107,22 +108,33 @@ def url_ext(url: str) -> str:
     return (url or "").split("?")[0].rsplit(".", 1)[-1].lower()
 
 
+def media_category(url: str) -> str:
+    """'video', 'gif', or 'image' for a media URL."""
+    ext = url_ext(url)
+    if ext in VIDEO_EXTS:
+        return "video"
+    if ext in GIF_EXTS:
+        return "gif"
+    return "image"
+
+
 def random_media_url(site: str, tags: str, limit: int = 20, api_key: str = "",
                      user_id: str = "", exclude: str = "", rating: str = "any",
-                     include_animated: bool = True) -> str | None:
-    """Pick a random full-resolution media URL for `tags`, or None. When
-    include_animated is False, GIFs and videos are skipped (stills only)."""
+                     images: bool = True, gifs: bool = True, videos: bool = True) -> str | None:
+    """Pick a random media URL for `tags`, restricted to the enabled categories
+    (still images / GIFs / videos), or None."""
+    allowed = {c for c, on in (("image", images), ("gif", gifs), ("video", videos)) if on}
     posts = search(site, tags, limit=limit, api_key=api_key, user_id=user_id, exclude=exclude, rating=rating)
-    urls = [p.get("file_url") for p in posts if p.get("file_url")]
-    if not include_animated:
-        urls = [u for u in urls if url_ext(u) not in ANIMATED_EXTS]
+    urls = [p.get("file_url") for p in posts
+            if p.get("file_url") and media_category(p["file_url"]) in allowed]
     return random.choice(urls) if urls else None
 
 
 def random_image_url(site: str, tags: str, limit: int = 20, api_key: str = "",
                      user_id: str = "", exclude: str = "", rating: str = "any") -> str | None:
     """Back-compat: a random still-image URL (no animated media)."""
-    return random_media_url(site, tags, limit, api_key, user_id, exclude, rating, include_animated=False)
+    return random_media_url(site, tags, limit, api_key, user_id, exclude, rating,
+                            images=True, gifs=False, videos=False)
 
 
 def fetch_bytes(url: str, timeout: int = 10) -> bytes:

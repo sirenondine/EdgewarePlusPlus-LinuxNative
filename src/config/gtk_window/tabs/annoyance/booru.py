@@ -48,8 +48,11 @@ class BooruTab(Adw.PreferencesPage):
             "Booru Image Chance", vars.booru_chance, 0, 100, unit="%",
             subtitle="How often an image popup pulls from the booru instead of the pack."))
         group.add(AdwSwitchRow(
-            "Include GIFs and Videos", vars.booru_include_animated,
-            subtitle="Also pull animated media (GIF/MP4/WebM), played via the video pipeline."))
+            "Use Images", vars.booru_images, subtitle="Pull still images (JPG/PNG)."))
+        group.add(AdwSwitchRow(
+            "Use GIFs", vars.booru_gifs, subtitle="Pull animated GIFs (played via the video pipeline)."))
+        group.add(AdwSwitchRow(
+            "Use Videos", vars.booru_videos, subtitle="Pull videos (MP4/WebM), played with sound."))
         group.add(AdwComboRow(
             "Site", vars.booru_site,
             {name: name.capitalize() for name in booru.SITE_NAMES}))
