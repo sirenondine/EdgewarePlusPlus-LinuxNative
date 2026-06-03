@@ -46,76 +46,81 @@ DEFAULT_SITE = "gelbooru"
 # Custom-endpoint API flavours. Most self-hosted / alt boorus run one of these.
 API_TYPES = ["danbooru", "gelbooru", "moebooru"]
 
+_HEADERS = {"User-Agent": "EdgewarePP/1.0"}
+
+
+def _get_json(url: str, params: dict, timeout: int = 8, label: str = "booru"):
+    """GET `url` and return parsed JSON, or None — logging the HTTP status,
+    content type and any failure so booru problems are diagnosable from the log
+    rather than failing silently."""
+    import requests
+    try:
+        r = requests.get(url, params=params, headers=_HEADERS, timeout=timeout)
+    except Exception as e:
+        logging.warning(f"{label}: request to {url} failed: {e}")
+        return None
+    ctype = r.headers.get("content-type", "?")
+    if r.status_code != 200:
+        logging.warning(f"{label}: {url} -> HTTP {r.status_code} ({ctype})")
+        return None
+    if "json" not in ctype:
+        logging.warning(f"{label}: {url} -> non-JSON response ({ctype}); wrong endpoint or API type?")
+        return None
+    try:
+        return r.json()
+    except Exception as e:
+        logging.warning(f"{label}: {url} -> invalid JSON: {e}")
+        return None
+
 
 def detect_api_type(base_url: str) -> str | None:
-    """Probe a custom endpoint and guess its API flavour ('danbooru' or
-    'gelbooru'), or None if neither responds. Blocking — call off the main thread."""
-    import requests
+    """Probe a custom endpoint and guess its API flavour (danbooru / moebooru /
+    gelbooru), or None. Blocking — call off the main thread."""
     base = (base_url or "").rstrip("/")
     if not base:
         return None
-    headers = {"User-Agent": "EdgewarePP/1.0"}
-    # Danbooru: GET /posts.json -> JSON array of post objects.
-    try:
-        r = requests.get(f"{base}/posts.json", params={"limit": 1}, headers=headers, timeout=6)
-        if r.ok and "json" in r.headers.get("content-type", ""):
-            data = r.json()
-            if isinstance(data, list) and (not data or isinstance(data[0], dict)):
-                return "danbooru"
-    except Exception:
-        pass
-    # Moebooru: GET /post.json (singular) -> JSON array.
-    try:
-        r = requests.get(f"{base}/post.json", params={"limit": 1}, headers=headers, timeout=6)
-        if r.ok and "json" in r.headers.get("content-type", ""):
-            data = r.json()
-            if isinstance(data, list) and (not data or isinstance(data[0], dict)):
-                return "moebooru"
-    except Exception:
-        pass
-    # Gelbooru-style: GET /index.php?page=dapi&s=post&q=index&json=1 -> JSON.
-    try:
-        r = requests.get(f"{base}/index.php",
-                         params={"page": "dapi", "s": "post", "q": "index", "json": "1", "limit": 1},
-                         headers=headers, timeout=6)
-        if r.ok and "json" in r.headers.get("content-type", ""):
-            data = r.json()
-            if isinstance(data, (list, dict)):
-                return "gelbooru"
-    except Exception:
-        pass
+    probes = [
+        ("danbooru", f"{base}/posts.json", {"limit": 1}, list),
+        ("moebooru", f"{base}/post.json", {"limit": 1}, list),
+        ("gelbooru", f"{base}/index.php",
+         {"page": "dapi", "s": "post", "q": "index", "json": "1", "limit": 1}, (list, dict)),
+    ]
+    for kind, url, params, shape in probes:
+        data = _get_json(url, params, timeout=6, label=f"booru detect ({kind})")
+        if isinstance(data, shape):
+            logging.info(f"booru detect: {base} looks like {kind}")
+            return kind
+    logging.info(f"booru detect: could not identify API type for {base}")
     return None
 
 
 def _custom_search(base_url: str, api_type: str, query: str, limit: int, page: int,
                    api_key: str = "", user_id: str = "") -> list[dict]:
-    """Query an arbitrary booru endpoint (Danbooru- or Gelbooru-style JSON API),
-    normalising results so thumb_url()/file_url work the same as the built-ins."""
-    import requests
+    """Query an arbitrary booru endpoint (Danbooru / Moebooru / Gelbooru JSON
+    API), normalising results so thumb_url()/file_url work like the built-ins."""
     base = (base_url or "").rstrip("/")
-    headers = {"User-Agent": "EdgewarePP/1.0"}
+    label = f"booru custom ({api_type})"
     if api_type == "gelbooru":
         params = {"page": "dapi", "s": "post", "q": "index", "json": "1",
                   "tags": query, "limit": limit, "pid": max(0, page - 1)}
         if api_key and user_id:
             params.update({"api_key": api_key, "user_id": user_id})
-        data = requests.get(f"{base}/index.php", params=params, headers=headers, timeout=8).json()
+        data = _get_json(f"{base}/index.php", params, label=label)
         posts = data.get("post", []) if isinstance(data, dict) else (data or [])
-        return [p for p in posts if p.get("file_url")]
+        return [p for p in posts if isinstance(p, dict) and p.get("file_url")]
     if api_type == "moebooru":
         # Moebooru (konachan, yande.re, sakuga, ...): /post.json, anon read.
-        # Already carries file_url / preview_url / sample_url.
         params = {"tags": query, "limit": limit, "page": page}
-        posts = requests.get(f"{base}/post.json", params=params, headers=headers, timeout=8).json()
-        return [p for p in posts if isinstance(posts, list) and p.get("file_url")]
+        posts = _get_json(f"{base}/post.json", params, label=label) or []
+        return [p for p in posts if isinstance(p, dict) and p.get("file_url")]
     # Danbooru-style (posts.json). file_url / preview_file_url / large_file_url.
     params = {"tags": query, "limit": limit, "page": page}
     if api_key and user_id:
         params.update({"login": user_id, "api_key": api_key})
-    posts = requests.get(f"{base}/posts.json", params=params, headers=headers, timeout=8).json()
+    posts = _get_json(f"{base}/posts.json", params, label=label) or []
     out = []
     for p in posts if isinstance(posts, list) else []:
-        if not p.get("file_url"):
+        if not isinstance(p, dict) or not p.get("file_url"):
             continue
         p.setdefault("preview_url", p.get("preview_file_url"))
         p.setdefault("sample_url", p.get("large_file_url"))
@@ -162,19 +167,28 @@ def search(site: str, tags: str, limit: int = 12, page: int = 1, api_key: str = 
     optionally filtered to a `rating`. `site` may be "custom" to query an
     arbitrary endpoint (custom_url + api_type). Empty list on no results or
     error. Blocking — call off the main thread."""
+    target = f"custom:{custom_url} ({api_type})" if site == "custom" else site
     try:
         query = build_query(tags, exclude, rating)
+        logging.debug(f"booru search: {target} query={query!r} limit={limit} page={page}")
         if site == "custom":
             if not custom_url:
+                logging.warning("booru search: site is 'custom' but no custom URL is set.")
                 return []
-            return _custom_search(custom_url, api_type, query, limit, page, api_key, user_id)
-        client = _client(site, api_key, user_id)
-        result = asyncio.run(client.search(query=query, limit=limit, page=page))
-        if isinstance(result, str):
-            result = json.loads(result)
-        return result or []
+            result = _custom_search(custom_url, api_type, query, limit, page, api_key, user_id)
+        else:
+            client = _client(site, api_key, user_id)
+            result = asyncio.run(client.search(query=query, limit=limit, page=page))
+            if isinstance(result, str):
+                result = json.loads(result)
+            result = result or []
+        if not result:
+            logging.info(f"booru search: 0 results from {target} for query {query!r}")
+        else:
+            logging.info(f"booru search: {len(result)} result(s) from {target} for query {query!r}")
+        return result
     except Exception as e:
-        logging.warning(f"Booru search failed ({site}, '{tags}'): {e}")
+        logging.warning(f"booru search failed ({target}, '{tags}'): {e}")
         return []
 
 
@@ -214,6 +228,8 @@ def random_media_url(site: str, tags: str, limit: int = 20, api_key: str = "",
                    rating=rating, custom_url=custom_url, api_type=api_type)
     urls = [p.get("file_url") for p in posts
             if p.get("file_url") and media_category(p["file_url"]) in allowed]
+    if posts and not urls:
+        logging.info(f"booru: {len(posts)} result(s) but none matched enabled types {sorted(allowed)}.")
     return random.choice(urls) if urls else None
 
 
@@ -237,4 +253,11 @@ def fetch_bytes(url: str, timeout: int = 10) -> bytes:
     }
     response = requests.get(url, headers=headers, timeout=timeout)
     response.raise_for_status()
+    ctype = response.headers.get("content-type", "?")
+    if not ctype.startswith(("image/", "video/")):
+        # A non-media type here usually means hotlink protection or an expired
+        # URL returned an HTML page; surface it instead of failing opaquely.
+        logging.warning(
+            f"booru fetch: {parts.netloc} returned {ctype} (not media) for {url} — "
+            "likely hotlink-protected or an expired link.")
     return response.content
