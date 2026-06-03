@@ -40,8 +40,41 @@ SITE_CLASSES = {
     "tbib": "Tbib",
     "hypnohub": "Hypnohub",
 }
-SITE_NAMES = list(SITE_CLASSES.keys())
+SITE_NAMES = [*SITE_CLASSES.keys(), "custom"]
 DEFAULT_SITE = "gelbooru"
+
+# Custom-endpoint API flavours. Most self-hosted / alt boorus run one of these.
+API_TYPES = ["danbooru", "gelbooru"]
+
+
+def _custom_search(base_url: str, api_type: str, query: str, limit: int, page: int,
+                   api_key: str = "", user_id: str = "") -> list[dict]:
+    """Query an arbitrary booru endpoint (Danbooru- or Gelbooru-style JSON API),
+    normalising results so thumb_url()/file_url work the same as the built-ins."""
+    import requests
+    base = (base_url or "").rstrip("/")
+    headers = {"User-Agent": "EdgewarePP/1.0"}
+    if api_type == "gelbooru":
+        params = {"page": "dapi", "s": "post", "q": "index", "json": "1",
+                  "tags": query, "limit": limit, "pid": max(0, page - 1)}
+        if api_key and user_id:
+            params.update({"api_key": api_key, "user_id": user_id})
+        data = requests.get(f"{base}/index.php", params=params, headers=headers, timeout=8).json()
+        posts = data.get("post", []) if isinstance(data, dict) else (data or [])
+        return [p for p in posts if p.get("file_url")]
+    # Danbooru-style (posts.json). file_url / preview_file_url / large_file_url.
+    params = {"tags": query, "limit": limit, "page": page}
+    if api_key and user_id:
+        params.update({"login": user_id, "api_key": api_key})
+    posts = requests.get(f"{base}/posts.json", params=params, headers=headers, timeout=8).json()
+    out = []
+    for p in posts if isinstance(posts, list) else []:
+        if not p.get("file_url"):
+            continue
+        p.setdefault("preview_url", p.get("preview_file_url"))
+        p.setdefault("sample_url", p.get("large_file_url"))
+        out.append(p)
+    return out
 
 
 def _client(site: str, api_key: str = "", user_id: str = ""):
@@ -77,13 +110,19 @@ def build_query(tags: str, exclude: str = "", rating: str = "any") -> str:
 
 
 def search(site: str, tags: str, limit: int = 12, page: int = 1, api_key: str = "",
-           user_id: str = "", exclude: str = "", rating: str = "any") -> list[dict]:
+           user_id: str = "", exclude: str = "", rating: str = "any",
+           custom_url: str = "", api_type: str = "danbooru") -> list[dict]:
     """Return up to `limit` post dicts from `site` for `tags` minus `exclude`,
-    optionally filtered to a `rating`. Empty list on no results or error.
-    Blocking — call off the main thread."""
+    optionally filtered to a `rating`. `site` may be "custom" to query an
+    arbitrary endpoint (custom_url + api_type). Empty list on no results or
+    error. Blocking — call off the main thread."""
     try:
-        client = _client(site, api_key, user_id)
         query = build_query(tags, exclude, rating)
+        if site == "custom":
+            if not custom_url:
+                return []
+            return _custom_search(custom_url, api_type, query, limit, page, api_key, user_id)
+        client = _client(site, api_key, user_id)
         result = asyncio.run(client.search(query=query, limit=limit, page=page))
         if isinstance(result, str):
             result = json.loads(result)
@@ -120,11 +159,13 @@ def media_category(url: str) -> str:
 
 def random_media_url(site: str, tags: str, limit: int = 20, api_key: str = "",
                      user_id: str = "", exclude: str = "", rating: str = "any",
-                     images: bool = True, gifs: bool = True, videos: bool = True) -> str | None:
+                     images: bool = True, gifs: bool = True, videos: bool = True,
+                     custom_url: str = "", api_type: str = "danbooru") -> str | None:
     """Pick a random media URL for `tags`, restricted to the enabled categories
     (still images / GIFs / videos), or None."""
     allowed = {c for c, on in (("image", images), ("gif", gifs), ("video", videos)) if on}
-    posts = search(site, tags, limit=limit, api_key=api_key, user_id=user_id, exclude=exclude, rating=rating)
+    posts = search(site, tags, limit=limit, api_key=api_key, user_id=user_id, exclude=exclude,
+                   rating=rating, custom_url=custom_url, api_type=api_type)
     urls = [p.get("file_url") for p in posts
             if p.get("file_url") and media_category(p["file_url"]) in allowed]
     return random.choice(urls) if urls else None

@@ -164,6 +164,8 @@ CONFIG_ITEMS = {
     "booru_gifs": Item("booruGifs", BOOLEAN, VAR, bool),
     "booru_videos": Item("booruVideos", BOOLEAN, VAR, bool),
     "booru_site": Item("booruSite", STRING, VAR, str),
+    "booru_custom_url": Item("booruCustomUrl", STRING, VAR, str, block=True),
+    "booru_api_type": Item("booruApiType", STRING, VAR, str),
     "booru_api_key": Item("booruApiKey", STRING, VAR, str, block=True),
     "booru_user_id": Item("booruUserId", STRING, VAR, str, block=True),
     "booru_tags": Item("tagList", STRING, None, lambda value: value.replace(">", " ")),

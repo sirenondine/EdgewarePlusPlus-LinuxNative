@@ -37,6 +37,8 @@
   "dashboardOnLaunch": 1,
   "tagList": "all",
   "booruSite": "gelbooru",
+  "booruCustomUrl": "",
+  "booruApiType": "danbooru",
   "booruApiKey": "",
   "booruUserId": "",
   "booruExclude": "",

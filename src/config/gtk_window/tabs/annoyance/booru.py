@@ -56,6 +56,10 @@ class BooruTab(Adw.PreferencesPage):
         group.add(AdwComboRow(
             "Site", vars.booru_site,
             {name: name.capitalize() for name in booru.SITE_NAMES}))
+        group.add(AdwEntryRow("Custom Endpoint URL", vars.booru_custom_url))
+        group.add(AdwComboRow(
+            "Custom API Type", vars.booru_api_type,
+            {t: t.capitalize() for t in booru.API_TYPES}))
 
         # Optional credentials (e.g. Gelbooru API key + user id, Danbooru
         # api key + login). Left blank for anonymous access.
@@ -120,10 +124,12 @@ class BooruTab(Adw.PreferencesPage):
         user_id = self._vars.booru_user_id.get() or ""
         exclude = config.get("booruExclude", "")
         rating = self._vars.booru_rating.get() or "any"
+        self._custom_url = self._vars.booru_custom_url.get() or ""
+        self._api_type = self._vars.booru_api_type.get() or "danbooru"
         # Remember whether this site needs credentials we don't fully have, to
         # give a useful message if it returns nothing.
         self._needs_creds = site in ("gelbooru", "danbooru") and not (api_key and user_id)
-        self._last_site = site
+        self._last_site = f"custom ({self._custom_url})" if site == "custom" else site
         tags = config.get("tagList", "").replace(">", " ").strip()
         child = self._flow.get_first_child()
         while child:
@@ -133,11 +139,14 @@ class BooruTab(Adw.PreferencesPage):
         self._spinner.start()
         self._status.set_text(f"Searching {site} for: {tags or '(all)'}…")
         threading.Thread(target=self._preview_worker,
-                         args=(site, tags, api_key, user_id, exclude, rating), daemon=True).start()
+                         args=(site, tags, api_key, user_id, exclude, rating,
+                               self._custom_url, self._api_type), daemon=True).start()
 
-    def _preview_worker(self, site: str, tags: str, api_key: str, user_id: str, exclude: str, rating: str) -> None:
+    def _preview_worker(self, site: str, tags: str, api_key: str, user_id: str, exclude: str,
+                        rating: str, custom_url: str, api_type: str) -> None:
         results = booru.search(site, tags, limit=PREVIEW_COUNT, api_key=api_key,
-                               user_id=user_id, exclude=exclude, rating=rating)
+                               user_id=user_id, exclude=exclude, rating=rating,
+                               custom_url=custom_url, api_type=api_type)
         shown = 0
         for post in results:
             url = booru.thumb_url(post)
