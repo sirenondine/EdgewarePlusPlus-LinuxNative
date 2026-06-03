@@ -32,6 +32,8 @@ PAUSE_MESSAGE = "pause"
 RESUME_MESSAGE = "resume"
 TOGGLE_MESSAGE = "toggle"
 STATUS_MESSAGE = "status"
+TOY_STATUS_MESSAGE = "toy_status"
+TOY_VIBRATE_MESSAGE = "toy_vibrate"
 
 
 def _socket_path() -> str:
@@ -187,25 +189,44 @@ def start_panic_listener(settings: Settings, state: State) -> None:
             import roll
             with Listener(address=path, family="AF_UNIX", authkey=AUTHKEY) as listener:
                 while True:
-                    with listener.accept() as connection:
-                        message = connection.recv()
-                        if message == PANIC_MESSAGE:
-                            request_panic(settings, state)
-                        elif message in (PAUSE_MESSAGE, RESUME_MESSAGE, TOGGLE_MESSAGE):
-                            if message == PAUSE_MESSAGE:
-                                roll.set_paused(True)
-                            elif message == RESUME_MESSAGE:
-                                roll.set_paused(False)
-                            else:
-                                roll.toggle_paused()
-                            _sync_tray_pause(state)
-                        elif message == STATUS_MESSAGE:
-                            connection.send({
-                                "running": True,
-                                "paused": roll.is_paused(),
-                                "popups": getattr(state, "popup_number", 0),
-                                "hibernating": getattr(state, "hibernate_active", False),
-                            })
+                    # Each client is handled in its own try so a probe that
+                    # connects-and-closes (e.g. is_running) or any malformed
+                    # message can never tear down the whole listener.
+                    try:
+                        with listener.accept() as connection:
+                            message = connection.recv()
+                            if message == PANIC_MESSAGE:
+                                request_panic(settings, state)
+                            elif message in (PAUSE_MESSAGE, RESUME_MESSAGE, TOGGLE_MESSAGE):
+                                if message == PAUSE_MESSAGE:
+                                    roll.set_paused(True)
+                                elif message == RESUME_MESSAGE:
+                                    roll.set_paused(False)
+                                else:
+                                    roll.toggle_paused()
+                                _sync_tray_pause(state)
+                            elif message == STATUS_MESSAGE:
+                                connection.send({
+                                    "running": True,
+                                    "paused": roll.is_paused(),
+                                    "popups": getattr(state, "popup_number", 0),
+                                    "hibernating": getattr(state, "hibernate_active", False),
+                                })
+                            elif message == TOY_STATUS_MESSAGE:
+                                toy = getattr(state, "sextoy", None)
+                                if toy and getattr(toy, "connected", False):
+                                    connection.send({"connected": True, "devices": [
+                                        {"index": i, "name": getattr(d, "name", f"Device {i}")}
+                                        for i, d in toy.devices.items()]})
+                                else:
+                                    connection.send({"connected": False, "devices": []})
+                            elif isinstance(message, tuple) and message and message[0] == TOY_VIBRATE_MESSAGE:
+                                toy = getattr(state, "sextoy", None)
+                                if toy:
+                                    _, idx, force, dur = message
+                                    toy.vibrate(int(idx), float(force), float(dur))
+                    except (EOFError, OSError) as e:
+                        logging.debug(f"panic listener: dropped client ({e})")
         except OSError as e:
             logging.warning(f"Failed to start panic listener: {e}")
 
@@ -262,6 +283,26 @@ def query_status() -> dict | None:
     except (FileNotFoundError, ConnectionRefusedError, EOFError):
         pass
     return None
+
+
+def query_toy_status() -> dict | None:
+    """Ask a running runtime for its toy connection + device list. Returns None
+    if no runtime is up; {'connected': bool, 'devices': [{index, name}]} otherwise."""
+    path = _socket_path()
+    try:
+        with Client(address=path, family="AF_UNIX", authkey=AUTHKEY) as connection:
+            connection.send(TOY_STATUS_MESSAGE)
+            if connection.poll(2.0):
+                return connection.recv()
+    except (FileNotFoundError, ConnectionRefusedError, EOFError):
+        pass
+    return None
+
+
+def send_toy_vibrate(device_index: int, force: float, duration: float) -> bool:
+    """Ask a running runtime to buzz a toy (used by the config tab's Test button
+    while the runtime owns the single Intiface connection)."""
+    return _send((TOY_VIBRATE_MESSAGE, int(device_index), float(force), float(duration)))
 
 
 if __name__ == "__main__":

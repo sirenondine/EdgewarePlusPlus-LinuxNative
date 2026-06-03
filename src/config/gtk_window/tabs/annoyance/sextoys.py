@@ -165,9 +165,35 @@ class SexToysTab(Adw.PreferencesPage):
         for idx, settings in self._data.items():
             self._add_device_row(idx, settings.get("sextoy_name", f"Device {idx}"))
 
+        # Intiface allows a single client. If Edgeware is already running it owns
+        # that connection, so reflect/drive it over the socket instead of opening
+        # a rival connection (which Intiface refuses).
+        self._refresh_remote()
+
     # ------------------------------------------------------------------
     # Connection
+    def _refresh_remote(self) -> bool:
+        """When a runtime is running it holds the single Intiface connection;
+        show its status + devices and disable our own Connect. Returns True if
+        a runtime is up (remote mode)."""
+        from panic import is_running, query_toy_status
+        if not is_running():
+            return False
+        self._conn_btn.set_label("Managed by Edgeware")
+        self._conn_btn.set_sensitive(False)
+        st = query_toy_status()
+        if st and st.get("connected"):
+            devs = st.get("devices", [])
+            self._conn_row.set_subtitle(f"Connected via running Edgeware — {len(devs)} device(s)")
+            for d in devs:
+                self._add_device_row(str(d["index"]), d.get("name", f"Device {d['index']}"))
+        else:
+            self._conn_row.set_subtitle("Edgeware is running — it owns the toy connection.")
+        return True
+
     def _on_toggle_connection(self, _btn) -> None:
+        if self._refresh_remote():
+            return  # runtime owns the connection; nothing to do here
         if not self._sextoy.connected:
             self._conn_btn.set_sensitive(False)
             self._conn_row.set_subtitle("Connecting…")
@@ -268,7 +294,12 @@ class SexToysTab(Adw.PreferencesPage):
                 ctrl.set_value(float(default))
 
     def _test_device(self, idx: str) -> None:
-        """Fire a short test buzz so the user can confirm the toy responds."""
+        """Fire a short test buzz so the user can confirm the toy responds. When
+        a runtime owns the connection, route the buzz through it over the socket."""
+        from panic import is_running, send_toy_vibrate
+        if is_running():
+            send_toy_vibrate(int(idx), 0.6, 1.5)
+            return
         if not self._sextoy.connected:
             self._conn_row.set_subtitle("Connect to Intiface first to test.")
             return
