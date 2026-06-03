@@ -25,6 +25,15 @@ from config.vars import ConfigVar
 # Adw.SwitchRow / Adw.ComboRow are final GTypes (cannot be subclassed), so these
 # are factory functions that build and bind a configured row.
 
+
+def bind_visibility(widget: Gtk.Widget, variable: ConfigVar, predicate) -> None:
+    """Show `widget` only while predicate(variable value) is true. Updates live
+    as the controlling ConfigVar changes (and applies the initial state now)."""
+    def _update(value: object) -> None:
+        widget.set_visible(bool(predicate(value)))
+    _update(variable.get())
+    variable.trace_add(_update)
+
 def AdwSwitchRow(title: str, variable: ConfigVar, subtitle: str | None = None) -> Adw.SwitchRow:
     """A switch row bound to a ConfigVar."""
     row = Adw.SwitchRow(title=title)

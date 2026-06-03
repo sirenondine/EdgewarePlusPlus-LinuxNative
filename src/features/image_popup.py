@@ -76,7 +76,8 @@ class ImagePopup(Popup):
                     gifs=getattr(self.settings, "booru_gifs", True),
                     videos=getattr(self.settings, "booru_videos", True),
                     custom_url=getattr(self.settings, "booru_custom_url", "") or "",
-                    api_type=getattr(self.settings, "booru_api_type", "danbooru") or "danbooru")
+                    api_type=getattr(self.settings, "booru_api_type", "danbooru") or "danbooru",
+                    sort=getattr(self.settings, "booru_sort", "") or "")
                 if url:
                     data = booru.fetch_bytes(url)
                     fd, tmp = tempfile.mkstemp(suffix=f".{booru.url_ext(url)}")

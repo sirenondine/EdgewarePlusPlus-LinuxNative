@@ -21,9 +21,13 @@
 # must run on a worker thread.
 
 import asyncio
+import hashlib
 import json
 import logging
 import random
+import re
+import threading
+import time
 
 # Curated subset of the sites the `booru` package exposes, by config key.
 SITE_CLASSES = {
@@ -47,6 +51,105 @@ DEFAULT_SITE = "gelbooru"
 API_TYPES = ["danbooru", "gelbooru", "moebooru"]
 
 _HEADERS = {"User-Agent": "EdgewarePP/1.0"}
+
+# ---------------------------------------------------------------------------
+# PoW (Proof-of-Work) anti-bot support
+# ---------------------------------------------------------------------------
+# Some booru endpoints require solving a SHA1 hashcash challenge before they
+# serve API responses.  The solved cookie typically lasts ~7 days.
+_pow_sessions: dict = {}
+_pow_lock = threading.Lock()
+
+
+def _solve_pow_challenge(base_url: str):
+    """Solve a PoW challenge and return a session with the anti-bot cookie, or
+    None on failure.  Blocking — call off the main thread."""
+    import requests
+    base = base_url.rstrip("/")
+    sess = requests.Session()
+    sess.headers.update({"User-Agent": "Mozilla/5.0"})
+
+    r = sess.get(f"{base}/", timeout=15)
+    html = r.text
+
+    seed_m = re.search(r'const powSeed = "([^"]+)"', html)
+    cid_m = re.search(r'const challenge_id = "([^"]+)"', html)
+    cgen_m = re.search(r'const challenge_generated = "([^"]+)"', html)
+    cexp_m = re.search(r'const challenge_cookie_expires = "([^"]+)"', html)
+    post_to_m = re.search(r'const post_to = "([^"]+)"', html)
+    delay_m = re.search(r'const delay = (\d+)', html)
+
+    if seed_m is None or cid_m is None or cgen_m is None or cexp_m is None or post_to_m is None or delay_m is None:
+        logging.warning(f"booru PoW: could not parse challenge from {base}")
+        return None
+
+    seed = seed_m.group(1)
+    challenge_id = cid_m.group(1)
+    challenge_generated = cgen_m.group(1)
+    challenge_cookie_expires = cexp_m.group(1)
+    post_to = post_to_m.group(1)
+    delay = int(delay_m.group(1))
+
+    # SHA1 hashcash: find nonce where sha1(seed + ":" + nonce) starts w/ "00000"
+    nonce = 0
+    prefix = "00000"
+    while True:
+        candidate = f"{seed}:{nonce}"
+        h = hashlib.sha1(candidate.encode()).hexdigest()
+        if h.startswith(prefix):
+            break
+        nonce += 1
+
+    logging.info(f"booru PoW: solved (nonce={nonce}, iterations={nonce + 1})")
+
+    time.sleep(delay + 0.5)
+
+    payload = {
+        "challenge_id": challenge_id,
+        "challenge_generated": challenge_generated,
+        "challenge_cookie_expires": challenge_cookie_expires,
+        "pow_nonce": str(nonce),
+        "pow_hash": h,
+    }
+    headers = {
+        "Content-Type": "application/json",
+        "X-Requested-With": "XMLHttpRequest",
+        "X-Verification-Challenge": "1",
+        "Origin": f"https://{post_to}",
+        "Referer": f"https://{post_to}/",
+    }
+    r2 = sess.post(f"https://{post_to}/", json=payload, headers=headers, timeout=15)
+    if r2.status_code != 200:
+        logging.warning(f"booru PoW: submission failed (HTTP {r2.status_code})")
+        return None
+
+    expiry = float(challenge_cookie_expires)
+    with _pow_lock:
+        _pow_sessions[base] = (sess, expiry)
+    return sess
+
+
+def _get_pow_session(base_url: str):
+    """Return a cached PoW-authenticated session, or solve the challenge to
+    create one."""
+    base = base_url.rstrip("/")
+    with _pow_lock:
+        entry = _pow_sessions.get(base)
+        if entry:
+            sess, expiry = entry
+            if time.time() < expiry - 60:
+                return sess
+    return _solve_pow_challenge(base_url)
+
+
+def _has_pow_challenge(url: str) -> bool:
+    """Quick check if *url* serves a PoW challenge page."""
+    import requests
+    try:
+        r = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=8)
+        return "powSeed" in r.text and "challenge-checkbox" in r.text
+    except Exception:
+        return False
 
 
 def _get_json(url: str, params: dict, timeout: int = 8, label: str = "booru"):
@@ -79,6 +182,9 @@ def detect_api_type(base_url: str) -> str | None:
     base = (base_url or "").rstrip("/")
     if not base:
         return None
+    if _has_pow_challenge(base):
+        logging.info(f"booru detect: {base} has PoW challenge — mapped to danbooru")
+        return "danbooru"
     probes = [
         ("danbooru", f"{base}/posts.json", {"limit": 1}, list),
         ("moebooru", f"{base}/post.json", {"limit": 1}, list),
@@ -97,7 +203,8 @@ def detect_api_type(base_url: str) -> str | None:
 def _custom_search(base_url: str, api_type: str, query: str, limit: int, page: int,
                    api_key: str = "", user_id: str = "") -> list[dict]:
     """Query an arbitrary booru endpoint (Danbooru / Moebooru / Gelbooru JSON
-    API), normalising results so thumb_url()/file_url work like the built-ins."""
+    API), normalising results so thumb_url()/file_url work like the built-ins.
+    Sort is already baked into `query` as a metatag by the caller."""
     base = (base_url or "").rstrip("/")
     label = f"booru custom ({api_type})"
     if api_type == "gelbooru":
@@ -117,9 +224,22 @@ def _custom_search(base_url: str, api_type: str, query: str, limit: int, page: i
     params = {"tags": query, "limit": limit, "page": page}
     if api_key and user_id:
         params.update({"login": user_id, "api_key": api_key})
-    posts = _get_json(f"{base}/posts.json", params, label=label) or []
+
+    # Some boorus require PoW authentication — handle transparently.
+    if _has_pow_challenge(base):
+        sess = _get_pow_session(base)
+        if sess is None:
+            return []
+        r = sess.get(f"{base}/posts.json", params=params, timeout=10)
+        if r.status_code != 200:
+            logging.warning(f"{label}: HTTP {r.status_code}")
+            return []
+        raw = r.json() if "json" in r.headers.get("content-type", "") else []
+    else:
+        raw = _get_json(f"{base}/posts.json", params, label=label) or []
+
     out = []
-    for p in posts if isinstance(posts, list) else []:
+    for p in raw if isinstance(raw, list) else []:
         if not isinstance(p, dict) or not p.get("file_url"):
             continue
         p.setdefault("preview_url", p.get("preview_file_url"))
@@ -144,6 +264,36 @@ def _client(site: str, api_key: str = "", user_id: str = ""):
 
 RATINGS = ["any", "safe", "questionable", "explicit"]
 
+SORT_OPTIONS = {
+    "": "Default (newest first)",
+    "id_asc": "Oldest first",
+    "score": "Best rated",
+    "mpixels": "Largest",
+    "random": "Random",
+}
+
+# Sort is expressed as a query metatag, and the spelling differs per engine.
+# (Gelbooru: sort:<field>:<dir>; Danbooru/Moebooru: order:<field>.) An empty
+# string means the engine has no equivalent, so the sort is skipped.
+_SORT_TOKENS = {
+    "gelbooru": {"id_asc": "sort:id:asc", "score": "sort:score:desc", "mpixels": "", "random": "sort:random"},
+    "danbooru": {"id_asc": "order:id_asc", "score": "order:score", "mpixels": "order:mpixels", "random": "order:random"},
+    "moebooru": {"id_asc": "order:id", "score": "order:score", "mpixels": "order:mpixels", "random": "order:random"},
+}
+
+# Engine each built-in site runs, so the right sort metatag is used.
+_SITE_ENGINE = {
+    "gelbooru": "gelbooru", "rule34": "gelbooru", "safebooru": "gelbooru",
+    "xbooru": "gelbooru", "realbooru": "gelbooru", "tbib": "gelbooru",
+    "danbooru": "danbooru", "e621": "danbooru", "e926": "danbooru", "hypnohub": "danbooru",
+    "yandere": "moebooru", "konachan": "moebooru",
+}
+
+
+def _sort_tag(engine: str, sort_key: str) -> str:
+    """The query metatag for `sort_key` on `engine` ('' if unsupported/none)."""
+    return _SORT_TOKENS.get(engine, {}).get(sort_key, "")
+
 
 def _split(value: str) -> list[str]:
     return [t for t in (value or "").replace(">", " ").split() if t]
@@ -162,7 +312,7 @@ def build_query(tags: str, exclude: str = "", rating: str = "any") -> str:
 
 def search(site: str, tags: str, limit: int = 12, page: int = 1, api_key: str = "",
            user_id: str = "", exclude: str = "", rating: str = "any",
-           custom_url: str = "", api_type: str = "danbooru") -> list[dict]:
+           custom_url: str = "", api_type: str = "danbooru", sort: str = "") -> list[dict]:
     """Return up to `limit` post dicts from `site` for `tags` minus `exclude`,
     optionally filtered to a `rating`. `site` may be "custom" to query an
     arbitrary endpoint (custom_url + api_type). Empty list on no results or
@@ -170,6 +320,11 @@ def search(site: str, tags: str, limit: int = 12, page: int = 1, api_key: str = 
     target = f"custom:{custom_url} ({api_type})" if site == "custom" else site
     try:
         query = build_query(tags, exclude, rating)
+        # Sort is a query metatag; its spelling depends on the engine.
+        engine = api_type if site == "custom" else _SITE_ENGINE.get(site, "gelbooru")
+        token = _sort_tag(engine, sort)
+        if token:
+            query = f"{query} {token}".strip()
         logging.debug(f"booru search: {target} query={query!r} limit={limit} page={page}")
         if site == "custom":
             if not custom_url:
@@ -177,11 +332,15 @@ def search(site: str, tags: str, limit: int = 12, page: int = 1, api_key: str = 
                 return []
             result = _custom_search(custom_url, api_type, query, limit, page, api_key, user_id)
         else:
+            # The booru lib has no sort param; it randomises by default, so only
+            # let it shuffle when the user actually picked random.
             client = _client(site, api_key, user_id)
-            result = asyncio.run(client.search(query=query, limit=limit, page=page))
+            result = asyncio.run(client.search(query=query, limit=limit, page=page, random=(sort == "random")))
             if isinstance(result, str):
                 result = json.loads(result)
             result = result or []
+        if sort == "random":
+            random.shuffle(result)
         if not result:
             logging.info(f"booru search: 0 results from {target} for query {query!r}")
         else:
@@ -220,12 +379,25 @@ def media_category(url: str) -> str:
 def random_media_url(site: str, tags: str, limit: int = 20, api_key: str = "",
                      user_id: str = "", exclude: str = "", rating: str = "any",
                      images: bool = True, gifs: bool = True, videos: bool = True,
-                     custom_url: str = "", api_type: str = "danbooru") -> str | None:
+                     custom_url: str = "", api_type: str = "danbooru",
+                     sort: str = "") -> str | None:
     """Pick a random media URL for `tags`, restricted to the enabled categories
     (still images / GIFs / videos), or None."""
     allowed = {c for c, on in (("image", images), ("gif", gifs), ("video", videos)) if on}
-    posts = search(site, tags, limit=limit, api_key=api_key, user_id=user_id, exclude=exclude,
-                   rating=rating, custom_url=custom_url, api_type=api_type)
+    # Use positive filetype: filter when a single non-image type is requested
+    # so the API only returns matching posts instead of wasting the window.
+    if not images:
+        if gifs and not videos:
+            tags = (tags + " " if tags else "") + "filetype:gif"
+        elif videos and not gifs:
+            tags = (tags + " " if tags else "") + "filetype:mp4"
+        else:
+            exclude = (exclude + " " if exclude else "") + "filetype:jpg filetype:png filetype:jpeg filetype:webp filetype:avif"
+    if sort == "random":
+        limit = max(limit, 200)
+    posts = search(site, tags, limit=limit, api_key=api_key, user_id=user_id,
+                   exclude=exclude, rating=rating, custom_url=custom_url,
+                   api_type=api_type, sort=sort)
     urls = [p.get("file_url") for p in posts
             if p.get("file_url") and media_category(p["file_url"]) in allowed]
     if posts and not urls:
@@ -234,10 +406,11 @@ def random_media_url(site: str, tags: str, limit: int = 20, api_key: str = "",
 
 
 def random_image_url(site: str, tags: str, limit: int = 20, api_key: str = "",
-                     user_id: str = "", exclude: str = "", rating: str = "any") -> str | None:
+                     user_id: str = "", exclude: str = "", rating: str = "any",
+                     sort: str = "") -> str | None:
     """Back-compat: a random still-image URL (no animated media)."""
     return random_media_url(site, tags, limit, api_key, user_id, exclude, rating,
-                            images=True, gifs=False, videos=False)
+                            images=True, gifs=False, videos=False, sort=sort)
 
 
 def fetch_bytes(url: str, timeout: int = 10) -> bytes:
@@ -251,7 +424,20 @@ def fetch_bytes(url: str, timeout: int = 10) -> bytes:
         "User-Agent": "Mozilla/5.0",
         "Referer": f"{parts.scheme}://{parts.netloc}/",
     }
-    response = requests.get(url, headers=headers, timeout=timeout)
+    # If we have a PoW-authenticated session for this host, reuse its cookies
+    # (some boorus require the anti-bot cookie for image/media URLs too).
+    host_key = f"{parts.scheme}://{parts.netloc}"
+    sess = None
+    with _pow_lock:
+        entry = _pow_sessions.get(host_key)
+        if entry:
+            s, expiry = entry
+            if time.time() < expiry - 60:
+                sess = s
+    if sess:
+        response = sess.get(url, headers=headers, timeout=timeout)
+    else:
+        response = requests.get(url, headers=headers, timeout=timeout)
     response.raise_for_status()
     ctype = response.headers.get("content-type", "?")
     if not ctype.startswith(("image/", "video/")):

@@ -23,7 +23,7 @@ from gi.repository import Adw, GdkPixbuf, GLib, Gtk
 
 from config.gtk_window.toast import name_popover
 from config.gtk_window.utils import config
-from config.gtk_window.widgets import AdwComboRow, AdwEntryRow, AdwSliderRow, AdwSwitchRow
+from config.gtk_window.widgets import AdwComboRow, AdwEntryRow, AdwSliderRow, AdwSwitchRow, bind_visibility
 from config.vars import Vars
 from features import booru
 
@@ -62,9 +62,13 @@ class BooruTab(Adw.PreferencesPage):
         detect_btn.connect("clicked", lambda _b: self._on_detect_api())
         url_row.add_suffix(detect_btn)
         group.add(url_row)
-        group.add(AdwComboRow(
+        api_row = AdwComboRow(
             "Custom API Type", vars.booru_api_type,
-            {t: t.capitalize() for t in booru.API_TYPES}))
+            {t: t.capitalize() for t in booru.API_TYPES})
+        group.add(api_row)
+        # Only relevant when the "custom" site is selected.
+        bind_visibility(url_row, vars.booru_site, lambda v: v == "custom")
+        bind_visibility(api_row, vars.booru_site, lambda v: v == "custom")
 
         # Optional credentials (e.g. Gelbooru API key + user id, Danbooru
         # api key + login). Left blank for anonymous access.
@@ -82,11 +86,14 @@ class BooruTab(Adw.PreferencesPage):
             "Excluded Tags", "booruExclude", "",
             "Posts matching any of these tags are skipped (sent as -tag)."))
 
-        rating_group = Adw.PreferencesGroup(title="Rating")
+        rating_group = Adw.PreferencesGroup(title="Rating and Sort")
         self.add(rating_group)
         rating_group.add(AdwComboRow(
             "Rating", vars.booru_rating,
             {r: r.capitalize() for r in booru.RATINGS}))
+        rating_group.add(AdwComboRow(
+            "Sort", vars.booru_sort,
+            {k: v for k, v in booru.SORT_OPTIONS.items()}))
 
         # ---- Preview -----------------------------------------------------
         preview_group = Adw.PreferencesGroup(
@@ -163,16 +170,17 @@ class BooruTab(Adw.PreferencesPage):
             child = self._flow.get_first_child()
         self._preview_btn.set_sensitive(False)
         self._spinner.start()
+        sort = self._vars.booru_sort.get() or ""
         self._status.set_text(f"Searching {site} for: {tags or '(all)'}…")
         threading.Thread(target=self._preview_worker,
-                         args=(site, tags, api_key, user_id, exclude, rating,
+                         args=(site, tags, api_key, user_id, exclude, rating, sort,
                                self._custom_url, self._api_type), daemon=True).start()
 
     def _preview_worker(self, site: str, tags: str, api_key: str, user_id: str, exclude: str,
-                        rating: str, custom_url: str, api_type: str) -> None:
+                        rating: str, sort: str, custom_url: str, api_type: str) -> None:
         results = booru.search(site, tags, limit=PREVIEW_COUNT, api_key=api_key,
                                user_id=user_id, exclude=exclude, rating=rating,
-                               custom_url=custom_url, api_type=api_type)
+                               custom_url=custom_url, api_type=api_type, sort=sort)
         shown = 0
         for post in results:
             url = booru.thumb_url(post)

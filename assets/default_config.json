@@ -43,6 +43,7 @@
   "booruUserId": "",
   "booruExclude": "",
   "booruRating": "any",
+  "booruSort": "random",
   "downloadEnabled": 0,
   "booruChance": 50,
   "booruImages": 1,
