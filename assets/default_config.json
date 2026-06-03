@@ -42,6 +42,7 @@
   "booruExclude": "",
   "booruRating": "any",
   "downloadEnabled": 0,
+  "booruChance": 50,
   "runOnSaveQuit": 0,
   "timerMode": 0,
   "timerSetupTime": 1,

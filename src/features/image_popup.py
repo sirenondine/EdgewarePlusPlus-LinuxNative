@@ -57,7 +57,7 @@ class ImagePopup(Popup):
     def _acquire_image(self) -> Image.Image:
         """Worker-thread image source: booru network fetch (when enabled) or the
         local pack image. Network I/O must stay off the main thread."""
-        if self.settings.booru_download and roll(50):
+        if self.settings.booru_download and roll(self.settings.booru_chance):
             try:
                 import io
 

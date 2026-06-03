@@ -23,7 +23,7 @@ from gi.repository import Adw, GdkPixbuf, GLib, Gtk
 
 from config.gtk_window.toast import name_popover
 from config.gtk_window.utils import config
-from config.gtk_window.widgets import AdwComboRow, AdwEntryRow, AdwSwitchRow
+from config.gtk_window.widgets import AdwComboRow, AdwEntryRow, AdwSliderRow, AdwSwitchRow
 from config.vars import Vars
 from features import booru
 
@@ -44,6 +44,9 @@ class BooruTab(Adw.PreferencesPage):
         group = Adw.PreferencesGroup(title="Booru Settings", description=BOORU_TEXT)
         self.add(group)
         group.add(AdwSwitchRow("Download from Booru", vars.booru_download))
+        group.add(AdwSliderRow(
+            "Booru Image Chance", vars.booru_chance, 0, 100, unit="%",
+            subtitle="How often an image popup pulls from the booru instead of the pack."))
         group.add(AdwComboRow(
             "Site", vars.booru_site,
             {name: name.capitalize() for name in booru.SITE_NAMES}))
