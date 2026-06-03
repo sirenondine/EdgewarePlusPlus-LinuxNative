@@ -14,8 +14,6 @@
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 # GNU General Public License for more details.
 
-import logging
-
 from gi import require_version
 
 require_version("Gtk", "4.0")
@@ -184,7 +182,10 @@ class SexToysTab(Adw.PreferencesPage):
                     f.result()
                     GLib.idle_add(self._on_connected)
                 except Exception as e:
-                    GLib.idle_add(lambda: self._on_connect_failed(str(e)))
+                    # Bind the message now: `e` is cleared when the except block
+                    # ends, so a deferred lambda referencing it would NameError.
+                    msg = str(e)
+                    GLib.idle_add(lambda m=msg: self._on_connect_failed(m))
 
             future.add_done_callback(done)
         else:
@@ -230,6 +231,12 @@ class SexToysTab(Adw.PreferencesPage):
         expander = Adw.ExpanderRow(title=name, subtitle=f"Device {idx}")
         self._device_rows[idx] = expander
 
+        test_btn = Gtk.Button(icon_name="media-playback-start-symbolic")
+        test_btn.set_valign(Gtk.Align.CENTER)
+        test_btn.set_tooltip_text("Test vibration (1.5s buzz)")
+        test_btn.connect("clicked", lambda _b, i=idx: self._test_device(i))
+        expander.add_suffix(test_btn)
+
         reset_btn = Gtk.Button(icon_name="edit-undo-symbolic")
         reset_btn.set_valign(Gtk.Align.CENTER)
         reset_btn.set_tooltip_text("Reset this device to recommended settings")
@@ -259,6 +266,13 @@ class SexToysTab(Adw.PreferencesPage):
                     ctrl.set_selected(PATTERN_NAMES.index(default))
             elif ctrl is not None:  # Gtk.Adjustment
                 ctrl.set_value(float(default))
+
+    def _test_device(self, idx: str) -> None:
+        """Fire a short test buzz so the user can confirm the toy responds."""
+        if not self._sextoy.connected:
+            self._conn_row.set_subtitle("Connect to Intiface first to test.")
+            return
+        self._sextoy.vibrate(int(idx), 0.6, 1.5)
 
     def _value(self, idx: str, key: str):
         return self._data.get(idx, {}).get(key, _DEFAULTS.get(key, 0))
