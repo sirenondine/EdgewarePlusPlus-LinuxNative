@@ -107,6 +107,15 @@ def random_image_url(site: str, tags: str, limit: int = 20, api_key: str = "",
 
 def fetch_bytes(url: str, timeout: int = 10) -> bytes:
     import requests
-    response = requests.get(url, timeout=timeout)
+    from urllib.parse import urlparse
+    # Many booru image CDNs (e.g. img*.gelbooru.com) hotlink-protect full-size
+    # files: a bare request returns an HTML interstitial, not the image. Sending
+    # a browser User-Agent + a same-origin Referer returns the real bytes.
+    parts = urlparse(url)
+    headers = {
+        "User-Agent": "Mozilla/5.0",
+        "Referer": f"{parts.scheme}://{parts.netloc}/",
+    }
+    response = requests.get(url, headers=headers, timeout=timeout)
     response.raise_for_status()
     return response.content
