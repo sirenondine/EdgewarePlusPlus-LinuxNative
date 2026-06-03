@@ -73,7 +73,7 @@ class Danger:
 class Item:
     key: str
     schema: Callable
-    var: Callable | None
+    var: Callable | bool | None  # VAR sentinel (True) -> plain ConfigVar, or a transform
     setting: Callable | None
     danger: Danger | None = None
 

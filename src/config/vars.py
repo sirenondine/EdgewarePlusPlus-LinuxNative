@@ -16,6 +16,8 @@
 # along with Edgeware++.  If not, see <https://www.gnu.org/licenses/>.
 
 import logging
+from collections.abc import Callable
+from typing import TYPE_CHECKING
 
 from voluptuous.error import Invalid
 
@@ -26,7 +28,7 @@ from config.items import CONFIG_ITEMS
 class ConfigVar:
     def __init__(self, initial_value: bool | int | str = False) -> None:
         self._value = initial_value
-        self._callbacks: list[callable] = []
+        self._callbacks: list[Callable] = []
         self.key: str | None = None      # config key, set by Vars
         self.widget = None               # bound row, set by the widget factory (for inline danger confirm)
 
@@ -38,7 +40,7 @@ class ConfigVar:
         for cb in self._callbacks:
             cb(value)
 
-    def trace_add(self, callback: callable) -> None:
+    def trace_add(self, callback: Callable) -> None:
         self._callbacks.append(callback)
 
 
@@ -46,6 +48,11 @@ type ConfigVarType = ConfigVar
 
 
 class Vars:
+    if TYPE_CHECKING:
+        # Per-config-key ConfigVars are attached dynamically via setattr below;
+        # declare them for the type checker as ConfigVar (no runtime effect).
+        def __getattr__(self, name: str) -> ConfigVar: ...
+
     def __init__(self, config: dict) -> None:
         self.config = config
         self.entries: dict[str, ConfigVar] = {}

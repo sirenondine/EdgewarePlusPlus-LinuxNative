@@ -175,7 +175,7 @@ def find_set_wallpaper_function(
     return functions.get(desktop)
 
 
-def find_get_wallpaper_command(desktop: str) -> str | None:
+def find_get_wallpaper_command(desktop: str) -> list[str] | None:
     commands = {
         "mate": ["gsettings get org.mate.background picture-filename"],
         **dict.fromkeys(

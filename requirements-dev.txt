@@ -1,0 +1,8 @@
+# Development-only dependencies (type checking, linting).
+# Not needed at runtime. Install with: pip install -r requirements-dev.txt
+
+-r requirements.txt
+
+# Type stubs for PyGObject (gi.repository: Gtk, Adw, GLib, ...).
+# Lets basedpyright/pyright resolve gi imports; see pyrightconfig.json.
+pygobject-stubs>=2.17

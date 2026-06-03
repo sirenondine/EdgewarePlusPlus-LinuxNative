@@ -100,26 +100,32 @@ class Data:
     THEME_DEMO = ROOT / "theme_demo.png"
 
 
-@dataclass
 class CustomAssets:
+    @staticmethod
     def config_icon() -> Path:
         return Data.CONFIG_ICON if Data.CONFIG_ICON.is_file() else Assets.DEFAULT_CONFIG_ICON
 
+    @staticmethod
     def hypno() -> Path:
         return Data.HYPNO if Data.HYPNO.is_file() else Assets.DEFAULT_HYPNO
 
+    @staticmethod
     def icon() -> Path:
         return Data.ICON if Data.ICON.is_file() else Assets.DEFAULT_ICON
 
+    @staticmethod
     def panic_icon() -> Path:
         return Data.PANIC_ICON if Data.PANIC_ICON.is_file() else Assets.DEFAULT_PANIC_ICON
 
+    @staticmethod
     def panic_wallpaper() -> Path:
         return Data.PANIC_WALLPAPER if Data.PANIC_WALLPAPER.is_file() else Assets.DEFAULT_PANIC_WALLPAPER
 
+    @staticmethod
     def startup_splash() -> Path:
         return Data.STARTUP_SPLASH if Data.STARTUP_SPLASH.is_file() else Assets.DEFAULT_STARTUP_SPLASH
 
+    @staticmethod
     def theme_demo() -> Path:
         return Data.THEME_DEMO if Data.THEME_DEMO.is_file() else Assets.DEFAULT_THEME_DEMO
 

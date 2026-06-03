@@ -70,4 +70,4 @@ class SubliminalPopup(Gtk.Window):
         GLib.timeout_add(settings.subliminal_timeout, lambda: (self.destroy(), GLib.SOURCE_REMOVE)[1])
 
     def should_init(self) -> bool:
-        return self.subliminal
+        return bool(self.subliminal)

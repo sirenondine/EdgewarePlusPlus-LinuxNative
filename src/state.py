@@ -53,15 +53,23 @@ class State:
     panic_lockout_active = False
 
     _hibernate_active = Subject(False)
-    hibernate_id = None
+    hibernate_id: int | None = None
     pump_scare = False
 
     corruption_level = 1
-    corruption_time_start = 0  # Milliseconds
+    corruption_time_start: float = 0  # Milliseconds
     corruption_popup_number = 0
     corruption_launches_number = 1
 
     tray: object | None = None
+
+    # Runtime handles attached after construction (GLib source ids, monitors,
+    # stop callbacks). Declared here so they are part of the type.
+    _config_monitor: object | None = None  # Gio.FileMonitor (hot-reload)
+    _companion_observe_timer: int | None = None  # GLib timeout id
+    _companion_clip_stop: Callable[[], None] | None = None
+    _gam_ticker: int | None = None  # GLib timeout id
+    _panic_shortcut: object | None = None  # global-shortcuts handle
 
     keyboard_process: multiprocessing.Process | None = None
     alt_held = False

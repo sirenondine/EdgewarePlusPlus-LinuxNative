@@ -16,6 +16,7 @@
 # along with Edgeware++.  If not, see <https://www.gnu.org/licenses/>.
 
 import logging
+from typing import TYPE_CHECKING, Any
 
 from paths import DEFAULT_PACK_PATH, Data
 from voluptuous.error import Invalid
@@ -25,6 +26,11 @@ from config.items import CONFIG_ITEMS
 
 
 class Settings:
+    if TYPE_CHECKING:
+        # Settings are attached dynamically via setattr in load_settings();
+        # declare them for the type checker (no runtime effect).
+        def __getattr__(self, name: str) -> Any: ...
+
     def __init__(self) -> None:
         self.config = load_config()
         self.load_settings()

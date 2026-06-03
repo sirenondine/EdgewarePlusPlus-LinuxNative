@@ -77,11 +77,11 @@ def handle_sextoy(settings: Settings, pack: Pack, state: State) -> None:
         # Fired from the asyncio thread — marshal UI work to the main thread.
         from gi.repository import GLib
 
-        def update() -> None:
+        def update() -> bool:
             notify("Edgeware++", "Toy connected." if connected else "Toy disconnected. Reconnect from the tray menu.", icon=pack.icon)
             if state.tray and hasattr(state.tray, "set_toy_status"):
                 state.tray.set_toy_status(connected)
-            return False
+            return False  # GLib.idle_add: run once
 
         GLib.idle_add(update)
 
@@ -458,7 +458,7 @@ def keyboard_listener(connection: Connection) -> None:
         logging.warning(f"Keyboard panic hotkey fallback unavailable: {e}")
         return
 
-    def callback(type: str) -> None:
+    def callback(type: str) -> Callable[[object], None]:
         return lambda key: connection.send((type, str(key)))
 
     with keyboard.Listener(
