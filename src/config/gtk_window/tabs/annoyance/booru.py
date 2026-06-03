@@ -194,6 +194,11 @@ class BooruTab(Adw.PreferencesPage):
 
         def sync() -> None:
             config[config_key] = ">".join(store.get_string(i) for i in range(store.get_n_items()))
+            # These tag lists write straight to the config dict (they aren't
+            # ConfigVars), so the autosave — which only fires on ConfigVar
+            # changes — won't see the edit. Persist it explicitly.
+            from config.gtk_window.utils import persist
+            persist(self._vars)
 
         def add(tag: str) -> None:
             for t in tag.split():

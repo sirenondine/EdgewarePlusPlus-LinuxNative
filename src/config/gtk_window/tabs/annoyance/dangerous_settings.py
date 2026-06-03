@@ -43,6 +43,7 @@ MISC_TEXT = (
 class DangerousSettingsTab(Adw.PreferencesPage):
     def __init__(self, vars: Vars) -> None:
         super().__init__()
+        self._vars = vars
 
         # ---- Panic lockout -----------------------------------------------
         lockout = Adw.PreferencesGroup(title="Panic Lockout", description=PANIC_LOCKOUT_TEXT)
@@ -149,6 +150,12 @@ class DangerousSettingsTab(Adw.PreferencesPage):
         fd.set_title("Select Parent Folder")
         fd.select_folder(self.get_root(), None, self._on_folder_selected, None)
 
+    def _persist(self) -> None:
+        # drivePath / avoidList write straight to the config dict (not ConfigVars),
+        # so the autosave won't see them — flush explicitly.
+        from config.gtk_window.utils import persist
+        persist(self._vars)
+
     def _on_folder_selected(self, fd: Gtk.FileDialog, result, _ud) -> None:
         try:
             file = fd.select_folder_finish(result)
@@ -157,6 +164,7 @@ class DangerousSettingsTab(Adw.PreferencesPage):
             path = file.get_path()
             config["drivePath"] = path
             self._path_row.set_subtitle(path)
+            self._persist()
         except Exception:
             pass
 
@@ -167,6 +175,7 @@ class DangerousSettingsTab(Adw.PreferencesPage):
         current = config.get("avoidList", "Edgeware>AppData")
         config["avoidList"] = f"{current}>{name}"
         self._bl_store.append(name)
+        self._persist()
 
     def _update_bl_btn(self, selection, _param=None) -> None:
         pos = selection.get_selected()
@@ -181,6 +190,7 @@ class DangerousSettingsTab(Adw.PreferencesPage):
             current = config.get("avoidList", "")
             config["avoidList"] = current.replace(f">{name}", "")
             self._bl_store.remove(pos)
+            self._persist()
 
     def _on_reset_blacklist(self, _btn) -> None:
         while self._bl_store.get_n_items() > 0:
@@ -188,6 +198,7 @@ class DangerousSettingsTab(Adw.PreferencesPage):
         for item in ["Edgeware", "AppData"]:
             self._bl_store.append(item)
         config["avoidList"] = "Edgeware>AppData"
+        self._persist()
 
     @staticmethod
     def _on_bl_setup(_factory, item) -> None:
