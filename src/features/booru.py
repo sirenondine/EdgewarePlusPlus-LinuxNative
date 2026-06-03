@@ -44,7 +44,7 @@ SITE_NAMES = [*SITE_CLASSES.keys(), "custom"]
 DEFAULT_SITE = "gelbooru"
 
 # Custom-endpoint API flavours. Most self-hosted / alt boorus run one of these.
-API_TYPES = ["danbooru", "gelbooru"]
+API_TYPES = ["danbooru", "gelbooru", "moebooru"]
 
 
 def detect_api_type(base_url: str) -> str | None:
@@ -62,6 +62,15 @@ def detect_api_type(base_url: str) -> str | None:
             data = r.json()
             if isinstance(data, list) and (not data or isinstance(data[0], dict)):
                 return "danbooru"
+    except Exception:
+        pass
+    # Moebooru: GET /post.json (singular) -> JSON array.
+    try:
+        r = requests.get(f"{base}/post.json", params={"limit": 1}, headers=headers, timeout=6)
+        if r.ok and "json" in r.headers.get("content-type", ""):
+            data = r.json()
+            if isinstance(data, list) and (not data or isinstance(data[0], dict)):
+                return "moebooru"
     except Exception:
         pass
     # Gelbooru-style: GET /index.php?page=dapi&s=post&q=index&json=1 -> JSON.
@@ -93,6 +102,12 @@ def _custom_search(base_url: str, api_type: str, query: str, limit: int, page: i
         data = requests.get(f"{base}/index.php", params=params, headers=headers, timeout=8).json()
         posts = data.get("post", []) if isinstance(data, dict) else (data or [])
         return [p for p in posts if p.get("file_url")]
+    if api_type == "moebooru":
+        # Moebooru (konachan, yande.re, sakuga, ...): /post.json, anon read.
+        # Already carries file_url / preview_url / sample_url.
+        params = {"tags": query, "limit": limit, "page": page}
+        posts = requests.get(f"{base}/post.json", params=params, headers=headers, timeout=8).json()
+        return [p for p in posts if isinstance(posts, list) and p.get("file_url")]
     # Danbooru-style (posts.json). file_url / preview_file_url / large_file_url.
     params = {"tags": query, "limit": limit, "page": page}
     if api_key and user_id:
