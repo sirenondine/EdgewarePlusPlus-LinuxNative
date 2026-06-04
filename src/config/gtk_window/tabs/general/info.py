@@ -34,16 +34,38 @@ DISCORD_TEXT = (
 )
 
 
-class InfoTab(Adw.PreferencesPage):
+class InfoTab(Gtk.Box):
+    """Packs tab. Adw.NavigationView (owned, not subclassed — it's a final GType)
+    provides the slide-in-place animation when the pack editor is opened."""
+
     def __init__(self, pack: Pack, vars=None, on_switch_pack=None) -> None:
-        super().__init__()
+        super().__init__(orientation=Gtk.Orientation.VERTICAL)
+        self.set_vexpand(True)
+        self.set_hexpand(True)
         self._pack = pack
         self._vars = vars
         self._on_switch_pack = on_switch_pack
+        # Per-pack-dir editor cache: str(pack_dir) -> (PackEditorContent, NavigationPage)
+        self._editor_cache: dict[str, tuple] = {}
 
-        # ---- Pack management ---------------------------------------------
+        self._nav = Adw.NavigationView()
+        self._nav.set_vexpand(True)
+        self._nav.set_hexpand(True)
+        self.append(self._nav)
+
+        # ---- Main page (pack management + installed list) ----------------
+        main_pref = Adw.PreferencesPage()
+        self._build_main(main_pref, pack, vars)
+        main_page = Adw.NavigationPage.new(main_pref, "Packs")
+        self._nav.add(main_page)
+
+        # Flush + refresh when the user navigates back from the editor.
+        self._nav.connect("popped", self._on_popped)
+
+    def _build_main(self, page: Adw.PreferencesPage, pack: Pack, vars) -> None:
+        # ---- Pack management --------------------------------------------
         mgmt = Adw.PreferencesGroup(title="Pack Management")
-        self.add(mgmt)
+        page.add(mgmt)
 
         current_row = Adw.ActionRow(title="Active Pack", subtitle=pack.info.name)
         current_row.add_prefix(_pack_icon_prefix(pack.paths.root))
@@ -61,7 +83,24 @@ class InfoTab(Adw.PreferencesPage):
         import_row.set_activatable_widget(import_btn)
         mgmt.add(import_row)
 
-        # ---- Pack configuration (this pack's creator-suggested settings) ---
+        from pack.edit import is_writable
+        writable = is_writable(pack.paths.root)
+        edit_row = Adw.ActionRow(
+            title="Edit This Pack",
+            subtitle="Change pack info and popup text." if writable
+                     else "This pack is read-only and cannot be edited here.",
+        )
+        edit_btn = Gtk.Button()
+        edit_btn.set_child(Adw.ButtonContent(label="Edit…", icon_name="document-edit-symbolic"))
+        edit_btn.set_valign(Gtk.Align.CENTER)
+        edit_btn.set_sensitive(writable)
+        edit_btn.connect("clicked", lambda _: self._on_edit_pack())
+        edit_row.add_suffix(edit_btn)
+        if writable:
+            edit_row.set_activatable_widget(edit_btn)
+        mgmt.add(edit_row)
+
+        # ---- Pack configuration ------------------------------------------
         if vars is not None:
             from config.gtk_window.widgets import AdwSwitchRow
 
@@ -72,7 +111,7 @@ class InfoTab(Adw.PreferencesPage):
                     "their intended experience for this pack."
                 ),
             )
-            self.add(config_group)
+            page.add(config_group)
 
             load_cfg_row = Adw.ActionRow(
                 title="Load Pack Configuration",
@@ -94,7 +133,7 @@ class InfoTab(Adw.PreferencesPage):
                     "config, regardless of the config's own setting."
                 )))
 
-        # ---- Installed packs ----------------------------------------------
+        # ---- Installed packs ---------------------------------------------
         pack_dirs = sorted(
             [d for d in Data.PACKS.iterdir() if d.is_dir()],
             key=lambda d: d.name.lower()
@@ -102,14 +141,15 @@ class InfoTab(Adw.PreferencesPage):
 
         if pack_dirs:
             from config.gtk_window.import_pack import get_default_pack_source
+            from pack.edit import is_writable
             switch_group = Adw.PreferencesGroup(
                 title="Installed Packs",
                 description="Switch activates the pack. Set Default copies it to resource/.",
             )
-            self.add(switch_group)
+            page.add(switch_group)
 
             current_name = vars.pack_path.get() if vars else ""
-            self._default_buttons: dict[str, Gtk.Button] = {}  # dir name → star button
+            self._default_buttons: dict[str, Gtk.Button] = {}
 
             default_source = get_default_pack_source()
 
@@ -127,8 +167,6 @@ class InfoTab(Adw.PreferencesPage):
                 btn_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
                 btn_box.set_valign(Gtk.Align.CENTER)
 
-                # Switch button: accent check (disabled) when this is the active
-                # pack, play icon (clickable) otherwise — mirrors the star pattern.
                 sw_btn = Gtk.Button()
                 if name == current_name:
                     sw_btn.set_icon_name("object-select-symbolic")
@@ -141,13 +179,18 @@ class InfoTab(Adw.PreferencesPage):
                     sw_btn.connect("clicked", lambda _b, n=name: self._on_switch(n))
                 btn_box.append(sw_btn)
 
-                # Star button: filled+accent when this is the default pack,
-                # outline otherwise. Clicking sets this pack as default.
                 set_def_btn = Gtk.Button()
                 set_def_btn.connect("clicked", lambda _b, d=pack_dir: self._on_set_default(d))
                 btn_box.append(set_def_btn)
                 self._default_buttons[name] = set_def_btn
                 self._style_default_button(set_def_btn, name == default_source)
+
+                edit_btn = Gtk.Button(icon_name="document-edit-symbolic")
+                edit_btn.set_tooltip_text(
+                    "Edit pack" if is_writable(pack_dir) else "Pack is read-only")
+                edit_btn.set_sensitive(is_writable(pack_dir))
+                edit_btn.connect("clicked", lambda _b, d=pack_dir: self._push_editor(d))
+                btn_box.append(edit_btn)
 
                 row.add_suffix(btn_box)
                 switch_group.add(row)
@@ -163,9 +206,6 @@ class InfoTab(Adw.PreferencesPage):
             default_row.set_activatable_widget(def_btn)
             switch_group.add(default_row)
 
-        # Pack status / content / information / Discord now live on the
-        # dashboard's Pack view (see pack_detail_groups).
-
     def _on_load_pack_config(self) -> None:
         from config.gtk_window.preset import apply_preset, compute_diff, show_config_diff
         show_config_diff(
@@ -180,6 +220,57 @@ class InfoTab(Adw.PreferencesPage):
     def _on_import_new(self) -> None:
         from config.gtk_window.import_pack import import_pack
         import_pack(False)
+
+    def _on_edit_pack(self) -> None:
+        self._push_editor(self._pack.paths.root)
+
+    def _push_editor(self, pack_dir: Path) -> None:
+        """Build (lazily, cached per pack_dir) and push an editor NavigationPage."""
+        from config.gtk_window.pack_editor import PackEditorContent
+
+        key = str(pack_dir)
+        if key not in self._editor_cache:
+            content = PackEditorContent(pack_dir)
+
+            editor_pref = Adw.PreferencesPage()
+            editor_pref.set_vexpand(True)
+            content.build_into(
+                editor_pref,
+                push_page=self._nav.push,
+                pop_page=self._nav.pop,
+            )
+
+            back_btn = Gtk.Button()
+            back_btn.set_child(Adw.ButtonContent(
+                icon_name="go-previous-symbolic", label="Packs"))
+            back_btn.set_halign(Gtk.Align.START)
+            back_btn.set_margin_start(6)
+            back_btn.connect("clicked", lambda _: self._nav.pop())
+
+            top_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+            top_bar.append(back_btn)
+
+            toolbar_view = Adw.ToolbarView()
+            toolbar_view.add_top_bar(top_bar)
+            toolbar_view.set_content(editor_pref)
+
+            pack_name = content.editor.get_info("name") or pack_dir.name
+            page = Adw.NavigationPage.new(toolbar_view, f"Edit: {pack_name}")
+            self._editor_cache[key] = (content, page)
+
+        content, page = self._editor_cache[key]
+        self._nav.push(page)
+
+    def _on_popped(self, _nav, page) -> None:
+        """Flush the editor that was just popped, refresh if it saved anything."""
+        # Reverse-lookup which cached editor owns this page.
+        for content, cached_page in self._editor_cache.values():
+            if cached_page is page:
+                content.flush()
+                if content.saved_any:
+                    from config.gtk_window.utils import refresh
+                    refresh()
+                return
 
     @staticmethod
     def _style_default_button(btn: Gtk.Button, is_default: bool) -> None:

@@ -21,9 +21,8 @@ require_version("Adw", "1")
 require_version("GdkPixbuf", "2.0")
 from gi.repository import Adw, GdkPixbuf, GLib, Gtk
 
-from config.gtk_window.toast import name_popover
 from config.gtk_window.utils import config
-from config.gtk_window.widgets import AdwComboRow, AdwEntryRow, AdwSliderRow, AdwSwitchRow, bind_visibility
+from config.gtk_window.widgets import AdwComboRow, AdwEntryRow, AdwSliderRow, AdwSwitchRow, bind_visibility, make_string_list_group
 from config.vars import Vars
 from features import booru
 
@@ -227,79 +226,18 @@ class BooruTab(Adw.PreferencesPage):
     def _make_tag_list_group(self, title: str, config_key: str, default: str, description: str) -> Adw.PreferencesGroup:
         """A reusable add/remove/reset tag list bound to a ">"-joined config key.
         Used for both the include tags and the exclude tags."""
-        group = Adw.PreferencesGroup(title=title, description=description)
-        store = Gtk.StringList.new([t for t in config.get(config_key, "").split(">") if t])
-        selection = Gtk.SingleSelection.new(store)
-
-        factory = Gtk.SignalListItemFactory()
-        factory.connect("setup", self._on_setup)
-        factory.connect("bind", self._on_bind)
-        listview = Gtk.ListView.new(selection, factory)
-        scroller = Gtk.ScrolledWindow()
-        scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-        scroller.set_min_content_height(140)
-        scroller.set_child(listview)
-        frame = Gtk.Frame()
-        frame.add_css_class("card")
-        frame.set_child(scroller)
-        group.add(frame)
-
-        def sync() -> None:
-            config[config_key] = ">".join(store.get_string(i) for i in range(store.get_n_items()))
+        def on_change(items: list[str]) -> None:
+            config[config_key] = ">".join(items)
             # These tag lists write straight to the config dict (they aren't
             # ConfigVars), so the autosave — which only fires on ConfigVar
             # changes — won't see the edit. Persist it explicitly.
             from config.gtk_window.utils import persist
             persist(self._vars)
 
-        def add(tag: str) -> None:
-            for t in tag.split():
-                store.append(t)
-            sync()
-
-        remove_btn = Gtk.Button(icon_name="list-remove-symbolic")
-        remove_btn.set_tooltip_text("Remove selected")
-        # SingleSelection auto-selects row 0, but notify::selected won't fire for
-        # that initial pick, so seed sensitivity from the current selection.
-        remove_btn.set_sensitive(selection.get_selected() != Gtk.INVALID_LIST_POSITION)
-        selection.connect("notify::selected", lambda sel, _p: remove_btn.set_sensitive(
-            sel.get_selected() != Gtk.INVALID_LIST_POSITION))
-
-        def on_remove(_b) -> None:
-            pos = selection.get_selected()
-            if pos != Gtk.INVALID_LIST_POSITION:
-                store.remove(pos)
-                sync()
-
-        def on_reset(_b) -> None:
-            while store.get_n_items() > 0:
-                store.remove(0)
-            for t in (default.split(">") if default else []):
-                store.append(t)
-            sync()
-
-        remove_btn.connect("clicked", on_remove)
-        add_btn = Gtk.Button(icon_name="list-add-symbolic")
-        add_btn.set_tooltip_text("Add tag")
-        add_btn.connect("clicked", lambda b: name_popover(b, "Tag name (or space-separated tags)", add))
-        reset_btn = Gtk.Button(icon_name="edit-undo-symbolic")
-        reset_btn.set_tooltip_text("Reset")
-        reset_btn.connect("clicked", on_reset)
-
-        buttons = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        for b in (add_btn, remove_btn, reset_btn):
-            buttons.append(b)
-        group.set_header_suffix(buttons)
-        return group
-
-    @staticmethod
-    def _on_setup(_factory, item) -> None:
-        lbl = Gtk.Label(xalign=0, wrap=True)
-        lbl.set_margin_start(8)
-        lbl.set_margin_top(4)
-        lbl.set_margin_bottom(4)
-        item.set_child(lbl)
-
-    @staticmethod
-    def _on_bind(_factory, item) -> None:
-        item.get_child().set_text(item.get_item().get_string())
+        return make_string_list_group(
+            title, description,
+            initial=[t for t in config.get(config_key, "").split(">") if t],
+            on_change=on_change,
+            add_prompt="Tag name (or space-separated tags)",
+            reset_to=(default.split(">") if default else []),
+        )
