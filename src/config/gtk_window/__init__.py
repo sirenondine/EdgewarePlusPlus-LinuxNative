@@ -305,7 +305,10 @@ class SettingsWindow(Adw.ApplicationWindow):
         header.pack_start(self._sidebar_toggle)
 
         # No Save button: settings autosave live (see _on_var_change).
-        toolbar_view.add_top_bar(header)
+        # When embedded inside the dashboard the dashboard already has a header;
+        # skip adding ours so there is no double header bar.
+        if not self._embedded:
+            toolbar_view.add_top_bar(header)
 
         # Persistent banner shown when a changed setting needs a restart to take
         # effect (only while a runtime is actually running). Stays until the
