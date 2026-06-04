@@ -8,7 +8,15 @@ from gi import require_version
 require_version("Gdk", "4.0")
 require_version("Gtk", "4.0")
 require_version("Adw", "1")
+require_version("Gtk4LayerShell", "1.0")
 from gi.repository import Adw, Gdk, GLib, Gtk
+
+try:
+    from gi.repository import Gtk4LayerShell as LayerShell
+    _LAYER_OK = LayerShell.is_supported()
+except Exception:
+    LayerShell = None  # type: ignore[assignment]
+    _LAYER_OK = False
 
 from config import load_default_config
 from config.gtk_window.toast import toast, name_popover
@@ -229,9 +237,11 @@ def maybe_prompt_update(local_version: str, live_version: str) -> None:
 
 class SettingsWindow(Adw.ApplicationWindow):
     def __init__(self, app: Gtk.Application, vars: Vars, pack: Pack,
-                 local_version: str, live_version: str, *, on_pack_changed=None) -> None:
+                 local_version: str, live_version: str, *, on_pack_changed=None,
+                 embedded: bool = False) -> None:
         self._pack = pack
         self._on_pack_changed = on_pack_changed
+        self._embedded = embedded
 
         self._base_title = f"Edgeware++ Settings — {self._pack.info.name}"
         super().__init__(application=app, title=self._base_title)
@@ -545,14 +555,18 @@ class SettingsWindow(Adw.ApplicationWindow):
         self.add_controller(key_ctrl)
 
         self.connect("close-request", self._on_close_request)
-        self.present()
 
-        import sys
-        _first_launch = "--first-launch-configure" in sys.argv
-        _no_pack = not self._pack.paths.root.exists() or self._pack.info.name == "default"
-        if _first_launch or _no_pack:
-            from config.gtk_window.onboarding import show_onboarding
-            GLib.idle_add(lambda: (show_onboarding(self, vars, self._pack), False)[1])
+        # When embedded (content reparented into the Dashboard's stack), don't
+        # present this window — it would float as an empty frame over the panel.
+        if not self._embedded:
+            self.present()
+
+            import sys
+            _first_launch = "--first-launch-configure" in sys.argv
+            _no_pack = not self._pack.paths.root.exists() or self._pack.info.name == "default"
+            if _first_launch or _no_pack:
+                from config.gtk_window.onboarding import show_onboarding
+                GLib.idle_add(lambda: (show_onboarding(self, vars, self._pack), False)[1])
 
     # ------------------------------------------------------------------
     # Lazy page building.
@@ -901,16 +915,32 @@ class DashboardWindow(Adw.ApplicationWindow):
         except Exception:
             logging.warning("failed to set icon.")
 
+        # --- Header bar ---------------------------------------------------
         toolbar = Adw.ToolbarView()
         self._header = Adw.HeaderBar()
-        settings_btn = Gtk.Button(icon_name="preferences-system-symbolic")
-        settings_btn.set_tooltip_text("Open settings")
-        settings_btn.connect("clicked", lambda _b: self._open_settings("General"))
-        self._header.pack_end(settings_btn)
+
+        # Gear button toggles between home and settings stack pages.
+        self._settings_toggle = Gtk.ToggleButton(icon_name="preferences-system-symbolic")
+        self._settings_toggle.set_tooltip_text("Settings")
+        self._settings_toggle.connect("toggled", self._on_settings_toggled)
+        self._header.pack_end(self._settings_toggle)
         toolbar.add_top_bar(self._header)
 
+        # --- Main stack: home <-> settings (SLIDE_DOWN / SLIDE_UP) -------
+        # SLIDE_DOWN: new page enters from top, old exits to bottom.
+        # That gives the "settings slides down from the top" effect.
+        self._main_stack = Gtk.Stack()
+        self._main_stack.set_transition_duration(300)
+
         self._toast_overlay = Adw.ToastOverlay()
-        toolbar.set_content(self._toast_overlay)
+        self._main_stack.add_named(self._toast_overlay, "home")
+
+        # Settings page: populated lazily on first open.
+        self._settings_placeholder = Gtk.Box()
+        self._main_stack.add_named(self._settings_placeholder, "settings")
+        self._settings_panel_built = False
+
+        toolbar.set_content(self._main_stack)
         self.set_content(toolbar)
         self._install_home()
         self.connect("close-request", self._on_close_request)
@@ -930,12 +960,15 @@ class DashboardWindow(Adw.ApplicationWindow):
                        on_navigate=self._open_settings, on_launch=self._launch_runtime)
         self._toast_overlay.set_child(home)
         if home.has_multiple_views:
-            switcher = Adw.ViewSwitcher(
+            self._home_title = Adw.ViewSwitcher(
                 stack=home.view_stack, policy=Adw.ViewSwitcherPolicy.WIDE)
-            self._header.set_title_widget(switcher)
         else:
-            self._header.set_title_widget(
-                Adw.WindowTitle(title="Edgeware++", subtitle=self._pack.info.name))
+            self._home_title = Adw.WindowTitle(
+                title="Edgeware++", subtitle=self._pack.info.name)
+        # Only show the home title widget while on the home page (settings
+        # replaces it with its own "Settings" title — see _on_settings_toggled).
+        if not getattr(self, "_settings_toggle", None) or not self._settings_toggle.get_active():
+            self._header.set_title_widget(self._home_title)
 
     def _show_toast(self, message: str) -> None:
         toast = Adw.Toast.new(message)
@@ -954,21 +987,51 @@ class DashboardWindow(Adw.ApplicationWindow):
             self._live_version = version
             self._install_home()
 
-    def _open_settings(self, tab_name: str = "General") -> None:
-        # Built once and reused (it hides on close), so autosave callbacks are
-        # never stacked on the shared vars.
+    def _on_settings_toggled(self, btn: Gtk.ToggleButton) -> None:
+        """Slide the settings page in (from the top) or back out to home."""
+        if btn.get_active():
+            if not self._settings_panel_built:
+                self._build_settings_panel()
+                self._settings_panel_built = True
+            # Settings enters from the top → SLIDE_DOWN.
+            self._main_stack.set_transition_type(Gtk.StackTransitionType.SLIDE_DOWN)
+            self._main_stack.set_visible_child_name("settings")
+            # Replace the home ViewSwitcher with a plain Settings title.
+            self._header.set_title_widget(
+                Adw.WindowTitle(title="Settings", subtitle=self._pack.info.name))
+        else:
+            # Home returns → settings exits upward → SLIDE_UP.
+            self._main_stack.set_transition_type(Gtk.StackTransitionType.SLIDE_UP)
+            self._main_stack.set_visible_child_name("home")
+            self._header.set_title_widget(self._home_title)
+
+    def _build_settings_panel(self) -> None:
+        """Build the inline settings content (shared Vars) into the stack's
+        settings page. Lazy — built on first open."""
         if self._settings_win is None:
             self._settings_win = SettingsWindow(
                 self._app, self._vars, self._pack,
                 self._local_version, self._live_version,
-                on_pack_changed=self.refresh_pack)
-            # Attach to the dashboard: grouped together, centred over it, and
-            # destroyed with it. Non-modal so both stay usable.
+                on_pack_changed=self.refresh_pack, embedded=True)
             self._settings_win.set_transient_for(self)
             self._settings_win.set_destroy_with_parent(True)
-        self._settings_win.set_visible(True)
-        self._settings_win.present()
-        self._settings_win.navigate_to(tab_name)
+
+        # Reparent the SettingsWindow's whole content (header + split view) into
+        # our settings stack page. The standalone window stays hidden; we drive
+        # it as a widget source only.
+        settings_content = self._settings_win.get_content()
+        if settings_content:
+            self._settings_win.set_content(None)
+            settings_content.set_vexpand(True)
+            settings_content.set_hexpand(True)
+            self._main_stack.remove(self._settings_placeholder)
+            self._main_stack.add_named(settings_content, "settings")
+
+    def _open_settings(self, tab_name: str = "General") -> None:
+        """Reveal the settings page and navigate to `tab_name`."""
+        self._settings_toggle.set_active(True)
+        if self._settings_win is not None:
+            self._settings_win.navigate_to(tab_name)
 
     def _launch_runtime(self) -> None:
         """Save settings, start the runtime, and quit the GUI. Refuses if a
