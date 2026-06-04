@@ -42,6 +42,25 @@ _LIST_META: dict[str, tuple[str, str]] = {
     "notifications": ("Notifications", "Text for desktop-notification popups."),
     "prompts":       ("Prompts",       "Words the user must type to close a prompt popup."),
 }
+
+# Richer per-type guidance for the LLM, keyed by display title. Tells the model
+# what each list actually is (the bare word "denial"/"subliminals" isn't enough).
+_GEN_TYPE_GUIDANCE: dict[str, str] = {
+    "Captions": "captions displayed over image popups — short teasing or encouraging "
+                "lines that comment on the image or talk to the viewer",
+    "Denial": "denial messages shown when a popup is blurred and withheld — teasingly "
+              "refuse and deny the viewer what they want to see",
+    "Subliminals": "subliminal phrases that flash full-screen for a split second — very "
+                   "short, punchy, hypnotic commands or affirmations (a few words each)",
+    "Notifications": "desktop notification messages — short lines like a system "
+                     "notification popup would display",
+    "Prompts": "words or very short phrases the viewer must type to dismiss a prompt "
+               "popup — keep each entry to one to a few words, easy to type",
+    "Greetings": "greeting lines the AI companion says when it first appears — short, "
+                 "in-character opening lines spoken directly to the user",
+    "Idle Lines": "idle remarks the AI companion says at random while nothing is "
+                  "happening — short, in-character chatter spoken to the user",
+}
 _SAVE_DEBOUNCE_MS = 400
 
 # Friendly display labels for Discord rich-presence asset ids.
@@ -198,6 +217,9 @@ class PackEditorContent:
 
     def _append_mood_row(self, group: Adw.PreferencesGroup, name: str) -> Adw.ActionRow:
         row = Adw.ActionRow(title=name)
+        # Canonical mood name lives on the row, kept in sync on rename, so the
+        # activate/delete handlers never use a stale captured name.
+        row._mood_name = name  # type: ignore[attr-defined]
         row.set_subtitle(f"{len(self.editor.get_mood_list(name, 'captions'))} captions  "
                          f"{len(self.editor.get_mood_list(name, 'media'))} media")
         row.set_activatable(self._push_page is not None)
@@ -206,13 +228,13 @@ class PackEditorContent:
             arrow = Gtk.Image.new_from_icon_name("go-next-symbolic")
             arrow.set_valign(Gtk.Align.CENTER)
             row.add_suffix(arrow)
-            row.connect("activated", lambda _r, n=name: self._push_mood_page(n))
+            row.connect("activated", lambda r: self._push_mood_page(r))
 
         del_btn = Gtk.Button(icon_name="user-trash-symbolic")
         del_btn.set_tooltip_text("Delete mood")
         del_btn.set_valign(Gtk.Align.CENTER)
         del_btn.add_css_class("destructive-action")
-        del_btn.connect("clicked", lambda _b, r=row, n=name: self._on_delete_mood(r, n))
+        del_btn.connect("clicked", lambda _b, r=row: self._on_delete_mood(r))
         row.add_suffix(del_btn)
 
         group.add(row)
@@ -229,8 +251,9 @@ class PackEditorContent:
             self._schedule_save()
         return commit
 
-    def _on_delete_mood(self, row: Adw.ActionRow, name: str) -> None:
+    def _on_delete_mood(self, row: Adw.ActionRow) -> None:
         from gtk_dialog import ask_yes_no
+        name = row._mood_name  # type: ignore[attr-defined]
         media_count = len(self.editor.get_mood_list(name, "media"))
         detail = f"{media_count} media file{'s' if media_count != 1 else ''} will become unassigned." if media_count else ""
         if not ask_yes_no(
@@ -249,9 +272,15 @@ class PackEditorContent:
         self._dirty_index = True
         self._schedule_save()
 
-    def _push_mood_page(self, mood_name: str) -> None:
+    def _push_mood_page(self, source_row: Adw.ActionRow) -> None:
         if not self._push_page:
             return
+        mood_name = source_row._mood_name  # type: ignore[attr-defined]
+        # Live name reference shared by every handler on this page, so a rename
+        # mid-session keeps captions/strings/maxClicks edits pointed at the
+        # current mood instead of a stale captured name.
+        name_ref = [mood_name]
+
         pref = Adw.PreferencesPage()
         pref.set_vexpand(True)
 
@@ -272,7 +301,7 @@ class PackEditorContent:
             pref.add(make_string_list_group(
                 title, description,
                 initial=self.editor.get_mood_list(mood_name, key),
-                on_change=self._make_mood_list_handler(mood_name, key),
+                on_change=self._make_mood_list_handler(name_ref, key),
                 add_prompt=f"{title} entry",
                 header_extra=[gen_btn],
                 appender_out=appender,
@@ -286,7 +315,7 @@ class PackEditorContent:
         for key, title in (("popupClose", "Popup Close Button"),):
             r = Adw.EntryRow(title=title)
             r.set_text(self.editor.get_mood_string(mood_name, key))
-            r.connect("changed", self._make_mood_string_handler(mood_name, key))
+            r.connect("changed", self._make_mood_string_handler(name_ref, key))
             strings_group.add(r)
 
         adj = Gtk.Adjustment(
@@ -294,13 +323,10 @@ class PackEditorContent:
             lower=1, upper=999, step_increment=1)
         clicks_row = Adw.SpinRow(title="Max Clicks", adjustment=adj)
         clicks_row.connect("notify::value",
-            lambda r, _p: (self.editor.set_mood_int(mood_name, "maxClicks", int(r.get_value())),
+            lambda r, _p: (self.editor.set_mood_int(name_ref[0], "maxClicks", int(r.get_value())),
                            self._mark_index_dirty()))
         strings_group.add(clicks_row)
         pref.add(strings_group)
-
-        # Wire rename on change (after mood_name is captured).
-        name_row.connect("changed", self._make_mood_rename_handler(mood_name))
 
         # Back button + ToolbarView wrapper.
         back_btn = Gtk.Button()
@@ -316,36 +342,47 @@ class PackEditorContent:
         tv.set_content(pref)
 
         nav_page = Adw.NavigationPage.new(tv, f"Mood: {mood_name}")
+
+        # Rename: update in-memory mood + the live ref + the page title + the
+        # source row in the moods list (title + canonical name).
+        name_row.connect("changed", self._make_mood_rename_handler(
+            name_ref, nav_page, source_row))
+
         self._push_page(nav_page)
 
     def _mark_index_dirty(self) -> None:
         self._dirty_index = True
         self._schedule_save()
 
-    def _make_mood_list_handler(self, mood_name: str, key: str) -> Callable:
+    def _make_mood_list_handler(self, name_ref: list, key: str) -> Callable:
         def handler(items: list[str]) -> None:
-            self.editor.set_mood_list(mood_name, key, items)
+            self.editor.set_mood_list(name_ref[0], key, items)
             self._mark_index_dirty()
         return handler
 
-    def _make_mood_string_handler(self, mood_name: str, key: str) -> Callable:
+    def _make_mood_string_handler(self, name_ref: list, key: str) -> Callable:
         def handler(row: Adw.EntryRow) -> None:
-            self.editor.set_mood_string(mood_name, key, row.get_text())
+            self.editor.set_mood_string(name_ref[0], key, row.get_text())
             self._mark_index_dirty()
         return handler
 
-    def _make_mood_rename_handler(self, original_name: str) -> Callable:
-        # Rename is debounced; we update in-memory immediately but only write on save.
-        _current = [original_name]
+    def _make_mood_rename_handler(self, name_ref: list, nav_page: Adw.NavigationPage,
+                                  source_row: Adw.ActionRow) -> Callable:
         def handler(row: Adw.EntryRow) -> None:
             new = row.get_text().strip()
-            if not new or new == _current[0]:
+            if not new or new == name_ref[0]:
                 return
-            err = self.editor.rename_mood(_current[0], new)
+            # Collision with another mood (transient while typing) — skip quietly
+            # so we don't spam toasts; the final unique name will apply.
+            if new in self.editor.mood_names() and new != name_ref[0]:
+                return
+            err = self.editor.rename_mood(name_ref[0], new)
             if err:
-                toast(err)
                 return
-            _current[0] = new
+            name_ref[0] = new
+            nav_page.set_title(f"Mood: {new}")
+            source_row.set_title(new)
+            source_row._mood_name = new  # type: ignore[attr-defined]
             self._mark_index_dirty()
         return handler
 
@@ -381,8 +418,10 @@ class PackEditorContent:
     def _make_gen_btn(self, list_type: str, context: str, appender: list) -> Gtk.Button:
         btn = Gtk.Button(icon_name="starred-symbolic")
         btn.set_tooltip_text(f"Generate {list_type} with AI")
+        type_hint = _GEN_TYPE_GUIDANCE.get(list_type, "")
+        pack_desc = self.editor.get_info("description")
         btn.connect("clicked", lambda b: _open_generate_dialog(
-            b, list_type, context, appender))
+            b, list_type, context, appender, type_hint=type_hint, pack_desc=pack_desc))
         return btn
 
     # --- Phase 3: Assets --------------------------------------------------
@@ -613,15 +652,20 @@ class PackEditorContent:
         pref = Adw.PreferencesPage()
         pref.set_vexpand(True)
 
+        pack_name = self.editor.get_info("name") or self.editor.pack_dir.name
+        persona_name = str(data.get("name") or "the companion")
+        context = f"{pack_name}, companion persona \"{persona_name}\""
+        pack_desc = self.editor.get_info("description")
+
         # Basic fields
         basic_group = Adw.PreferencesGroup(title="Identity")
         pref.add(basic_group)
-        for field, title in (("name", "Name"), ("avatar", "Avatar filename"),
-                             ("spritesheet", "Spritesheet filename")):
-            r = Adw.EntryRow(title=title)
-            r.set_text(str(data.get(field, "") or ""))
-            r.connect("changed", self._make_companion_field_handler(data, field))
-            basic_group.add(r)
+        name_row = Adw.EntryRow(title="Name")
+        name_row.set_text(str(data.get("name", "") or ""))
+        name_row.connect("changed", self._make_companion_field_handler(data, "name"))
+        basic_group.add(name_row)
+        basic_group.add(self._companion_file_row(data, "avatar", "Avatar"))
+        basic_group.add(self._companion_file_row(data, "spritesheet", "Spritesheet"))
 
         # System prompt (multiline via TextView)
         prompt_group = Adw.PreferencesGroup(
@@ -643,16 +687,26 @@ class PackEditorContent:
         prompt_group.add(frame)
         buf.connect("changed", self._make_companion_text_handler(data, "system_prompt", buf))
 
-        # Text lists
+        gen_prompt_btn = Gtk.Button(icon_name="starred-symbolic")
+        gen_prompt_btn.set_tooltip_text("Generate a system prompt with AI")
+        gen_prompt_btn.connect("clicked", lambda b: _open_prompt_generate_dialog(
+            b, context, pack_desc, buf))
+        prompt_group.set_header_suffix(gen_prompt_btn)
+
+        # Text lists (with AI generate buttons)
         for key, title, desc in (
             ("greetings",  "Greetings",  "Said when companion first appears."),
             ("idle_lines", "Idle Lines", "Random things said when idle."),
         ):
+            appender: list = []
+            gen_btn = self._make_gen_btn(title, context, appender)
             pref.add(make_string_list_group(
                 title, desc,
                 initial=list(data.get(key, []) or []),
                 on_change=self._make_companion_list_handler(data, key),
                 add_prompt=f"{title} entry",
+                header_extra=[gen_btn],
+                appender_out=appender,
             ))
 
         back_btn = Gtk.Button()
@@ -672,6 +726,81 @@ class PackEditorContent:
             data[field] = row.get_text() or None
             self._save_companion(data)
         return handler
+
+    def _companion_file_row(self, data: dict, field: str, title: str) -> Adw.ActionRow:
+        """An image-file picker for a companion asset (avatar/spritesheet). Copies
+        the chosen file into the pack root and stores its filename in companion.json."""
+        from gi.repository import GdkPixbuf, Gdk
+
+        row = Adw.ActionRow(title=title)
+        current = str(data.get(field, "") or "")
+        row.set_subtitle(current or "None")
+
+        preview = Gtk.Picture()
+        preview.set_size_request(40, 40)
+        preview.set_content_fit(Gtk.ContentFit.CONTAIN)
+        preview.set_can_shrink(True)
+        frame = Gtk.Frame(); frame.add_css_class("card")
+        frame.set_valign(Gtk.Align.CENTER); frame.set_child(preview)
+        row.add_prefix(frame)
+
+        def load_preview(filename: str) -> None:
+            path = self.editor.pack_dir / filename if filename else None
+            if path and path.is_file():
+                try:
+                    pb = GdkPixbuf.Pixbuf.new_from_file_at_scale(str(path), 40, 40, True)
+                    preview.set_paintable(Gdk.Texture.new_for_pixbuf(pb))
+                    return
+                except Exception:
+                    pass
+            preview.set_paintable(None)
+        load_preview(current)
+
+        clear_btn = Gtk.Button(icon_name="user-trash-symbolic", valign=Gtk.Align.CENTER)
+        clear_btn.add_css_class("destructive-action")
+        clear_btn.set_sensitive(bool(current))
+
+        choose_btn = Gtk.Button(valign=Gtk.Align.CENTER)
+        choose_btn.set_child(Adw.ButtonContent(label="Choose…", icon_name="document-open-symbolic"))
+
+        def on_chosen(fd, result) -> None:
+            try:
+                f = fd.open_finish(result)
+            except Exception:
+                return
+            if not f:
+                return
+            filename, err = self.editor.import_root_file(Path(f.get_path()))
+            if err:
+                toast(f"Could not import {title.lower()}: {err}")
+                return
+            data[field] = filename
+            row.set_subtitle(filename or "None")
+            load_preview(filename or "")
+            clear_btn.set_sensitive(True)
+            self._save_companion(data)
+
+        def on_choose(_b) -> None:
+            dlg = Gtk.FileDialog()
+            dlg.set_title(f"Choose {title}")
+            filt = Gtk.FileFilter(); filt.set_name("Images")
+            for mime in ("image/png", "image/jpeg", "image/gif", "image/webp", "image/bmp"):
+                filt.add_mime_type(mime)
+            dlg.set_default_filter(filt)
+            dlg.open(choose_btn.get_root(), None, on_chosen)
+
+        def on_clear(_b) -> None:
+            data[field] = None
+            row.set_subtitle("None")
+            load_preview("")
+            clear_btn.set_sensitive(False)
+            self._save_companion(data)
+
+        choose_btn.connect("clicked", on_choose)
+        clear_btn.connect("clicked", on_clear)
+        row.add_suffix(choose_btn)
+        row.add_suffix(clear_btn)
+        return row
 
     def _make_companion_text_handler(self, data: dict, field: str, buf: Gtk.TextBuffer):
         def handler(_buf) -> None:
@@ -1108,6 +1237,44 @@ class PackEditorContent:
 # AI generation dialog (module-level so it works without a PackEditorContent)
 # ---------------------------------------------------------------------------
 
+# Shared tone/style presets for AI generation. The label is shown in the combo;
+# the value is the tone instruction fed into the prompt. "Custom…" contributes
+# nothing on its own — the free-text box below supplies the direction.
+# Tone presets. Each is phrased as how the pack should address the viewer, so the
+# model keeps the dominant/second-person voice (it speaks TO the viewer).
+_STYLE_PRESETS: dict[str, str] = {
+    "Custom…":                  "",
+    "Hypnotic / submissive":    "a hypnotic, dominant tone that lulls the viewer into deeper submission",
+    "Bratty / teasing":         "a playful, bratty, teasing tone that taunts the viewer",
+    "Gentle / loving":          "a soft, affectionate, loving tone that reassures the viewer",
+    "Degrading / humiliating":  "a harsh, degrading, humiliating tone that puts the viewer down",
+    "Worshipful / addicted":    "demanding the viewer's worship and reinforcing how addicted they are "
+                                "(e.g. \"worship me\", \"you can't stop\")",
+    "Corruptive / escalating":  "a corruptive tone that escalates and pulls the viewer deeper over time",
+}
+
+
+def _build_style_selector():
+    """A reusable style group: a tone-preset combo + a free-text direction box.
+    Returns (group_widget, get_direction) where get_direction() resolves the
+    chosen preset plus any custom text into one direction string."""
+    group = Adw.PreferencesGroup()
+    combo = Adw.ComboRow(title="Style", subtitle="Pick a tone, or Custom and write your own")
+    combo.set_model(Gtk.StringList.new(list(_STYLE_PRESETS)))
+    notes = Adw.EntryRow(title="Direction / theme (optional)")
+    group.add(combo)
+    group.add(notes)
+
+    names = list(_STYLE_PRESETS)
+
+    def get_direction() -> str:
+        preset = _STYLE_PRESETS.get(names[combo.get_selected()], "") if 0 <= combo.get_selected() < len(names) else ""
+        extra = notes.get_text().strip()
+        return ", ".join(p for p in (preset, extra) if p)
+
+    return group, get_direction
+
+
 def _make_backend_from_config():
     """Build an LLM backend from the current config.json. Returns None if the
     companion is disabled or no network backend is configured."""
@@ -1120,10 +1287,12 @@ def _make_backend_from_config():
         backend = c.get("companionBackend", "scripted")
         if backend == "scripted":
             return None  # scripted can't generate useful content
+        # Pack-edit generation can use its own model; falls back to the companion's.
+        model = (c.get("packEditModel") or "").strip() or c.get("companionModel") or None
         return make_backend(
             backend,
             base_url=c.get("companionBaseUrl") or None,
-            model=c.get("companionModel") or None,
+            model=model,
             api_key=c.get("companionApiKey") or None,
         )
     except Exception:
@@ -1135,9 +1304,14 @@ def _open_generate_dialog(
     list_type: str,
     context: str,
     appender: list,
+    *,
+    type_hint: str = "",
+    pack_desc: str = "",
 ) -> None:
     """Open a modal generation window. `appender` is a one-element list
-    containing a `bulk_append(items)` fn from make_string_list_group."""
+    containing a `bulk_append(items)` fn from make_string_list_group.
+    `type_hint` describes what this list type is; `pack_desc` is the pack's
+    own description — both fed to the model for on-theme output."""
     from threading import Thread
 
     win = Gtk.Window(title=f"Generate {list_type}")
@@ -1157,8 +1331,8 @@ def _open_generate_dialog(
     ctx_lbl.set_halign(Gtk.Align.START)
     box.append(ctx_lbl)
 
-    theme_row = Adw.EntryRow(title="Theme / extra instructions (optional)")
-    box.append(theme_row)
+    style_group, get_direction = _build_style_selector()
+    box.append(style_group)
 
     count_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
     count_box.set_halign(Gtk.Align.START)
@@ -1202,7 +1376,7 @@ def _open_generate_dialog(
     _generated: list[list[str]] = [[]]  # mutable container
 
     def do_generate(_b) -> None:
-        theme = theme_row.get_text().strip()
+        theme = get_direction()
         count = int(count_adj.get_value())
         buf.set_text("")
         gen_btn.set_sensitive(False)
@@ -1219,15 +1393,30 @@ def _open_generate_dialog(
             gen_btn.set_sensitive(True)
             return
 
-        system = (
-            f"You are a creative writer for an adult popup software pack called \"{context}\". "
-            f"Generate exactly {count} short {list_type.lower()} entries, one per line. "
-            f"No numbering, no bullet points, no preamble, no empty lines. "
-            f"Just the {count} entries, each on its own line."
+        what = type_hint or f"{list_type.lower()} entries"
+        lines = [
+            f"You are a creative writer for an adult popup software pack ({context}).",
+        ]
+        if pack_desc.strip():
+            lines.append(f"The pack's theme and description: {pack_desc.strip()}")
+        lines.append(f"Your task: write {what}.")
+        # Voice: the pack speaks TO the viewer, never as the viewer.
+        lines.append(
+            "Crucial: every entry is spoken BY the pack TO the viewer, addressing them "
+            "in the second person (\"you\"). The pack is the dominant/controlling voice; "
+            "the viewer is the one being teased, commanded, or affected. For example write "
+            "\"Worship me\" or \"You can't stop\", NOT \"I worship you\" or \"I'm hooked\". "
+            "Never write from the viewer's first-person perspective."
         )
+        lines.append(
+            f"Generate exactly {count} entries that fit this pack's theme. "
+            f"Output one entry per line, with no numbering, no bullet points, no "
+            f"preamble, and no empty lines — just the {count} entries."
+        )
+        system = "\n".join(lines)
         user_msg = (
-            f"Theme: {theme}. " if theme else ""
-        ) + f"Generate {count} {list_type.lower()} entries now."
+            f"Extra direction: {theme}. " if theme else ""
+        ) + f"Write {count} {list_type.lower()} entries now, on theme for this pack."
 
         messages = [
             {"role": "system", "content": system},
@@ -1271,3 +1460,119 @@ def _open_generate_dialog(
 def _buf_append(buf: Gtk.TextBuffer, text: str) -> bool:
     buf.insert(buf.get_end_iter(), text)
     return False
+
+
+def _open_prompt_generate_dialog(
+    anchor: Gtk.Widget,
+    context: str,
+    pack_desc: str,
+    target_buf: Gtk.TextBuffer,
+) -> None:
+    """Generate a single system-prompt block (not a list) for the companion and,
+    on accept, replace `target_buf`'s contents with it."""
+    from threading import Thread
+
+    win = Gtk.Window(title="Generate System Prompt")
+    win.set_default_size(540, 560)
+    win.set_modal(True)
+    root = anchor.get_root()
+    if root:
+        win.set_transient_for(root)
+
+    box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+    box.set_margin_start(16); box.set_margin_end(16)
+    box.set_margin_top(16);  box.set_margin_bottom(16)
+    win.set_child(box)
+
+    ctx_lbl = Gtk.Label(label=f"Context: {context}")
+    ctx_lbl.add_css_class("dim-label")
+    ctx_lbl.set_halign(Gtk.Align.START)
+    ctx_lbl.set_wrap(True)
+    box.append(ctx_lbl)
+
+    style_group, get_direction = _build_style_selector()
+    box.append(style_group)
+
+    gen_btn = Gtk.Button(label="Generate")
+    gen_btn.add_css_class("suggested-action")
+    box.append(gen_btn)
+
+    tv = Gtk.TextView()
+    tv.set_editable(False)
+    tv.set_wrap_mode(Gtk.WrapMode.WORD)
+    tv.set_top_margin(8); tv.set_bottom_margin(8)
+    tv.set_left_margin(8); tv.set_right_margin(8)
+    buf = tv.get_buffer()
+    sw = Gtk.ScrolledWindow()
+    sw.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+    sw.set_vexpand(True)
+    sw.set_min_content_height(240)
+    sw.set_child(tv)
+    frame = Gtk.Frame(); frame.add_css_class("card"); frame.set_child(sw)
+    box.append(frame)
+
+    btn_row = Gtk.Box(spacing=8)
+    btn_row.set_halign(Gtk.Align.END)
+    cancel_btn = Gtk.Button(label="Cancel")
+    cancel_btn.connect("clicked", lambda _: win.close())
+    use_btn = Gtk.Button(label="Use this prompt")
+    use_btn.set_sensitive(False)
+    btn_row.append(cancel_btn)
+    btn_row.append(use_btn)
+    box.append(btn_row)
+
+    def do_generate(_b) -> None:
+        theme = get_direction()
+        buf.set_text("")
+        gen_btn.set_sensitive(False)
+        use_btn.set_sensitive(False)
+
+        backend = _make_backend_from_config()
+        if backend is None:
+            buf.set_text(
+                "No LLM backend available.\n\nEnable the AI Companion and configure "
+                "Ollama or an OpenAI-compatible endpoint in Settings → Companion."
+            )
+            gen_btn.set_sensitive(True)
+            return
+
+        system = (
+            "You write system prompts that define the personality of an AI companion "
+            "character for an adult popup software pack. Output ONLY the system prompt "
+            "text itself — a vivid second-person character definition the model will be "
+            "given (tone, personality, how it speaks to and treats the user). No preamble, "
+            "no headings, no quotes around it."
+        )
+        user = f"The pack: {context}."
+        if pack_desc.strip():
+            user += f" Pack description: {pack_desc.strip()}."
+        if theme:
+            user += f" Desired personality: {theme}."
+        user += " Write the companion's system prompt now."
+
+        messages = [{"role": "system", "content": system},
+                    {"role": "user", "content": user}]
+
+        def on_token(tok: str) -> None:
+            GLib.idle_add(_buf_append, buf, tok)
+
+        def on_done(_full: str) -> None:
+            GLib.idle_add(use_btn.set_sensitive, True)
+            GLib.idle_add(gen_btn.set_sensitive, True)
+
+        def on_error(exc: Exception) -> None:
+            GLib.idle_add(_buf_append, buf, f"\n\nError: {exc}")
+            GLib.idle_add(gen_btn.set_sensitive, True)
+
+        Thread(target=backend.stream, args=(messages, on_token, on_done, on_error),
+               daemon=True).start()
+
+    def do_use(_b) -> None:
+        text = buf.get_text(buf.get_start_iter(), buf.get_end_iter(), False).strip()
+        if text:
+            target_buf.set_text(text)  # fires the buffer's changed handler -> autosave
+        win.close()
+
+    gen_btn.connect("clicked", do_generate)
+    use_btn.connect("clicked", do_use)
+    win.present()

@@ -37,6 +37,8 @@ COMPANION_TEXT = (
 BACKENDS = {
     "ollama": "Ollama (local)",
     "openai": "OpenAI-compatible",
+    "opencode": "opencode server",
+    "opencode-cli": "opencode (run CLI)",
     "scripted": "Scripted (no AI)",
 }
 CONTROL_MODES = {
@@ -99,6 +101,9 @@ class CompanionTab(Adw.PreferencesPage):
         group.add(AdwEntryRow("Server URL", vars.companion_base_url))
         group.add(AdwEntryRow("Model", vars.companion_model))
         group.add(self._model_picker(vars, vars.companion_model))
+        group.add(AdwEntryRow("Vision model (optional)", vars.companion_vision_model))
+        group.add(self._model_picker(vars, vars.companion_vision_model,
+                                     subtitle="Used for screenshot / image analysis; defaults to the main model"))
         group.add(AdwEntryRow("API key", vars.companion_api_key, password=True))
 
         # niri-only: stop the compositor blurring behind the companion bubble.
@@ -296,64 +301,9 @@ class CompanionTab(Adw.PreferencesPage):
 
     def _model_picker(self, vars: Vars, target_var, *,
                       subtitle: str = "Pick from the Ollama server above") -> Gtk.Widget:
-        """A dropdown of models detected on the Ollama server, tagged with their
-        capabilities (vision/tools). Selecting one fills target_var. A Refresh
-        button re-queries. Empty for non-Ollama / offline backends. State is
-        kept per-picker (closure-local) so several pickers can coexist."""
-        row = Adw.ComboRow(title="Detected models", subtitle=subtitle)
-        refresh = Gtk.Button(icon_name="view-refresh-symbolic", valign=Gtk.Align.CENTER)
-        refresh.set_tooltip_text("Refresh model list")
-        row.add_suffix(refresh)
-        st = {"names": [], "suppress": False}
-
-        # The collapsed row is narrow and the default factory ellipsizes; a
-        # custom list factory with a plain (non-ellipsizing) label lets the
-        # popup grow to fit the full "name · capabilities" text.
-        factory = Gtk.SignalListItemFactory()
-
-        def on_setup(_f, item) -> None:
-            label = Gtk.Label(xalign=0)
-            label.set_margin_start(4)
-            label.set_margin_end(4)
-            item.set_child(label)
-
-        def on_bind(_f, item) -> None:
-            item.get_child().set_text(item.get_item().get_string())
-        factory.connect("setup", on_setup)
-        factory.connect("bind", on_bind)
-        row.set_list_factory(factory)
-
-        def populate(items) -> bool:
-            st["names"] = [n for n, _ in items]
-            labels = [f"{n}  ·  {', '.join(sorted(c & {'vision', 'tools'})) or 'text'}" for n, c in items] \
-                or ["(none detected — type the name above)"]
-            st["suppress"] = True
-            row.set_model(Gtk.StringList.new(labels))
-            cur = target_var.get()
-            if cur in st["names"]:
-                row.set_selected(st["names"].index(cur))
-            st["suppress"] = False
-            return False
-
-        def on_selected(r, _p) -> None:
-            if st["suppress"]:
-                return
-            i = r.get_selected()
-            if 0 <= i < len(st["names"]):
-                target_var.set(st["names"][i])
-        row.connect("notify::selected", on_selected)
-
-        def refresh_now(*_a) -> None:
-            base = vars.companion_base_url.get() or ""
-
-            def work() -> None:
-                from features.companion import ollama
-                items = ollama.models_with_capabilities(base)
-                GLib.idle_add(populate, items)
-            threading.Thread(target=work, daemon=True).start()
-        refresh.connect("clicked", refresh_now)
-        refresh_now()
-        return row
+        """Detected-models dropdown — see widgets.model_picker (shared with Packs)."""
+        from config.gtk_window.widgets import model_picker
+        return model_picker(vars, target_var, subtitle=subtitle)
 
     def _memory_facts_editor(self) -> Gtk.Widget:
         """Editor for the learned-memory facts file (one fact per line), with a

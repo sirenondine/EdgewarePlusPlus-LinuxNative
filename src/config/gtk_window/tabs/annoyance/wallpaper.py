@@ -106,8 +106,13 @@ class WallpaperTab(Adw.PreferencesPage):
         list_frame.set_child(scroller)
         rot.add(list_frame)
 
-        rot.add(AdwSliderRow("Rotate Timer", vars.wallpaper_timer, 5, 300, unit="s"))
-        rot.add(AdwSliderRow("Rotate Variation", vars.wallpaper_variance, 0, 300, unit="s"))
+        rot.add(AdwSliderRow(
+            "Rotation Interval", vars.wallpaper_timer, 5, 300, unit="s",
+            subtitle="Base time to wait between wallpaper changes."))
+        rot.add(AdwSliderRow(
+            "Interval Randomness", vars.wallpaper_variance, 0, 300, unit="s",
+            subtitle="Random amount added to or subtracted from each interval, so "
+                     "changes are less predictable. 0 keeps the interval exact."))
 
     def _on_set_panic(self, _btn: Gtk.Button) -> None:
         fd = Gtk.FileDialog.new()

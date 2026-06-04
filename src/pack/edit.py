@@ -426,6 +426,23 @@ class PackEditor:
                 errors.append(f"{name}: {e}")
         return copied, errors
 
+    def import_root_file(self, src: Path) -> tuple[str | None, str | None]:
+        """Copy `src` into the pack root (for companion avatar / spritesheet, which
+        are referenced by bare filename relative to the pack). De-dupes the name.
+        Returns (filename, None) or (None, error)."""
+        src = Path(src)
+        target = self.pack_dir / src.name
+        n = 1
+        while target.exists() and target.resolve() != src.resolve():
+            target = self.pack_dir / f"{src.stem}-{n}{src.suffix}"
+            n += 1
+        try:
+            if src.resolve() != target.resolve():
+                shutil.copy2(src, target)
+            return target.name, None
+        except Exception as e:
+            return None, str(e)
+
     def delete_media(self, media_type: str, filename: str) -> str | None:
         """Delete a media file from disk and drop it from every mood's media
         list. Caller should save_index() after. Returns error or None."""

@@ -126,6 +126,8 @@
   "companionBackend": "ollama",
   "companionBaseUrl": "http://localhost:11434",
   "companionModel": "",
+  "companionVisionModel": "",
+  "packEditModel": "",
   "companionApiKey": "",
   "companionFollow": 1,
   "companionChatterChance": 20,

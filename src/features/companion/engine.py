@@ -106,6 +106,7 @@ class Companion:
         self._cancel = threading.Event()
         self._busy = False
         self.backend = self._build_backend()
+        self._vision_backend = None  # built lazily when a vision model differs
         logging.info(f"Companion ready: persona='{self.persona.name}' backend={self.backend.name}")
 
     def _resolve_persona(self) -> Persona:
@@ -123,6 +124,24 @@ class Companion:
             api_key=(getattr(s, "companion_api_key", None) or None),
             scripted_corpus=corpus or (lambda: self.pack.random_caption()),
         )
+
+    def _get_vision_backend(self) -> llm.LLMBackend:
+        """Backend used for image (vision) calls. If companion_vision_model is set
+        and differs from the text model, build a separate backend reusing the same
+        endpoint/key but the vision model; otherwise reuse the main backend."""
+        s = self.settings
+        vmodel = (getattr(s, "companion_vision_model", "") or "").strip()
+        if not vmodel or vmodel == (getattr(s, "companion_model", "") or ""):
+            return self.backend
+        if self._vision_backend is None:
+            self._vision_backend = llm.make_backend(
+                getattr(s, "companion_backend", "scripted"),
+                base_url=getattr(s, "companion_base_url", None),
+                model=vmodel,
+                api_key=(getattr(s, "companion_api_key", None) or None),
+                scripted_corpus=None,
+            )
+        return self._vision_backend
 
     def _control_mode(self) -> str:
         """'tags', 'tools', or '' depending on companion control settings."""
@@ -275,9 +294,11 @@ class Companion:
                     a.execute(name, arg, self.settings, self.pack, self.state)
 
         self._on_start()
-        self.backend.stream(self._messages(user_text), tok, done, err,
-                            stop=self._cancel.is_set, image_b64=image_b64,
-                            tools=tools, on_tool_calls=on_tool_calls)
+        # Image calls go to the (optionally separate) vision backend.
+        backend = self._get_vision_backend() if image_b64 else self.backend
+        backend.stream(self._messages(user_text), tok, done, err,
+                       stop=self._cancel.is_set, image_b64=image_b64,
+                       tools=tools, on_tool_calls=on_tool_calls)
 
     def observe(self) -> None:
         """Capture the screen and react to what's on it via a vision model.

@@ -12,13 +12,14 @@
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 # GNU General Public License for more details.
 
+import threading
 from collections.abc import Callable
 
 from gi import require_version
 
 require_version("Gtk", "4.0")
 require_version("Adw", "1")
-from gi.repository import Adw, Gtk
+from gi.repository import Adw, GLib, Gtk
 
 from config.vars import ConfigVar
 
@@ -302,3 +303,105 @@ def AdwEntryRow(title: str, variable: ConfigVar, password: bool = False) -> Adw.
     variable.trace_add(_sync)
     variable.widget = row
     return row
+
+
+def model_picker(vars, target_var, *,
+                 subtitle: str = "Pick from the Ollama server above") -> Gtk.Widget:
+    """A ComboRow of models detected on the configured Ollama server, tagged with
+    their capabilities (vision/tools). Selecting one fills target_var; a Refresh
+    button re-queries. Empty for non-Ollama / offline backends. State is kept
+    per-picker (closure-local) so several pickers can coexist.
+
+    Shared by the Companion tab and the Packs page (companion_base_url is the
+    single source for the server address)."""
+    row = Adw.ComboRow(title="Detected models", subtitle=subtitle)
+    refresh = Gtk.Button(icon_name="view-refresh-symbolic", valign=Gtk.Align.CENTER)
+    refresh.set_tooltip_text("Refresh model list")
+    row.add_suffix(refresh)
+    st = {"names": [], "suppress": False}
+
+    factory = Gtk.SignalListItemFactory()
+
+    def on_setup(_f, item) -> None:
+        label = Gtk.Label(xalign=0)
+        label.set_margin_start(4)
+        label.set_margin_end(4)
+        item.set_child(label)
+
+    def on_bind(_f, item) -> None:
+        item.get_child().set_text(item.get_item().get_string())
+    factory.connect("setup", on_setup)
+    factory.connect("bind", on_bind)
+    row.set_list_factory(factory)
+
+    def populate(items) -> bool:
+        st["names"] = [n for n, _ in items]
+        labels = [f"{n}  ·  {', '.join(sorted(c & {'vision', 'tools'})) or 'text'}" for n, c in items] \
+            or ["(none detected — type the name above)"]
+        st["suppress"] = True
+        row.set_model(Gtk.StringList.new(labels))
+        cur = target_var.get()
+        if cur in st["names"]:
+            row.set_selected(st["names"].index(cur))
+        st["suppress"] = False
+        return False
+
+    def on_selected(r, _p) -> None:
+        if st["suppress"]:
+            return
+        i = r.get_selected()
+        if 0 <= i < len(st["names"]):
+            target_var.set(st["names"][i])
+    row.connect("notify::selected", on_selected)
+
+    def refresh_now(*_a) -> None:
+        base = vars.companion_base_url.get() or ""
+        backend = (vars.companion_backend.get() or "").lower()
+
+        def work() -> None:
+            if backend in ("opencode", "opencode-cli"):
+                items = _opencode_models()
+            elif backend == "ollama":
+                from features.companion import ollama
+                items = ollama.models_with_capabilities(base)
+            elif backend == "openai":
+                items = _openai_models(base, vars.companion_api_key.get() or "")
+            else:
+                items = []
+            GLib.idle_add(populate, items)
+        threading.Thread(target=work, daemon=True).start()
+    refresh.connect("clicked", refresh_now)
+    refresh_now()
+    return row
+
+
+def _opencode_models() -> list:
+    """List models opencode knows about via `opencode models` (provider/model per
+    line). Capability info isn't exposed, so each is tagged as plain text."""
+    import subprocess
+    try:
+        proc = subprocess.run(["opencode", "models"], capture_output=True, text=True, timeout=20)
+        if proc.returncode != 0:
+            return []
+        return [(line.strip(), set()) for line in proc.stdout.splitlines() if line.strip()]
+    except Exception:
+        return []
+
+
+def _openai_models(base_url: str, api_key: str) -> list:
+    """List models from an OpenAI-compatible endpoint's GET /v1/models
+    ({data:[{id}]}). Capabilities aren't reported, so each is tagged as text."""
+    import requests
+    base = (base_url or "").rstrip("/")
+    if not base:
+        return []
+    url = f"{base}/models" if base.endswith("/v1") else f"{base}/v1/models"
+    headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
+    try:
+        r = requests.get(url, headers=headers, timeout=10)
+        r.raise_for_status()
+        data = r.json().get("data", [])
+        names = sorted(m["id"] for m in data if isinstance(m, dict) and m.get("id"))
+        return [(n, set()) for n in names]
+    except Exception:
+        return []

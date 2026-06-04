@@ -113,6 +113,25 @@ class InfoTab(Gtk.Box):
             edit_row.set_activatable_widget(edit_btn)
         mgmt.add(edit_row)
 
+        # ---- AI text generation model ------------------------------------
+        # The pack editor's "✨ Generate" buttons use this model (falls back to
+        # the companion's main model). Surfaced here so it's selectable right
+        # from the Packs screen, not buried in the Companion tab.
+        if vars is not None:
+            from config.gtk_window.widgets import AdwEntryRow, model_picker
+
+            ai_group = Adw.PreferencesGroup(
+                title="AI Text Generation",
+                description="Model used by the pack editor's Generate buttons. Uses the "
+                            "companion's server and API key; leave blank to use the "
+                            "companion's main model.",
+            )
+            page.add(ai_group)
+            ai_group.add(AdwEntryRow("Pack editor model", vars.pack_edit_model))
+            ai_group.add(model_picker(
+                vars, vars.pack_edit_model,
+                subtitle="Detected on the companion's Ollama server"))
+
         # ---- Pack configuration ------------------------------------------
         if vars is not None:
             from config.gtk_window.widgets import AdwSwitchRow

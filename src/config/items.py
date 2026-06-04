@@ -251,6 +251,8 @@ CONFIG_ITEMS = {
     "companion_backend": Item("companionBackend", STRING, VAR, str, danger=Danger(DangerLevel.MEDIUM, Schema("openai"), COMPANION_CLOUD_DANGER), block=True),
     "companion_base_url": Item("companionBaseUrl", STRING, VAR, str, block=True),
     "companion_model": Item("companionModel", STRING, VAR, str, block=True),
+    "companion_vision_model": Item("companionVisionModel", STRING, VAR, str, block=True),
+    "pack_edit_model": Item("packEditModel", STRING, VAR, str, block=True),
     "companion_api_key": Item("companionApiKey", STRING, VAR, str, block=True),
     "companion_follow": Item("companionFollow", BOOLEAN, VAR, bool, block=True),
     "companion_chatter_chance": Item("companionChatterChance", PERCENTAGE, VAR, int),
