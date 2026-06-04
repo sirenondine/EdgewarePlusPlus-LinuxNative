@@ -57,24 +57,8 @@ class DefaultFileTab(Adw.PreferencesPage):
             "Hypno Overlay", "Used by the \"Hypno Overlays\" setting (Popup Tweaks).",
             CustomAssets.hypno(), Data.HYPNO))
 
-        # ---- Current pack files (write into the loaded pack) --------------
-        pack_group = Adw.PreferencesGroup(
-            title=f"Current Pack Files — {pack.info.name}",
-            description="Replace the branding files inside the pack that's loaded now.",
-        )
-        self.add(pack_group)
-
-        root = pack.paths.root
-        pack_group.add(_FileRow(
-            "Pack Icon", "icon.ico in the pack.",
-            pack.paths.icon, root / "icon.ico", ico=True))
-        pack_group.add(_FileRow(
-            "Pack Loading Splash", "loading_splash.png in the pack.",
-            next((p for p in pack.paths.splash if p.is_file()), root / "loading_splash.png"),
-            root / "loading_splash.png"))
-        pack_group.add(_FileRow(
-            "Pack Wallpaper", "wallpaper.png in the pack.",
-            pack.paths.wallpaper, root / "wallpaper.png"))
+        # Per-pack branding (icon / wallpaper / splash) is now edited in the
+        # pack editor (Packs tab -> Edit -> Assets), so it no longer lives here.
 
 
 class _FileRow(Adw.ActionRow):

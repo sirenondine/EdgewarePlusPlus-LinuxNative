@@ -44,6 +44,13 @@ _LIST_META: dict[str, tuple[str, str]] = {
 }
 _SAVE_DEBOUNCE_MS = 400
 
+# Friendly display labels for Discord rich-presence asset ids.
+_DISCORD_LABELS = {
+    "furcock_img": "Furry", "blacked_img": "Blacked", "censored_img": "Censored",
+    "goon_img": "Goon", "goon2_img": "Goon (alt)", "hypno_img": "Hypno",
+    "futa_img": "Futa", "healslut_img": "Healslut", "gross_img": "Gross",
+}
+
 
 class PackEditorContent:
     """Autosave controller for the pack editor.
@@ -61,17 +68,22 @@ class PackEditorContent:
         self._save_source: int | None = None
         self._push_page = None
         self._pop_page = None
+        self._on_migrated = None
+        self._page = None
 
     def build_into(self, page: Adw.PreferencesPage,
-                   push_page=None, pop_page=None) -> None:
+                   push_page=None, pop_page=None, on_migrated=None) -> None:
         """Populate `page` with the editor groups.
 
         `push_page` / `pop_page` are callables the caller provides to navigate
         the surrounding NavigationView (push a new page, or go back). If None,
-        mood rows are non-interactive.
+        mood rows are non-interactive. `on_migrated` is called after a legacy
+        migration so the host can rebuild this page in place (no window reload).
         """
         self._push_page = push_page
         self._pop_page = pop_page
+        self._on_migrated = on_migrated
+        self._page = page
         self._build_info_group(page)
         if self.editor.has_index:
             self._build_text_groups(page)
@@ -83,6 +95,9 @@ class PackEditorContent:
         self._build_assets_group(page)
         self._build_discord_group(page)
         self._build_companion_row(page)
+        self._build_config_save_group(page)
+        if self.editor.has_index:
+            self._build_corruption_row(page)
 
     # --- info.json --------------------------------------------------------
     def _build_info_group(self, page: Adw.PreferencesPage) -> None:
@@ -467,11 +482,12 @@ class PackEditorContent:
     def _build_discord_group(self, page: Adw.PreferencesPage) -> None:
         from pack.edit import DISCORD_IMAGE_IDS
         text, image_id = self.editor.get_discord()
-        discord_data = {"text": text, "image": image_id}
 
         group = Adw.PreferencesGroup(
             title="Discord Status",
-            description="Shown in Discord when \"Show on Discord\" is enabled.",
+            description="Shown in Discord when \"Show on Discord\" is enabled. The "
+                        "status image is one of Edgeware's fixed Discord assets — it "
+                        "is hosted by the Discord app and can't be previewed here.",
         )
         page.add(group)
 
@@ -479,24 +495,99 @@ class PackEditorContent:
         text_row.set_text(text)
         group.add(text_row)
 
-        image_options = ["(none)"] + DISCORD_IMAGE_IDS
-        image_model = Gtk.StringList.new(image_options)
-        image_row = Adw.ComboRow(title="Status Image")
-        image_row.set_model(image_model)
-        cur_idx = image_options.index(image_id) if image_id in image_options else 0
-        image_row.set_selected(cur_idx)
+        # Status image row: live thumbnail + label + "Choose" → thumbnail picker
+        # of the actual Discord assets (fetched from Discord's CDN).
+        self._discord_image = image_id
+        image_row = Adw.ActionRow(title="Status Image")
+        image_row.set_subtitle(_DISCORD_LABELS.get(image_id, image_id) if image_id else "None")
+
+        thumb = Gtk.Picture()
+        thumb.set_size_request(48, 48)
+        thumb.set_content_fit(Gtk.ContentFit.CONTAIN)
+        thumb.set_can_shrink(True)
+        frame = Gtk.Frame()
+        frame.add_css_class("card")
+        frame.set_overflow(Gtk.Overflow.HIDDEN)
+        frame.set_valign(Gtk.Align.CENTER)
+        frame.set_child(thumb)
+        image_row.add_prefix(frame)
+        self._load_discord_thumb(thumb, image_id)
+
+        choose_btn = Gtk.Button()
+        choose_btn.set_child(Adw.ButtonContent(label="Choose…", icon_name="image-x-generic-symbolic"))
+        choose_btn.set_valign(Gtk.Align.CENTER)
+        choose_btn.connect("clicked", lambda _b, r=image_row, t=thumb, tr=text_row:
+                           self._open_discord_picker(r, t, tr))
+        image_row.add_suffix(choose_btn)
         group.add(image_row)
 
-        def save_discord(*_) -> None:
-            t = text_row.get_text()
-            idx = image_row.get_selected()
-            img = "" if idx == 0 else image_options[idx]
-            err = self.editor.save_discord(t, img)
-            if err:
-                toast(f"Could not save Discord status: {err}")
+        text_row.connect("changed", lambda r: self._save_discord(r.get_text()))
 
-        text_row.connect("changed", save_discord)
-        image_row.connect("notify::selected", save_discord)
+    def _save_discord(self, text: str) -> None:
+        err = self.editor.save_discord(text, self._discord_image)
+        if err:
+            toast(f"Could not save Discord status: {err}")
+
+    def _load_discord_thumb(self, picture: Gtk.Picture, image_id: str) -> None:
+        from threading import Thread
+        from gi.repository import Gdk, GdkPixbuf
+        if not image_id:
+            picture.set_paintable(None)
+            return
+
+        def work() -> None:
+            from config.gtk_window.discord_assets import fetch_assets
+            url = fetch_assets().get(image_id)
+            if not url:
+                return
+            try:
+                import requests
+                data = requests.get(url, timeout=10).content
+                loader = GdkPixbuf.PixbufLoader()
+                loader.write(data); loader.close()
+                pb = loader.get_pixbuf()
+                if pb:
+                    GLib.idle_add(picture.set_paintable, Gdk.Texture.new_for_pixbuf(pb))
+            except Exception:
+                pass
+        Thread(target=work, daemon=True).start()
+
+    def _open_discord_picker(self, row, thumb, text_row) -> None:
+        from threading import Thread
+        from config.gtk_window.discord_assets import fetch_assets
+
+        root = self._page.get_root() if self._page else None
+
+        def work() -> None:
+            assets = fetch_assets()  # {name: url}
+            from pack.edit import DISCORD_IMAGE_IDS
+            items = [
+                (_DISCORD_LABELS.get(name, name), name, assets[name])
+                for name in DISCORD_IMAGE_IDS if name in assets
+            ]
+            GLib.idle_add(lambda: self._show_discord_picker(root, items, row, thumb))
+
+        Thread(target=work, daemon=True).start()
+
+    def _show_discord_picker(self, root, items, row, thumb) -> bool:
+        from config.gtk_window.image_picker import open_remote_image_picker
+        if not items:
+            toast("Could not load Discord images (offline?).")
+            return False
+
+        def on_pick(value: str) -> None:
+            self._discord_image = value
+            row.set_subtitle(_DISCORD_LABELS.get(value, value) if value else "None")
+            self._load_discord_thumb(thumb, value)
+            self._save_discord(self._discord_text())
+
+        open_remote_image_picker(root, items, self._discord_image, on_pick,
+                                 title="Choose Discord Status Image")
+        return False
+
+    def _discord_text(self) -> str:
+        # Current text is the persisted one (text_row.changed already saved it).
+        return self.editor.get_discord()[0]
 
     # --- Phase 3: Companion -----------------------------------------------
 
@@ -599,6 +690,333 @@ class PackEditorContent:
         if err:
             toast(f"Could not save companion: {err}")
 
+    # --- Phase 4: save settings as pack config ----------------------------
+
+    def _build_config_save_group(self, page: Adw.PreferencesPage) -> None:
+        group = Adw.PreferencesGroup(
+            title="Pack Configuration",
+            description="Bake your current Edgeware settings into this pack as its "
+                        "suggested config (loaded via the pack's \"Load Pack Configuration\").",
+        )
+        existing = self.editor.config_key_count()
+        row = Adw.ActionRow(
+            title="Save Current Settings as Pack Config",
+            subtitle=f"Pack currently ships {existing} setting{'s' if existing != 1 else ''}."
+                     if existing else "Pack has no config.json yet.",
+        )
+        save_btn = Gtk.Button()
+        save_btn.set_child(Adw.ButtonContent(
+            label="Save Settings…", icon_name="document-save-symbolic"))
+        save_btn.set_valign(Gtk.Align.CENTER)
+        save_btn.connect("clicked", lambda _b, r=row: self._on_save_config(r))
+        row.add_suffix(save_btn)
+        group.add(row)
+        page.add(group)
+
+    def _on_save_config(self, row: Adw.ActionRow) -> None:
+        from gtk_dialog import ask_yes_no
+        from config import load_config
+
+        cfg = load_config()
+        # Count what would be written (minus blocked keys) for the prompt.
+        from pack.edit import _PACK_CONFIG_BLOCKLIST
+        n = len([k for k in cfg if k not in _PACK_CONFIG_BLOCKLIST])
+        if not ask_yes_no(
+            "Save settings as pack config?",
+            f"{n} of your current settings will be written into this pack's "
+            "config.json, replacing any existing pack config. Machine- and "
+            "safety-specific settings (panic key, safeword, drive path, API keys) "
+            "are never included.",
+            heading="Save pack config?",
+        ):
+            return
+        err = self.editor.save_config_from(cfg)
+        if err:
+            toast(f"Could not save pack config: {err}")
+            return
+        row.set_subtitle(f"Pack currently ships {self.editor.config_key_count()} settings.")
+        toast("Pack config saved.")
+
+    # --- Phase 4: corruption editor ---------------------------------------
+
+    def _build_corruption_row(self, page: Adw.PreferencesPage) -> None:
+        group = Adw.PreferencesGroup(title="Corruption")
+        n = self.editor.corruption_level_count()
+        row = Adw.ActionRow(
+            title="Edit Corruption Levels",
+            subtitle=f"{n} level{'s' if n != 1 else ''} defined." if n
+                     else "Content that escalates over levels. None defined yet.",
+        )
+        row.set_activatable(self._push_page is not None)
+        if self._push_page is not None:
+            arrow = Gtk.Image.new_from_icon_name("go-next-symbolic")
+            arrow.set_valign(Gtk.Align.CENTER)
+            row.add_suffix(arrow)
+            row.connect("activated", lambda _: self._push_corruption_page())
+        group.add(row)
+        page.add(group)
+
+    def _push_corruption_page(self) -> None:
+        if not self._push_page:
+            return
+        data = self.editor.get_corruption()
+        mood_names = self.editor.mood_names()
+
+        pref = Adw.PreferencesPage()
+        pref.set_vexpand(True)
+
+        intro = Adw.PreferencesGroup(
+            description="Each level can add or remove moods. Level 1 is the starting "
+                        "state; higher levels are reached as corruption advances. "
+                        "Mood names must match this pack's moods.",
+        )
+        pref.add(intro)
+
+        self._corruption_data = data
+        self._corruption_mood_names = mood_names
+        self._corruption_images = self._pack_image_files()
+
+        levels_group = Adw.PreferencesGroup(title="Levels")
+        pref.add(levels_group)
+        self._corruption_levels_group = levels_group
+        self._corruption_rows: list = []
+        self._rebuild_corruption_levels()
+
+        # Add-level button in the header
+        add_btn = Gtk.Button(icon_name="list-add-symbolic")
+        add_btn.set_tooltip_text("Add level")
+        add_btn.connect("clicked", lambda _b: self._on_add_corruption_level())
+        levels_group.set_header_suffix(add_btn)
+
+        back_btn = Gtk.Button()
+        back_btn.set_child(Adw.ButtonContent(
+            icon_name="go-previous-symbolic", label="Edit Pack"))
+        back_btn.set_halign(Gtk.Align.START)
+        back_btn.set_margin_start(6)
+        back_btn.connect("clicked", lambda _: self._pop_page() if self._pop_page else None)
+        top_bar = Gtk.Box(); top_bar.append(back_btn)
+        tv = Adw.ToolbarView(); tv.add_top_bar(top_bar); tv.set_content(pref)
+        self._push_page(Adw.NavigationPage.new(tv, "Corruption Levels"))
+
+    def _pack_image_files(self) -> list[str]:
+        """Image filenames in the pack root (corruption wallpapers live there)."""
+        exts = {".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp"}
+        try:
+            return sorted(
+                p.name for p in self.editor.pack_dir.iterdir()
+                if p.is_file() and p.suffix.lower() in exts
+            )
+        except Exception:
+            return []
+
+    def _corruption_level_keys(self) -> list[int]:
+        d = self._corruption_data
+        keys = set()
+        for section in ("moods", "config", "wallpapers", "names"):
+            keys |= {int(k) for k in d.get(section, {}) if k.isdigit()}
+        return sorted(keys)
+
+    def _rebuild_corruption_levels(self) -> None:
+        for row in self._corruption_rows:
+            self._corruption_levels_group.remove(row)
+        self._corruption_rows = []
+        for level in self._corruption_level_keys() or [1]:
+            self._append_corruption_level(level)
+
+    def _append_corruption_level(self, level: int) -> None:
+        data = self._corruption_data
+        key = str(level)
+        mood_entry = data["moods"].setdefault(key, {"add": [], "remove": []})
+        mood_entry.setdefault("add", [])
+        mood_entry.setdefault("remove", [])
+
+        name = str(data["names"].get(key, ""))
+        exp = Adw.ExpanderRow(title=f"Level {level}: {name}" if name else f"Level {level}")
+        exp.set_subtitle(f"+{len(mood_entry['add'])} / -{len(mood_entry['remove'])} moods")
+
+        # Delete-level button
+        del_btn = Gtk.Button(icon_name="user-trash-symbolic")
+        del_btn.set_valign(Gtk.Align.CENTER)
+        del_btn.add_css_class("destructive-action")
+        del_btn.set_tooltip_text("Delete level")
+        del_btn.connect("clicked", lambda _b, lv=level: self._on_delete_corruption_level(lv))
+        exp.add_suffix(del_btn)
+
+        exp.add_row(self._corruption_name_row(level, exp))
+        exp.add_row(self._corruption_mood_row(level, "add", "Add moods"))
+        exp.add_row(self._corruption_mood_row(level, "remove", "Remove moods"))
+        exp.add_row(self._corruption_wallpaper_row(level))
+
+        self._corruption_levels_group.add(exp)
+        self._corruption_rows.append(exp)
+
+    def _corruption_name_row(self, level: int, exp: Adw.ExpanderRow) -> Adw.EntryRow:
+        """Optional display name for the level. Updates the expander title live."""
+        key = str(level)
+        row = Adw.EntryRow(title="Level Name (optional)")
+        row.set_text(str(self._corruption_data["names"].get(key, "")))
+
+        def on_changed(r: Adw.EntryRow, lv=level, k=key, e=exp) -> None:
+            text = r.get_text().strip()
+            names = self._corruption_data.setdefault("names", {})
+            if text:
+                names[k] = text
+            else:
+                names.pop(k, None)
+            e.set_title(f"Level {lv}: {text}" if text else f"Level {lv}")
+            self._save_corruption()
+
+        row.connect("changed", on_changed)
+        return row
+
+    def _corruption_mood_row(self, level: int, kind: str, title: str) -> Adw.ActionRow:
+        """A mood multi-select: shows the chosen moods + a button opening a
+        checklist popover of the pack's moods (no freeform typing)."""
+        key = str(level)
+        row = Adw.ActionRow(title=title)
+        selected = self._corruption_data["moods"][key][kind]
+        row.set_subtitle(", ".join(selected) if selected else "None")
+
+        btn = Gtk.MenuButton(label="Select…")
+        btn.set_valign(Gtk.Align.CENTER)
+        btn.set_popover(self._mood_select_popover(key, kind, row))
+        row.add_suffix(btn)
+        row.set_activatable_widget(btn)
+        return row
+
+    def _mood_select_popover(self, key: str, kind: str, row: Adw.ActionRow) -> Gtk.Popover:
+        pop = Gtk.Popover()
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        box.set_margin_start(8); box.set_margin_end(8)
+        box.set_margin_top(8); box.set_margin_bottom(8)
+
+        selected = set(self._corruption_data["moods"][key][kind])
+        mood_names = self._corruption_mood_names
+
+        if not mood_names:
+            box.append(Gtk.Label(label="This pack has no moods."))
+        for name in mood_names:
+            check = Gtk.CheckButton(label=name)
+            check.set_active(name in selected)
+            check.connect("toggled", lambda c, n=name, k=key, knd=kind, r=row:
+                          self._toggle_corruption_mood(k, knd, n, c.get_active(), r))
+            box.append(check)
+
+        scroller = Gtk.ScrolledWindow()
+        scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        scroller.set_max_content_height(280)
+        scroller.set_propagate_natural_height(True)
+        scroller.set_propagate_natural_width(True)
+        scroller.set_child(box)
+        pop.set_child(scroller)
+        return pop
+
+    def _toggle_corruption_mood(self, key: str, kind: str, name: str,
+                                active: bool, row: Adw.ActionRow) -> None:
+        lst = self._corruption_data["moods"].setdefault(key, {"add": [], "remove": []})[kind]
+        if active and name not in lst:
+            lst.append(name)
+        elif not active and name in lst:
+            lst.remove(name)
+        row.set_subtitle(", ".join(lst) if lst else "None")
+        self._save_corruption()
+
+    def _corruption_wallpaper_row(self, level: int) -> Adw.ActionRow:
+        key = str(level)
+        current = str(self._corruption_data["wallpapers"].get(key, ""))
+        row = Adw.ActionRow(title="Wallpaper")
+        row.set_subtitle(current or "None")
+
+        thumb = Gtk.Picture()
+        thumb.set_size_request(56, 32)
+        thumb.set_content_fit(Gtk.ContentFit.COVER)
+        thumb.set_can_shrink(True)
+        frame = Gtk.Frame()
+        frame.add_css_class("card")
+        frame.set_overflow(Gtk.Overflow.HIDDEN)
+        frame.set_valign(Gtk.Align.CENTER)
+        frame.set_child(thumb)
+        row.add_prefix(frame)
+        self._load_wallpaper_thumb(thumb, current)
+
+        choose_btn = Gtk.Button()
+        choose_btn.set_child(Adw.ButtonContent(label="Choose…", icon_name="image-x-generic-symbolic"))
+        choose_btn.set_valign(Gtk.Align.CENTER)
+
+        def on_pick(name: str, k=key, r=row, t=thumb) -> None:
+            self._set_corruption_wallpaper(k, name)
+            r.set_subtitle(name or "None")
+            self._load_wallpaper_thumb(t, name)
+
+        choose_btn.connect("clicked", lambda _b, k=key, c=current: self._open_wallpaper_picker(on_pick, c))
+        row.add_suffix(choose_btn)
+        return row
+
+    def _load_wallpaper_thumb(self, picture: Gtk.Picture, filename: str) -> None:
+        from gi.repository import GdkPixbuf, Gdk
+        if not filename:
+            picture.set_paintable(None)
+            return
+        path = self.editor.pack_dir / filename
+        if not path.is_file():
+            picture.set_paintable(None)
+            return
+        try:
+            pb = GdkPixbuf.Pixbuf.new_from_file_at_scale(str(path), 112, 64, True)
+            picture.set_paintable(Gdk.Texture.new_for_pixbuf(pb))
+        except Exception:
+            picture.set_paintable(None)
+
+    def _open_wallpaper_picker(self, on_pick, current: str) -> None:
+        from config.gtk_window.image_picker import open_image_picker
+        root = self._page.get_root() if self._page else None
+        open_image_picker(root, self.editor.pack_dir, current, on_pick,
+                           title="Choose Wallpaper")
+
+
+    def _set_corruption_wallpaper(self, key: str, filename: str) -> None:
+        if filename.strip():
+            self._corruption_data["wallpapers"][key] = filename.strip()
+        else:
+            self._corruption_data["wallpapers"].pop(key, None)
+        self._save_corruption()
+
+    def _on_add_corruption_level(self) -> None:
+        keys = self._corruption_level_keys()
+        new_level = (max(keys) + 1) if keys else 1
+        self._append_corruption_level(new_level)
+        self._save_corruption()
+
+    def _on_delete_corruption_level(self, level: int) -> None:
+        from gtk_dialog import ask_yes_no
+        if not ask_yes_no(
+            f"Delete corruption level {level}?",
+            "Higher levels are renumbered down to stay contiguous.",
+            heading="Delete level?",
+        ):
+            return
+        # Remove the level, then renumber remaining levels to be contiguous.
+        d = self._corruption_data
+        for section in ("moods", "config", "wallpapers", "names"):
+            sec = d.get(section, {})
+            remaining = sorted((int(k) for k in sec if k.isdigit()))
+            remaining = [n for n in remaining if n != level]
+            renumbered = {}
+            for new_idx, old in enumerate(remaining, start=1):
+                renumbered[str(new_idx)] = sec[str(old)]
+            # Keep non-numeric keys (e.g. wallpapers "default").
+            for k, v in sec.items():
+                if not k.isdigit():
+                    renumbered[k] = v
+            d[section] = renumbered
+        self._save_corruption()
+        self._rebuild_corruption_levels()
+
+    def _save_corruption(self) -> None:
+        err = self.editor.save_corruption(self._corruption_data)
+        if err:
+            toast(f"Could not save corruption: {err}")
+
     def _build_legacy_notice(self, page: Adw.PreferencesPage) -> None:
         group = Adw.PreferencesGroup(
             title="Popup Text",
@@ -631,9 +1049,7 @@ class PackEditorContent:
 
     def _on_migrate(self, _btn) -> None:
         from gtk_dialog import ask_yes_no
-        from config.gtk_window.utils import refresh
 
-        # Show what will be migrated
         pack_dir = self.editor.pack_dir
         legacy = [f for f in ("captions.json","media.json","prompt.json","web.json")
                   if (pack_dir / f).is_file()]
@@ -651,8 +1067,10 @@ class PackEditorContent:
             toast(f"Migration failed: {err}")
             return
 
-        toast("Migration complete. Reloading editor…")
-        refresh()
+        toast("Migration complete.")
+        # Rebuild the editor page in place (no window reload).
+        if self._on_migrated:
+            self._on_migrated()
 
     # --- debounced autosave -----------------------------------------------
     def _schedule_save(self) -> None:

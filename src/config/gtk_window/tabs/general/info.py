@@ -13,13 +13,14 @@
 # GNU General Public License for more details.
 
 import json
+import os
 from pathlib import Path
 
 from gi import require_version
 
 require_version("Gtk", "4.0")
 require_version("Adw", "1")
-from gi.repository import Adw, GdkPixbuf, GLib, Gtk
+from gi.repository import Adw, Gdk, GdkPixbuf, GLib, Gtk, Pango
 
 from pack import Pack
 from paths import Data
@@ -82,6 +83,18 @@ class InfoTab(Gtk.Box):
         import_row.add_suffix(import_btn)
         import_row.set_activatable_widget(import_btn)
         mgmt.add(import_row)
+
+        create_row = Adw.ActionRow(
+            title="Create New Pack",
+            subtitle="Scaffold an empty pack and open it in the editor.",
+        )
+        create_btn = Gtk.Button()
+        create_btn.set_child(Adw.ButtonContent(label="Create…", icon_name="document-new-symbolic"))
+        create_btn.set_valign(Gtk.Align.CENTER)
+        create_btn.connect("clicked", lambda _: self._on_create_pack())
+        create_row.add_suffix(create_btn)
+        create_row.set_activatable_widget(create_btn)
+        mgmt.add(create_row)
 
         from pack.edit import is_writable
         writable = is_writable(pack.paths.root)
@@ -159,11 +172,6 @@ class InfoTab(Gtk.Box):
                 display_name = info.get("name") or name
                 description = info.get("description") or ""
 
-                row = Adw.ActionRow(title=display_name)
-                if description:
-                    row.set_subtitle(GLib.markup_escape_text(description[:120]))
-                row.add_prefix(_pack_icon_prefix(pack_dir))
-
                 btn_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
                 btn_box.set_valign(Gtk.Align.CENTER)
 
@@ -192,7 +200,9 @@ class InfoTab(Gtk.Box):
                 edit_btn.connect("clicked", lambda _b, d=pack_dir: self._push_editor(d))
                 btn_box.append(edit_btn)
 
-                row.add_suffix(btn_box)
+                row = _build_pack_row(
+                    pack_dir, display_name, description,
+                    _pack_feature_tags(pack_dir), btn_box)
                 switch_group.add(row)
 
             default_row = Adw.ActionRow(
@@ -221,6 +231,46 @@ class InfoTab(Gtk.Box):
         from config.gtk_window.import_pack import import_pack
         import_pack(False)
 
+    def _on_create_pack(self) -> None:
+        # Small modal collecting the new pack's name + creator.
+        win = Gtk.Window(title="Create New Pack")
+        win.set_default_size(420, 0)
+        win.set_modal(True)
+        win.set_transient_for(self.get_root())
+
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        box.set_margin_start(16); box.set_margin_end(16)
+        box.set_margin_top(16);  box.set_margin_bottom(16)
+        win.set_child(box)
+
+        name_row = Adw.EntryRow(title="Pack Name")
+        creator_row = Adw.EntryRow(title="Creator")
+        group = Adw.PreferencesGroup()
+        group.add(name_row); group.add(creator_row)
+        box.append(group)
+
+        btn_row = Gtk.Box(spacing=8); btn_row.set_halign(Gtk.Align.END)
+        cancel = Gtk.Button(label="Cancel")
+        cancel.connect("clicked", lambda _: win.close())
+        create = Gtk.Button(label="Create")
+        create.add_css_class("suggested-action")
+        btn_row.append(cancel); btn_row.append(create)
+        box.append(btn_row)
+
+        def do_create(_b) -> None:
+            from pack.edit import create_pack
+            from paths import Data
+            pack_dir, err = create_pack(Data.PACKS, name_row.get_text(), creator_row.get_text())
+            if err:
+                from config.gtk_window.toast import toast
+                toast(err)
+                return
+            win.close()
+            self._push_editor(pack_dir)
+
+        create.connect("clicked", do_create)
+        win.present()
+
     def _on_edit_pack(self) -> None:
         self._push_editor(self._pack.paths.root)
 
@@ -238,6 +288,7 @@ class InfoTab(Gtk.Box):
                 editor_pref,
                 push_page=self._nav.push,
                 pop_page=self._nav.pop,
+                on_migrated=lambda d=pack_dir: self._rebuild_editor(d),
             )
 
             back_btn = Gtk.Button()
@@ -260,6 +311,17 @@ class InfoTab(Gtk.Box):
 
         content, page = self._editor_cache[key]
         self._nav.push(page)
+
+    def _rebuild_editor(self, pack_dir: Path) -> None:
+        """Drop the cached editor for `pack_dir`, pop back, and re-push a freshly
+        built one. Used after legacy migration so the editor reflects the new
+        index.json without reloading the whole window."""
+        key = str(pack_dir)
+        # Pop to the main packs page (without triggering a config refresh).
+        while self._nav.get_navigation_stack().get_n_items() > 1:
+            self._nav.pop()
+        self._editor_cache.pop(key, None)
+        GLib.idle_add(lambda: (self._push_editor(pack_dir), False)[1])
 
     def _on_popped(self, _nav, page) -> None:
         """Flush the editor that was just popped, refresh if it saved anything."""
@@ -295,6 +357,143 @@ class InfoTab(Gtk.Box):
     def _on_switch(self, name: str) -> None:
         if self._on_switch_pack:
             self._on_switch_pack(name)
+
+
+# Feature label -> pill colour, in display order.
+_FEATURE_COLORS = {
+    "Images": "#3498db", "Videos": "#9b59b6", "Audio": "#1abc9c",
+    "Moods": "#e67e22", "Corruption": "#e74c3c", "Companion": "#2ecc71",
+    "Config": "#f39c12", "Discord": "#5865f2", "Wallpaper": "#95a5a6",
+}
+
+
+def _dir_has_files(directory: Path) -> bool:
+    try:
+        return any((directory / f).is_file() for f in os.listdir(directory))
+    except Exception:
+        return False
+
+
+def _pack_feature_tags(pack_dir: Path) -> list[str]:
+    """Cheaply detect which features a pack ships (no full Pack load)."""
+    # Resolve a possible resource/ subdir wrapper (some packs nest content).
+    root = pack_dir
+    if not (pack_dir / "info.json").is_file() and (pack_dir / "resource").is_dir():
+        root = pack_dir / "resource"
+
+    tags: list[str] = []
+    if _dir_has_files(root / "img"):
+        tags.append("Images")
+    if _dir_has_files(root / "vid"):
+        tags.append("Videos")
+    if _dir_has_files(root / "aud"):
+        tags.append("Audio")
+    # Moods: modern index.json with >1 mood, or a legacy media.json.
+    has_moods = (root / "media.json").is_file()
+    if not has_moods and (root / "index.json").is_file():
+        try:
+            idx = json.loads((root / "index.json").read_text(encoding="utf-8", errors="replace"))
+            has_moods = len(idx.get("moods", [])) > 0
+        except Exception:
+            pass
+    if has_moods:
+        tags.append("Moods")
+    if (root / "corruption.json").is_file():
+        tags.append("Corruption")
+    if (root / "companion.json").is_file():
+        tags.append("Companion")
+    if (root / "config.json").is_file():
+        tags.append("Config")
+    if (root / "discord.dat").is_file():
+        tags.append("Discord")
+    if (root / "wallpaper.png").is_file():
+        tags.append("Wallpaper")
+    return tags
+
+
+def _ensure_tag_css() -> None:
+    """Inject rounded-pill CSS (once). One class per feature colour."""
+    if getattr(_ensure_tag_css, "_done", False):
+        return
+    _ensure_tag_css._done = True  # type: ignore[attr-defined]
+    parts = [
+        b".pack-tag { border-radius: 10px; padding: 1px 9px; margin: 0; "
+        b"font-size: 0.78em; font-weight: bold; color: #ffffff; }\n"
+    ]
+    for color in set(_FEATURE_COLORS.values()) | {"#7f8c8d"}:
+        cid = color.lstrip("#")
+        parts.append(f".pack-tag-{cid} {{ background-color: {color}; }}\n".encode())
+    provider = Gtk.CssProvider()
+    provider.load_from_data(b"".join(parts))
+    Gtk.StyleContext.add_provider_for_display(
+        Gdk.Display.get_default(), provider,
+        Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION,
+    )
+
+
+def _pills_box(tags: list[str]) -> Gtk.Widget:
+    """A wrapping row of rounded feature pills."""
+    _ensure_tag_css()
+    flow = Gtk.FlowBox()
+    flow.set_selection_mode(Gtk.SelectionMode.NONE)
+    flow.set_max_children_per_line(99)
+    flow.set_column_spacing(4)
+    flow.set_row_spacing(4)
+    flow.set_halign(Gtk.Align.START)
+    for tag in tags:
+        color = _FEATURE_COLORS.get(tag, "#7f8c8d")
+        lbl = Gtk.Label(label=tag)
+        lbl.add_css_class("pack-tag")
+        lbl.add_css_class(f"pack-tag-{color.lstrip('#')}")
+        child = Gtk.FlowBoxChild()
+        child.set_child(lbl)
+        child.set_focusable(False)
+        flow.append(child)
+    return flow
+
+
+def _build_pack_row(pack_dir: Path, display_name: str, description: str,
+                    tags: list[str], btn_box: Gtk.Widget) -> Gtk.Widget:
+    """A custom installed-pack row: icon, title + description + feature pills,
+    and the action buttons."""
+    outer = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+    outer.set_margin_start(8); outer.set_margin_end(8)
+    outer.set_margin_top(8);  outer.set_margin_bottom(8)
+
+    outer.set_valign(Gtk.Align.CENTER)
+
+    icon = _pack_icon_prefix(pack_dir, size=48)
+    icon.set_valign(Gtk.Align.START)
+    outer.append(icon)
+
+    info_col = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+    info_col.set_hexpand(True)
+    info_col.set_valign(Gtk.Align.START)
+
+    title = Gtk.Label(xalign=0)
+    title.set_markup(f"<b>{GLib.markup_escape_text(display_name)}</b>")
+    info_col.append(title)
+
+    if description:
+        desc = Gtk.Label(xalign=0, wrap=True)
+        desc.set_text(description)
+        desc.add_css_class("dim-label")
+        desc.add_css_class("caption")
+        desc.set_max_width_chars(52)
+        # Cap to 2 lines with an ellipsis so rows stay an even height.
+        desc.set_lines(2)
+        desc.set_ellipsize(Pango.EllipsizeMode.END)
+        desc.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
+        info_col.append(desc)
+
+    if tags:
+        info_col.append(_pills_box(tags))
+
+    outer.append(info_col)
+
+    btn_box.set_valign(Gtk.Align.CENTER)
+    outer.append(btn_box)
+    return outer
 
 
 def pack_detail_groups(pack: Pack) -> list[Adw.PreferencesGroup]:
@@ -354,40 +553,50 @@ def pack_detail_groups(pack: Pack) -> list[Adw.PreferencesGroup]:
     return groups
 
 
-def _pack_icon_prefix(pack_dir: Path) -> Gtk.Widget:
-    """32×32 pack icon framed for use as an ActionRow prefix."""
-    SIZE = 32
-    picture = Gtk.Picture()
-    picture.set_size_request(SIZE, SIZE)
-    picture.set_content_fit(Gtk.ContentFit.COVER)
-    picture.set_can_shrink(True)
+def _square_pixbuf(path: Path, size: int):
+    """Load `path` and centre-crop it to an exact size×size square pixbuf, so
+    every pack icon renders identically regardless of source aspect ratio."""
+    pb = GdkPixbuf.Pixbuf.new_from_file(str(path))
+    w, h = pb.get_width(), pb.get_height()
+    if w <= 0 or h <= 0:
+        return None
+    scale = size / min(w, h)
+    sw, sh = max(size, round(w * scale)), max(size, round(h * scale))
+    pb = pb.scale_simple(sw, sh, GdkPixbuf.InterpType.BILINEAR)
+    x, y = (sw - size) // 2, (sh - size) // 2
+    return GdkPixbuf.Pixbuf.new_subpixbuf(pb, x, y, size, size)
+
+
+def _pack_icon_prefix(pack_dir: Path, size: int = 32) -> Gtk.Widget:
+    """A pack icon centre-cropped to an exact size×size square in a card frame."""
+    image = Gtk.Image()
+    image.set_pixel_size(size)
 
     icon_path = pack_dir / "icon.ico"
-    loaded = False
+    pb = None
     if icon_path.is_file():
         try:
-            pb = GdkPixbuf.Pixbuf.new_from_file_at_scale(str(icon_path), SIZE, SIZE, True)
-            picture.set_pixbuf(pb)
-            loaded = True
+            pb = _square_pixbuf(icon_path, size)
         except Exception:
-            pass
-
-    if not loaded:
-        # Fall back to a generic app icon
+            pb = None
+    if pb is None:
         from paths import CustomAssets
         fallback = CustomAssets.icon()
         if fallback.is_file():
             try:
-                pb = GdkPixbuf.Pixbuf.new_from_file_at_scale(str(fallback), SIZE, SIZE, True)
-                picture.set_pixbuf(pb)
+                pb = _square_pixbuf(fallback, size)
             except Exception:
-                pass
+                pb = None
+    if pb is not None:
+        image.set_from_pixbuf(pb)
 
     frame = Gtk.Frame()
     frame.add_css_class("card")
+    frame.set_overflow(Gtk.Overflow.HIDDEN)
+    frame.set_halign(Gtk.Align.CENTER)
     frame.set_valign(Gtk.Align.CENTER)
-    frame.set_size_request(SIZE, SIZE)
-    frame.set_child(picture)
+    frame.set_size_request(size, size)
+    frame.set_child(image)
     return frame
 
 

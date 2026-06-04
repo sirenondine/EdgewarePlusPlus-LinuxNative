@@ -153,6 +153,53 @@ DISCORD_IMAGE_IDS = [
     "hypno_img", "futa_img", "healslut_img", "gross_img",
 ]
 
+# Config keys never written into a pack's config.json (machine- or safety-
+# specific — they must not travel between machines inside a pack).
+_PACK_CONFIG_BLOCKLIST = {
+    "version", "versionplusplus", "packPath", "wallpaperDat",
+    "safeword", "panicButton", "globalPanicButton", "drivePath", "safeMode",
+    "toggleInternet", "companionApiKey", "intifaceAddress",
+}
+
+
+def create_pack(parent_dir: Path, name: str, creator: str = "Anonymous") -> tuple[Path | None, str | None]:
+    """Scaffold a new empty pack under `parent_dir`. Creates the media dirs and a
+    minimal info.json + index.json (default mood + one starter mood). Returns
+    (pack_dir, None) on success or (None, error)."""
+    name = name.strip()
+    if not name:
+        return None, "Pack name cannot be blank."
+    safe = "".join(c for c in name if c.isalnum() or c in " -_").strip()
+    if not safe:
+        return None, "Pack name has no usable characters."
+    pack_dir = parent_dir / safe
+    if pack_dir.exists():
+        return None, f"A pack folder named \"{safe}\" already exists."
+    try:
+        for sub in ("img", "vid", "aud", "hypno"):
+            (pack_dir / sub).mkdir(parents=True, exist_ok=True)
+        _write_atomic(pack_dir / "info.json", {
+            "name": name,
+            "id": _slugify(name),
+            "creator": creator or "Anonymous",
+            "version": "1.0",
+            "description": "",
+        })
+        _write_atomic(pack_dir / "index.json", {
+            "default": {
+                "captions": [],
+                "denial": [],
+                "subliminals": [],
+                "notifications": [],
+                "prompts": [],
+            },
+            "moods": [{"mood": "default", "media": []}],
+        })
+        return pack_dir, None
+    except Exception as e:
+        logging.warning(f"pack edit: create_pack failed: {e}")
+        return None, str(e)
+
 
 class PackEditor:
     """In-memory editable view of one pack's index.json + info.json.
@@ -351,6 +398,49 @@ class PackEditor:
             if target is not None:
                 target.setdefault("media", []).append(filename)
 
+    # --- media files (add / remove) ---------------------------------------
+    _MEDIA_DIRS = {"image": "img", "video": "vid", "audio": "aud"}
+
+    def import_media(self, media_type: str, sources: list) -> tuple[list[str], list[str]]:
+        """Copy `sources` into the pack's media dir for `media_type`
+        (image/video/audio). Returns (copied_filenames, errors). De-dupes names
+        by suffixing -1, -2, ... when a file already exists."""
+        sub = self._MEDIA_DIRS.get(media_type)
+        if not sub:
+            return [], [f"Unknown media type: {media_type}"]
+        dest_dir = self.pack_dir / sub
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        copied, errors = [], []
+        for src in sources:
+            src = Path(src)
+            name = src.name
+            target = dest_dir / name
+            n = 1
+            while target.exists():
+                target = dest_dir / f"{src.stem}-{n}{src.suffix}"
+                n += 1
+            try:
+                shutil.copy2(src, target)
+                copied.append(target.name)
+            except Exception as e:
+                errors.append(f"{name}: {e}")
+        return copied, errors
+
+    def delete_media(self, media_type: str, filename: str) -> str | None:
+        """Delete a media file from disk and drop it from every mood's media
+        list. Caller should save_index() after. Returns error or None."""
+        sub = self._MEDIA_DIRS.get(media_type)
+        if not sub:
+            return f"Unknown media type: {media_type}"
+        self.set_media_assignment(filename, None)
+        path = self.pack_dir / sub / filename
+        try:
+            if path.is_file():
+                path.unlink()
+            return None
+        except Exception as e:
+            return str(e)
+
     def get_mood_int(self, mood_name: str, key: str, fallback: int = 1) -> int:
         mood = self._find_mood(mood_name)
         if mood is None:
@@ -457,6 +547,54 @@ class PackEditor:
                 p.unlink()
             except OSError:
                 pass
+
+    # --- Phase 4: save current settings as pack config.json ---------------
+    def save_config_from(self, full_config: dict) -> str | None:
+        """Write `full_config` (the user's live config) into the pack as
+        config.json, minus machine/safety-specific keys. Returns error or None."""
+        filtered = {
+            k: v for k, v in full_config.items()
+            if k not in _PACK_CONFIG_BLOCKLIST
+        }
+        try:
+            _write_atomic(self.pack_dir / "config.json", filtered)
+            return None
+        except Exception as e:
+            logging.warning(f"pack edit: failed to write config.json: {e}")
+            return str(e)
+
+    def config_key_count(self) -> int:
+        return len(_read_raw(self.pack_dir / "config.json"))
+
+    # --- Phase 4: corruption.json -----------------------------------------
+    def get_corruption(self) -> dict:
+        """Raw corruption.json, normalised to have moods/wallpapers/config/names dicts."""
+        data = _read_raw(self.pack_dir / "corruption.json")
+        data.setdefault("moods", {})
+        data.setdefault("wallpapers", {})
+        data.setdefault("config", {})
+        data.setdefault("names", {})
+        return data
+
+    def corruption_level_count(self) -> int:
+        data = self.get_corruption()
+        wp = data["wallpapers"]
+        return max(
+            [int(k) for k in data["moods"] if k.isdigit()]
+            + [int(k) for k in data["config"] if k.isdigit()]
+            + [int(k) for k in wp if k.isdigit()]
+            + [int(k) for k in data["names"] if k.isdigit()]
+            + [0]
+        )
+
+    def save_corruption(self, data: dict) -> str | None:
+        # Drop fully-empty levels to keep the file tidy.
+        try:
+            _write_atomic(self.pack_dir / "corruption.json", data)
+            return None
+        except Exception as e:
+            logging.warning(f"pack edit: failed to write corruption.json: {e}")
+            return str(e)
 
     # --- Legacy migration -------------------------------------------------
     @property

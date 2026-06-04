@@ -34,6 +34,7 @@ class CorruptionLevel:
     removed_moods: MoodSet
     wallpaper: str | None
     config: dict[str, str | int]
+    name: str | None = None  # optional display label for the level
 
 
 @dataclass

@@ -63,12 +63,14 @@ def load_corruption(paths: PackPaths) -> list[CorruptionLevel]:
                 "moods": {Number(scale=0): {"add": [str], "remove": [str]}},
                 "wallpapers": {Any(Number(scale=0), "default"): str},
                 "config": {Number(scale=0): {str: Any(int, str)}},
+                Optional("names"): {Number(scale=0): str},
             }
         )(corruption)
 
         moods = corruption["moods"]
         wallpapers = corruption["wallpapers"]
         configs = corruption["config"]
+        names = corruption.get("names", {})
 
         levels: list[CorruptionLevel] = []
         for i in range(max(len(moods), len(wallpapers) - (1 if "default" in wallpapers else 0), len(configs))):
@@ -84,6 +86,7 @@ def load_corruption(paths: PackPaths) -> list[CorruptionLevel]:
                     MoodSet(mood_change["remove"]),
                     wallpaper or (wallpapers.get("default") if i == 0 else None),
                     config_change,
+                    names.get(n),
                 )
             )
 
