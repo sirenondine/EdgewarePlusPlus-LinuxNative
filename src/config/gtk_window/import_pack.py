@@ -15,8 +15,8 @@ from paths import DEFAULT_PACK_PATH, Data, PackPaths
 
 
 def _dialog(title: str, text: str) -> None:
-    from gtk_dialog import ask_yes_no
-    ask_yes_no(title, text)
+    from gtk_dialog import show_info
+    show_info(title, text)
 
 
 _DEFAULT_MARKER = DEFAULT_PACK_PATH / ".pack_source"
@@ -48,8 +48,8 @@ def set_default_from_installed(pack_dir: Path, on_done=None) -> None:
             on_done(pack_dir.name)
     except Exception as e:
         logging.warning(f"Failed to set default pack: {e}")
-        from gtk_dialog import ask_yes_no
-        ask_yes_no("Error", f"Could not set default pack:\n{e}")
+        from gtk_dialog import show_info
+        show_info("Error", f"Could not set default pack:\n{e}")
 
 
 def import_pack(default: bool) -> None:

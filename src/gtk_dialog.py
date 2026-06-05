@@ -15,134 +15,96 @@
 """Lightweight GTK4 modal dialog helpers usable from the runtime without
 importing the (heavy) config window package.
 
-These run before any application window exists (e.g. the corruption danger
-check at startup), so they build self-contained modal windows rather than
-Gtk.Dialog, which lays out poorly and looks like a bare toplevel."""
+All functions block by running a nested GLib main loop — callers see a simple
+synchronous return value while the UI stays responsive."""
 
 from gi import require_version
 
 require_version("Gtk", "4.0")
-from gi.repository import GLib, Gtk
-
-_CSS = None
-
-
-def _ensure_css() -> None:
-    global _CSS
-    if _CSS is not None:
-        return
-    from gi.repository import Gdk
-    _CSS = Gtk.CssProvider()
-    _CSS.load_from_string(".ew-dialog { padding: 18px; }")
-    Gtk.StyleContext.add_provider_for_display(
-        Gdk.Display.get_default(), _CSS, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
-    )
+require_version("Adw", "1")
+from gi.repository import Adw, GLib, Gtk
 
 
-def _run(window: Gtk.Window) -> None:
-    """Show a modal window and block until it closes (nested main loop)."""
+def _get_parent() -> Gtk.Window | None:
+    from gi.repository import Gio
+    app = Gio.Application.get_default()
+    if app:
+        return app.get_active_window()
+    return None
+
+
+def ask_yes_no(title: str, message: str, *,
+               markup: bool = False,
+               heading: str | None = None,
+               confirm_label: str = "Yes",
+               cancel_label: str = "No",
+               destructive: bool = False) -> bool:
+    """Show an Adw.AlertDialog; return True if the user confirmed."""
     loop = GLib.MainLoop()
-
-    def on_close(_w):
-        if loop.is_running():
-            loop.quit()
-        return False
-
-    window.connect("close-request", on_close)
-    window.set_modal(True)
-    window.present()
-    loop.run()
-
-
-def _shell(title: str, width: int = 460) -> tuple[Gtk.Window, Gtk.Box]:
-    """A titled, centered, non-resizable modal window with a padded content box
-    and a button row at the bottom. Returns (window, button_row)."""
-    _ensure_css()
-    window = Gtk.Window(title=title)
-    window.set_resizable(False)
-    window.set_default_size(width, -1)
-
-    outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=14)
-    outer.add_css_class("ew-dialog")
-    window.set_child(outer)
-    window._content = outer  # subclass-free attach point
-
-    buttons = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-    buttons.set_halign(Gtk.Align.END)
-    window._buttons = buttons
-    return window, buttons
-
-
-def _heading(text: str) -> Gtk.Label:
-    label = Gtk.Label(label=text)
-    label.add_css_class("title-3")
-    label.set_xalign(0)
-    label.set_wrap(True)
-    return label
-
-
-def ask_yes_no(title: str, message: str, *, markup: bool = False, heading: str | None = None) -> bool:
-    window, buttons = _shell(title)
     result = {"ok": False}
 
-    if heading:
-        window._content.append(_heading(heading))
-
-    body = Gtk.Label()
-    body.set_wrap(True)
-    body.set_xalign(0)
-    body.set_max_width_chars(54)
+    dialog = Adw.AlertDialog(heading=heading or title, body=message)
     if markup:
-        body.set_markup(message)
+        dialog.set_body_use_markup(True)
+    dialog.add_response("cancel", cancel_label)
+    dialog.add_response("confirm", confirm_label)
+    if destructive:
+        dialog.set_response_appearance("confirm", Adw.ResponseAppearance.DESTRUCTIVE)
     else:
-        body.set_text(message)
+        dialog.set_response_appearance("confirm", Adw.ResponseAppearance.SUGGESTED)
+    dialog.set_default_response("cancel")
+    dialog.set_close_response("cancel")
 
-    scroller = Gtk.ScrolledWindow()
-    scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-    scroller.set_max_content_height(360)
-    scroller.set_propagate_natural_height(True)
-    scroller.set_child(body)
-    window._content.append(scroller)
+    def on_response(_dlg, response: str) -> None:
+        result["ok"] = (response == "confirm")
+        if loop.is_running():
+            loop.quit()
 
-    no_btn = Gtk.Button(label="No")
-    yes_btn = Gtk.Button(label="Yes")
-    yes_btn.add_css_class("destructive-action")
-    no_btn.connect("clicked", lambda _: window.close())
-    yes_btn.connect("clicked", lambda _: (result.update(ok=True), window.close()))
-    buttons.append(no_btn)
-    buttons.append(yes_btn)
-    window._content.append(buttons)
-
-    _run(window)
+    dialog.connect("response", on_response)
+    dialog.present(_get_parent())
+    loop.run()
     return result["ok"]
 
 
+def show_info(title: str, message: str, *, heading: str | None = None) -> None:
+    """Show an informational Adw.AlertDialog with a single Close button."""
+    loop = GLib.MainLoop()
+
+    dialog = Adw.AlertDialog(heading=heading or title, body=message)
+    dialog.add_response("close", "Close")
+    dialog.set_default_response("close")
+    dialog.set_close_response("close")
+
+    dialog.connect("response", lambda _dlg, _r: loop.quit() if loop.is_running() else None)
+    dialog.present(_get_parent())
+    loop.run()
+
+
 def ask_password(title: str, message: str) -> str | None:
-    window, buttons = _shell(title, width=380)
+    """Show an Adw.AlertDialog with a password entry; return text or None on cancel."""
+    loop = GLib.MainLoop()
     result = {"text": None}
 
-    label = Gtk.Label(label=message)
-    label.set_wrap(True)
-    label.set_xalign(0)
-    window._content.append(label)
+    dialog = Adw.AlertDialog(heading=title, body=message)
 
     entry = Gtk.PasswordEntry()
     entry.set_show_peek_icon(True)
-    window._content.append(entry)
+    entry.set_margin_top(8)
+    dialog.set_extra_child(entry)
 
-    def confirm():
-        result["text"] = entry.get_text()
-        window.close()
+    dialog.add_response("cancel", "Cancel")
+    dialog.add_response("confirm", "Confirm")
+    dialog.set_response_appearance("confirm", Adw.ResponseAppearance.SUGGESTED)
+    dialog.set_default_response("confirm")
+    dialog.set_close_response("cancel")
 
-    cancel_btn = Gtk.Button(label="Cancel")
-    confirm_btn = Gtk.Button(label="Confirm")
-    confirm_btn.add_css_class("suggested-action")
-    cancel_btn.connect("clicked", lambda _: window.close())
-    confirm_btn.connect("clicked", lambda _: confirm())
-    entry.connect("activate", lambda _: confirm())
-    buttons.append(cancel_btn)
-    buttons.append(confirm_btn)
-    window._content.append(buttons)
+    def on_response(_dlg, response: str) -> None:
+        if response == "confirm":
+            result["text"] = entry.get_text()
+        if loop.is_running():
+            loop.quit()
 
-    _run(window)
+    dialog.connect("response", on_response)
+    dialog.present(_get_parent())
+    loop.run()
     return result["text"]

@@ -32,30 +32,7 @@ from config.gtk_window.widgets import AdwSwitchRow
 from config.vars import Vars
 from pack import Pack
 
-_CSS_LOADED = False
-
-
-def _ensure_css() -> None:
-    global _CSS_LOADED
-    if _CSS_LOADED:
-        return
-    from gi.repository import Gdk
-    css = Gtk.CssProvider()
-    css.load_from_string("""
-        .home-pill {
-            background-color: alpha(@accent_bg_color, 0.18);
-            color: @accent_fg_color;
-            border-radius: 999px;
-            padding: 4px 12px;
-            margin: 2px;
-        }
-        .home-pill.dim { background-color: alpha(@window_fg_color, 0.10); color: @window_fg_color; }
-        .home-hero { padding: 16px; }
-        .home-hero-art { border-radius: 12px; }
-    """)
-    Gtk.StyleContext.add_provider_for_display(
-        Gdk.Display.get_default(), css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
-    _CSS_LOADED = True
+from config.gtk_window.utils import _ensure_config_css
 
 
 def _pill(text: str, accent: bool = True) -> Gtk.Widget:
@@ -87,7 +64,7 @@ class HomeTab(Gtk.Box):
     def __init__(self, vars: Vars, pack: Pack, local_version: str, live_version: str,
                  *, on_navigate, on_launch) -> None:
         super().__init__(orientation=Gtk.Orientation.VERTICAL)
-        _ensure_css()
+        _ensure_config_css()
         self._vars = vars
         self._pack = pack
         self._gamified = bool(vars.gamification.get())

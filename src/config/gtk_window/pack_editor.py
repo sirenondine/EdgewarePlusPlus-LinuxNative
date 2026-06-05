@@ -1321,17 +1321,15 @@ def _open_generate_dialog(
     own description — both fed to the model for on-theme output."""
     from threading import Thread
 
-    win = Gtk.Window(title=f"Generate {list_type}")
-    win.set_default_size(500, 540)
-    win.set_modal(True)
+    dialog = Adw.Dialog()
+    dialog.set_title(f"Generate {list_type}")
+    dialog.set_content_width(500)
+    dialog.set_content_height(540)
     root = anchor.get_root()
-    if root:
-        win.set_transient_for(root)
 
     box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
     box.set_margin_start(16); box.set_margin_end(16)
     box.set_margin_top(16);  box.set_margin_bottom(16)
-    win.set_child(box)
 
     ctx_lbl = Gtk.Label(label=f"Context: {context}")
     ctx_lbl.add_css_class("dim-label")
@@ -1373,7 +1371,7 @@ def _open_generate_dialog(
     btn_row = Gtk.Box(spacing=8)
     btn_row.set_halign(Gtk.Align.END)
     cancel_btn = Gtk.Button(label="Cancel")
-    cancel_btn.connect("clicked", lambda _: win.close())
+    cancel_btn.connect("clicked", lambda _: dialog.close())
     add_btn = Gtk.Button()
     add_btn.set_sensitive(False)
     btn_row.append(cancel_btn)
@@ -1458,11 +1456,16 @@ def _open_generate_dialog(
         items = _generated[0]
         if items and appender:
             appender[0](items)
-        win.close()
+        dialog.close()
 
     gen_btn.connect("clicked", do_generate)
     add_btn.connect("clicked", do_add)
-    win.present()
+
+    tv = Adw.ToolbarView()
+    tv.add_top_bar(Adw.HeaderBar())
+    tv.set_content(box)
+    dialog.set_child(tv)
+    dialog.present(root)
 
 
 def _buf_append(buf: Gtk.TextBuffer, text: str) -> bool:
@@ -1491,17 +1494,15 @@ def _open_prompt_generate_dialog(
     on accept, replace `target_buf`'s contents with it."""
     from threading import Thread
 
-    win = Gtk.Window(title="Generate System Prompt")
-    win.set_default_size(540, 560)
-    win.set_modal(True)
+    dialog = Adw.Dialog()
+    dialog.set_title("Generate System Prompt")
+    dialog.set_content_width(540)
+    dialog.set_content_height(560)
     root = anchor.get_root()
-    if root:
-        win.set_transient_for(root)
 
     box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
     box.set_margin_start(16); box.set_margin_end(16)
     box.set_margin_top(16);  box.set_margin_bottom(16)
-    win.set_child(box)
 
     ctx_lbl = Gtk.Label(label=f"Context: {context}")
     ctx_lbl.add_css_class("dim-label")
@@ -1533,7 +1534,7 @@ def _open_prompt_generate_dialog(
     btn_row = Gtk.Box(spacing=8)
     btn_row.set_halign(Gtk.Align.END)
     cancel_btn = Gtk.Button(label="Cancel")
-    cancel_btn.connect("clicked", lambda _: win.close())
+    cancel_btn.connect("clicked", lambda _: dialog.close())
     use_btn = Gtk.Button(label="Use this prompt")
     use_btn.set_sensitive(False)
     btn_row.append(cancel_btn)
@@ -1590,8 +1591,13 @@ def _open_prompt_generate_dialog(
         text = buf.get_text(buf.get_start_iter(), buf.get_end_iter(), False).strip()
         if text:
             target_buf.set_text(text)  # fires the buffer's changed handler -> autosave
-        win.close()
+        dialog.close()
 
     gen_btn.connect("clicked", do_generate)
     use_btn.connect("clicked", do_use)
-    win.present()
+
+    tv = Adw.ToolbarView()
+    tv.add_top_bar(Adw.HeaderBar())
+    tv.set_content(box)
+    dialog.set_child(tv)
+    dialog.present(root)

@@ -256,30 +256,30 @@ class InfoTab(Gtk.Box):
         import_pack(False)
 
     def _on_create_pack(self) -> None:
-        # Small modal collecting the new pack's name + creator.
-        win = Gtk.Window(title="Create New Pack")
-        win.set_default_size(420, 0)
-        win.set_modal(True)
-        win.set_transient_for(self.get_root())
-
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
-        box.set_margin_start(16); box.set_margin_end(16)
-        box.set_margin_top(16);  box.set_margin_bottom(16)
-        win.set_child(box)
+        dialog = Adw.Dialog()
+        dialog.set_title("Create New Pack")
+        dialog.set_content_width(420)
 
         name_row = Adw.EntryRow(title="Pack Name")
         creator_row = Adw.EntryRow(title="Creator")
         group = Adw.PreferencesGroup()
-        group.add(name_row); group.add(creator_row)
-        box.append(group)
+        group.add(name_row)
+        group.add(creator_row)
 
-        btn_row = Gtk.Box(spacing=8); btn_row.set_halign(Gtk.Align.END)
-        cancel = Gtk.Button(label="Cancel")
-        cancel.connect("clicked", lambda _: win.close())
         create = Gtk.Button(label="Create")
         create.add_css_class("suggested-action")
-        btn_row.append(cancel); btn_row.append(create)
-        box.append(btn_row)
+        create.set_halign(Gtk.Align.END)
+
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        box.set_margin_start(16); box.set_margin_end(16)
+        box.set_margin_top(16); box.set_margin_bottom(16)
+        box.append(group)
+        box.append(create)
+
+        tv = Adw.ToolbarView()
+        tv.add_top_bar(Adw.HeaderBar())
+        tv.set_content(box)
+        dialog.set_child(tv)
 
         def do_create(_b) -> None:
             from pack.edit import create_pack
@@ -289,11 +289,11 @@ class InfoTab(Gtk.Box):
                 from config.gtk_window.toast import toast
                 toast(err)
                 return
-            win.close()
+            dialog.close()
             self._push_editor(pack_dir)
 
         create.connect("clicked", do_create)
-        win.present()
+        dialog.present(self.get_root())
 
     def _on_edit_pack(self) -> None:
         self._push_editor(self._pack.paths.root)

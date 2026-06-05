@@ -9,7 +9,7 @@ require_version("Gdk", "4.0")
 require_version("Gtk", "4.0")
 require_version("Adw", "1")
 require_version("Gtk4LayerShell", "1.0")
-from gi.repository import Adw, Gdk, GLib, Gtk
+from gi.repository import Adw, Gdk, GLib, Gio, Gtk
 
 try:
     from gi.repository import Gtk4LayerShell as LayerShell
@@ -71,6 +71,21 @@ _SIDEBAR_CATEGORIES = [
 ]
 _PAGE_CATEGORY = {page: cat for cat, pages in _SIDEBAR_CATEGORIES for page in pages}
 _CATEGORY_FIRST = {pages[0]: cat for cat, pages in _SIDEBAR_CATEGORIES}
+
+
+def _make_menu_button() -> Gtk.MenuButton:
+    """Hamburger menu button with About / Keyboard Shortcuts / Quit."""
+    menu = Gio.Menu()
+    menu.append("About Edgeware++", "app.about")
+    menu.append("Keyboard Shortcuts", "app.shortcuts")
+    sep = Gio.Menu()
+    sep.append("Quit", "app.quit")
+    menu.append_section(None, sep)
+    btn = Gtk.MenuButton()
+    btn.set_icon_name("open-menu-symbolic")
+    btn.set_menu_model(menu)
+    btn.set_tooltip_text("Main menu")
+    return btn
 
 
 def _load_pack(pack_name: str) -> Pack:
@@ -230,6 +245,8 @@ def maybe_prompt_update(local_version: str, live_version: str) -> None:
             f"A newer version of Edgeware++ LinuxNative is available "
             f"({live_version}). Visit the repository to download it?",
             heading="New version available",
+            confirm_label="Visit Repository",
+            cancel_label="Not Now",
         ):
             import webbrowser
             webbrowser.open("https://github.com/sirenondine/EdgewarePlusPlus-LinuxNative")
@@ -257,20 +274,8 @@ class SettingsWindow(Adw.ApplicationWindow):
         except Exception:
             logging.warning("failed to set icon.")
 
-        css = Gtk.CssProvider()
-        css.load_from_string("""
-            .version-mismatch { color: @warning_color; font-weight: bold; }
-            .loading-overlay {
-                background: alpha(@window_bg_color, 0.85);
-            }
-            .danger-confirm {
-                background-color: alpha(@warning_color, 0.16);
-                padding: 8px 12px;
-            }
-        """)
-        Gtk.StyleContext.add_provider_for_display(
-            self.get_display(), css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
-        )
+        from config.gtk_window.utils import _ensure_config_css
+        _ensure_config_css()
 
         self._vars = vars
         self._local_version = local_version
@@ -303,6 +308,10 @@ class SettingsWindow(Adw.ApplicationWindow):
             self._split.set_collapsed(not btn.get_active()) if hasattr(self, "_split") else None,
         ))
         header.pack_start(self._sidebar_toggle)
+        # Menu button rightmost in end area (pack_end first = rightmost).
+        # Only shown in standalone mode; embedded mode uses the Dashboard's header.
+        if not self._embedded:
+            header.pack_end(_make_menu_button())
 
         # No Save button: settings autosave live (see _on_var_change).
         # When embedded inside the dashboard the dashboard already has a header;
@@ -440,7 +449,7 @@ class SettingsWindow(Adw.ApplicationWindow):
             if cat is None:
                 row.set_header(None)
                 return
-            label = Gtk.Label(label=cat.upper(), xalign=0)
+            label = Gtk.Label(label=cat, xalign=0)
             label.add_css_class("dim-label")
             label.add_css_class("caption-heading")
             label.set_margin_start(12)
@@ -486,17 +495,12 @@ class SettingsWindow(Adw.ApplicationWindow):
 
         sidebar_list.connect("row-selected", on_row_selected)
 
-        # Responsive collapse: NavigationSplitView does not auto-collapse;
-        # drive it manually from window width. Collapse below 540px.
-        _COLLAPSE_WIDTH = 540
-
-        # Drive collapse via width property notification (fires on every resize).
-        def _on_width_changed(*_):
-            w = split.get_width()
-            if w > 0:
-                split.set_collapsed(w < _COLLAPSE_WIDTH)
-
-        split.connect("notify::width", _on_width_changed)
+        # Responsive collapse via Adw.Breakpoint: collapses the split view when
+        # the window is narrower than 540sp, restores it when wider again.
+        _bp = Adw.Breakpoint.new(Adw.BreakpointCondition.parse("max-width: 540sp"))
+        _bp.connect("apply", lambda _: split.set_collapsed(True))
+        _bp.connect("unapply", lambda _: split.set_collapsed(False))
+        self.add_breakpoint(_bp)
 
         # Sync toggle button when collapsed state changes from any source
         def _on_collapsed_changed(s, _p):
@@ -922,6 +926,8 @@ class DashboardWindow(Adw.ApplicationWindow):
         toolbar = Adw.ToolbarView()
         self._header = Adw.HeaderBar()
 
+        # Menu button rightmost (pack_end first), settings toggle left of it.
+        self._header.pack_end(_make_menu_button())
         # Gear button toggles between home and settings stack pages.
         self._settings_toggle = Gtk.ToggleButton(icon_name="preferences-system-symbolic")
         self._settings_toggle.set_tooltip_text("Settings")

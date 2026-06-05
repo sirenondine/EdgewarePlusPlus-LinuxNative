@@ -33,7 +33,59 @@ from gi import require_version
 require_version("Gdk", "4.0")
 require_version("Gtk", "4.0")
 require_version("Adw", "1")
-from gi.repository import Adw, Gtk
+from gi.repository import Adw, Gio, Gtk
+
+
+def _setup_app_actions(app: Adw.Application, version: str) -> None:
+    """Register app-wide GActions + accelerators. Called once after build_session()."""
+
+    def _show_about(_action, _param) -> None:
+        dialog = Adw.AboutDialog(
+            application_name="Edgeware++ LinuxNative",
+            application_icon="io.github.sirenondine.EdgewarePlusPlus",
+            version=version,
+            website="https://github.com/sirenondine/EdgewarePlusPlus-LinuxNative",
+            license_type=Gtk.License.GPL_3_0,
+            developer_name="Araten & Marigold",
+            developers=["Araten", "Marigold"],
+            copyright="© 2025 Araten & Marigold",
+        )
+        dialog.present(app.get_active_window())
+
+    def _show_shortcuts(_action, _param) -> None:
+        shortcuts = Adw.ShortcutsDialog()
+        for section_items in [
+            ("Settings", [
+                ("Search settings",  "<Ctrl>F"),
+                ("Toggle sidebar",   "<Ctrl>B"),
+            ]),
+            ("Application", [
+                ("Keyboard shortcuts", "<Ctrl>question"),
+                ("Quit",               "<Ctrl>Q"),
+            ]),
+        ]:
+            section_title, items = section_items
+            section = Adw.ShortcutsSection()
+            section.set_property("title", section_title)
+            for title, accel in items:
+                item = Adw.ShortcutsItem()
+                item.set_property("title", title)
+                item.set_property("accelerator", accel)
+                section.add(item)
+            shortcuts.add(section)
+        shortcuts.present(app.get_active_window())
+
+    for name, handler in [("about", _show_about), ("shortcuts", _show_shortcuts)]:
+        action = Gio.SimpleAction.new(name, None)
+        action.connect("activate", handler)
+        app.add_action(action)
+
+    quit_action = Gio.SimpleAction.new("quit", None)
+    quit_action.connect("activate", lambda *_: app.quit())
+    app.add_action(quit_action)
+
+    app.set_accels_for_action("app.shortcuts", ["<Ctrl>question"])
+    app.set_accels_for_action("app.quit", ["<Ctrl>q"])
 
 
 def main() -> None:
@@ -66,6 +118,8 @@ def main() -> None:
                 maybe_prompt_update,
             )
             vars, pack, local_version, _live = build_session()
+            if not app.lookup_action("about"):
+                _setup_app_actions(app, local_version)
             # `edgeware` (dashboard mode) passes --dashboard; `edgeware config`
             # opens the Settings window directly.
             if "--dashboard" in sys.argv:

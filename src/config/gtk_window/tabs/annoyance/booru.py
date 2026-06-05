@@ -102,7 +102,8 @@ class BooruTab(Adw.PreferencesPage):
         self._preview_btn = Gtk.Button(label="Preview")
         self._preview_btn.add_css_class("suggested-action")
         self._preview_btn.connect("clicked", self._on_preview)
-        self._spinner = Gtk.Spinner()
+        self._spinner = Adw.Spinner()
+        self._spinner.set_visible(False)
         head = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         head.append(self._spinner)
         head.append(self._preview_btn)
@@ -168,7 +169,7 @@ class BooruTab(Adw.PreferencesPage):
             self._flow.remove(child)
             child = self._flow.get_first_child()
         self._preview_btn.set_sensitive(False)
-        self._spinner.start()
+        self._spinner.set_visible(True)
         sort = self._vars.booru_sort.get() or ""
         self._status.set_text(f"Searching {site} for: {tags or '(all)'}…")
         threading.Thread(target=self._preview_worker,
@@ -212,7 +213,7 @@ class BooruTab(Adw.PreferencesPage):
         return False
 
     def _preview_done(self, count: int) -> bool:
-        self._spinner.stop()
+        self._spinner.set_visible(False)
         self._preview_btn.set_sensitive(True)
         if count:
             msg = f"{count} result(s)."

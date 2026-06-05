@@ -185,7 +185,8 @@ class CompanionTab(Adw.PreferencesPage):
         self._test_btn = Gtk.Button(label="Test")
         self._test_btn.add_css_class("suggested-action")
         self._test_btn.connect("clicked", self._on_test)
-        self._spinner = Gtk.Spinner()
+        self._spinner = Adw.Spinner()
+        self._spinner.set_visible(False)
         head = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         head.append(self._spinner)
         head.append(self._test_btn)
@@ -377,7 +378,7 @@ class CompanionTab(Adw.PreferencesPage):
         prompt = (self._vars.companion_system_prompt.get() or "").strip() or _DEFAULT_SYSTEM
         self._reply.set_text("")
         self._test_btn.set_sensitive(False)
-        self._spinner.start()
+        self._spinner.set_visible(True)
         threading.Thread(target=self._test_worker, args=(backend, url, model, key, prompt), daemon=True).start()
 
     def _test_worker(self, backend: str, url: str, model: str, key: str, prompt: str) -> None:
@@ -403,7 +404,7 @@ class CompanionTab(Adw.PreferencesPage):
         client.stream(messages, tok, done, err)
 
     def _finish(self, text: str) -> bool:
-        self._spinner.stop()
+        self._spinner.set_visible(False)
         self._test_btn.set_sensitive(True)
         self._reply.set_text(text)
         return False

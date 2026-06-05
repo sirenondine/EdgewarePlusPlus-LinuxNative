@@ -24,7 +24,8 @@ from pathlib import Path
 from gi import require_version
 
 require_version("Gtk", "4.0")
-from gi.repository import GLib, Gtk
+require_version("Adw", "1")
+from gi.repository import Adw, GLib, Gtk
 
 import os_utils
 import utils
@@ -35,6 +36,34 @@ from paths import Data, Process
 
 config = load_config()
 log_file = utils.init_logging("config")
+
+
+def _ensure_config_css() -> None:
+    """Load all static config-window CSS once. Safe to call multiple times."""
+    if getattr(_ensure_config_css, "_done", False):
+        return
+    _ensure_config_css._done = True  # type: ignore[attr-defined]
+    from gi.repository import Gdk
+    provider = Gtk.CssProvider()
+    provider.load_from_string("""
+        /* SettingsWindow */
+        .version-mismatch { color: @warning_color; font-weight: bold; }
+        .loading-overlay   { background: alpha(@window_bg_color, 0.85); }
+        .danger-confirm    { background-color: alpha(@warning_color, 0.16); padding: 8px 12px; }
+        /* HomeTab */
+        .home-pill {
+            background-color: alpha(@accent_bg_color, 0.18);
+            color: @accent_fg_color;
+            border-radius: 999px;
+            padding: 4px 12px;
+            margin: 2px;
+        }
+        .home-pill.dim { background-color: alpha(@window_fg_color, 0.10); color: @window_fg_color; }
+        .home-hero     { padding: 16px; }
+        .home-hero-art { border-radius: 12px; }
+    """)
+    Gtk.StyleContext.add_provider_for_display(
+        Gdk.Display.get_default(), provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
 
 
 def _get_parent_window():
@@ -133,56 +162,61 @@ def request_global_panic_key(button: Gtk.Button, var: ConfigVar) -> None:
     # the 'input' group, so the dialog never read a keypress. The captured value
     # is stored in pynput's str() format so the runtime portal/evdev panic
     # listeners recognise it.
-    window = Gtk.Window(title="Set Panic Key")
-    window.set_default_size(300, 160)
-    window.set_resizable(False)
-    window.set_modal(True)
-    window.set_transient_for(button.get_root())
+    dialog = Adw.Dialog()
+    dialog.set_title("Set Panic Key")
+    dialog.set_content_width(340)
+    dialog.set_content_height(200)
 
-    label = Gtk.Label(
-        label="Press any key to set it as the panic hotkey,\nor close this window to cancel.",
-        wrap=True,
+    status = Adw.StatusPage(
+        icon_name="input-keyboard-symbolic",
+        title="Press any key",
+        description="That key will become the panic hotkey.\nClose to cancel.",
     )
-    label.set_vexpand(True)
-    label.set_hexpand(True)
-    window.set_child(label)
+    tv = Adw.ToolbarView()
+    tv.add_top_bar(Adw.HeaderBar())
+    tv.set_content(status)
+    dialog.set_child(tv)
 
     def on_key_pressed(_controller, keyval: int, _keycode: int, _state) -> bool:
         stored = _keyval_to_pynput(keyval)
         var.set(stored)
         button.set_label(f"<{pretty_panic_key(stored)}>")
-        window.close()
+        dialog.close()
         return True
 
     controller = Gtk.EventControllerKey.new()
     controller.connect("key-pressed", on_key_pressed)
-    window.add_controller(controller)
-    window.present()
+    dialog.add_controller(controller)
+    dialog.present(button.get_root())
 
 
 def request_legacy_panic_key(button: Gtk.Button, var: ConfigVar) -> None:
-    window = Gtk.Window(title="Key Listener")
-    window.set_default_size(250, 250)
-    window.set_resizable(False)
-    window.set_modal(True)
-    window.set_transient_for(button.get_root())
-    label = Gtk.Label(label="Press any key or close")
-    label.set_vexpand(True)
-    label.set_hexpand(True)
-    window.set_child(label)
+    dialog = Adw.Dialog()
+    dialog.set_title("Key Listener")
+    dialog.set_content_width(300)
+    dialog.set_content_height(160)
 
-    key_controller = Gtk.EventControllerKey.new()
-    key_controller.connect("key-pressed", lambda c, k, _, __: assign_panic_key(k))
-    window.add_controller(key_controller)
+    status = Adw.StatusPage(
+        icon_name="input-keyboard-symbolic",
+        title="Press any key",
+        description="Close to cancel.",
+    )
+    tv = Adw.ToolbarView()
+    tv.add_top_bar(Adw.HeaderBar())
+    tv.set_content(status)
+    dialog.set_child(tv)
 
     def assign_panic_key(keyval: int) -> bool:
         key_name = Gtk.accelerator_name(keyval, 0)
         button.set_label(f"Set Legacy\nPanic Key\n<{key_name}>")
         var.set(key_name)
-        window.close()
+        dialog.close()
         return True
 
-    window.present()
+    key_controller = Gtk.EventControllerKey.new()
+    key_controller.connect("key-pressed", lambda c, k, _, __: assign_panic_key(k))
+    dialog.add_controller(key_controller)
+    dialog.present(button.get_root())
 
 
 def confirm_overwrite(path: Path) -> bool:
@@ -197,6 +231,9 @@ def confirm_overwrite(path: Path) -> bool:
         "Confirm Overwrite",
         f'"{path}" already exists.\n\nThis {path_type} will be permanently deleted. Proceed?',
         heading="Overwrite existing file?",
+        confirm_label="Overwrite",
+        cancel_label="Cancel",
+        destructive=True,
     ):
         delete(path)
         return True
@@ -310,16 +347,18 @@ def safe_check(vars: Vars) -> bool:
         f"<b>{danger_num}</b> potentially dangerous setting(s) are active:{warnings}",
         heading="Save anyway?",
         markup=True,
+        confirm_label="Save Anyway",
+        cancel_label="Cancel",
     )
 
 
 def clear_launches(confirmation: bool) -> None:
-    from gtk_dialog import ask_yes_no
+    from gtk_dialog import show_info
     try:
         if os.path.exists(Data.CORRUPTION_LAUNCHES):
             os.remove(Data.CORRUPTION_LAUNCHES)
             if confirmation:
-                ask_yes_no(
+                show_info(
                     "Launches Reset",
                     "The corruption launches file has been deleted. "
                     "It will be recreated the next time Edgeware runs with corruption enabled.",
@@ -327,7 +366,7 @@ def clear_launches(confirmation: bool) -> None:
                 )
         else:
             if confirmation:
-                ask_yes_no(
+                show_info(
                     "No Launches File",
                     "There is no launches file to delete.\n\n"
                     "The launches file tracks the Launch trigger mode and is "

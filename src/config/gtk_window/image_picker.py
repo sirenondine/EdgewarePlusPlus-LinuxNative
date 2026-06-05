@@ -53,11 +53,10 @@ def open_image_picker(parent, directory: Path, current: str,
                       allow_none: bool = True, title: str = "Choose Image") -> None:
     """Open a modal thumbnail grid. Calls on_pick(filename) with the chosen file
     ("" for the None tile) and closes."""
-    win = Gtk.Window(title=title)
-    win.set_default_size(640, 560)
-    win.set_modal(True)
-    if parent:
-        win.set_transient_for(parent)
+    dialog = Adw.Dialog()
+    dialog.set_title(title)
+    dialog.set_content_width(640)
+    dialog.set_content_height(560)
 
     flow = Gtk.FlowBox()
     flow.set_selection_mode(Gtk.SelectionMode.NONE)
@@ -69,7 +68,7 @@ def open_image_picker(parent, directory: Path, current: str,
 
     def choose(name: str) -> None:
         on_pick(name)
-        win.close()
+        dialog.close()
 
     if allow_none:
         flow.append(_tile(None, current, choose))
@@ -86,8 +85,8 @@ def open_image_picker(parent, directory: Path, current: str,
     header.set_title_widget(Adw.WindowTitle(title=title, subtitle=str(directory.name)))
     tv.add_top_bar(header)
     tv.set_content(scroller)
-    win.set_child(tv)
-    win.present()
+    dialog.set_child(tv)
+    dialog.present(parent)
 
 
 def open_remote_image_picker(parent, items: list[tuple[str, str, str]], current: str,
@@ -96,11 +95,10 @@ def open_remote_image_picker(parent, items: list[tuple[str, str, str]], current:
     """Like open_image_picker but tiles come from `items` — a list of
     (display_label, value, image_url). Thumbnails download asynchronously.
     on_pick(value) is called with the chosen value ("" for None)."""
-    win = Gtk.Window(title=title)
-    win.set_default_size(640, 560)
-    win.set_modal(True)
-    if parent:
-        win.set_transient_for(parent)
+    dialog = Adw.Dialog()
+    dialog.set_title(title)
+    dialog.set_content_width(640)
+    dialog.set_content_height(560)
 
     flow = Gtk.FlowBox()
     flow.set_selection_mode(Gtk.SelectionMode.NONE)
@@ -111,7 +109,7 @@ def open_remote_image_picker(parent, items: list[tuple[str, str, str]], current:
 
     def choose(value: str) -> None:
         on_pick(value)
-        win.close()
+        dialog.close()
 
     if allow_none:
         flow.append(_url_tile("None", "", None, current, choose))
@@ -125,8 +123,8 @@ def open_remote_image_picker(parent, items: list[tuple[str, str, str]], current:
     tv = Adw.ToolbarView()
     tv.add_top_bar(Adw.HeaderBar())
     tv.set_content(scroller)
-    win.set_child(tv)
-    win.present()
+    dialog.set_child(tv)
+    dialog.present(parent)
 
 
 def _url_tile(label: str, value: str, url: "str | None", current: str,

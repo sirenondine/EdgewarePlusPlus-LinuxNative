@@ -63,12 +63,11 @@ class ProgressTab(Adw.PreferencesPage):
         general.add(reset_row)
 
     def _on_reset(self, button: Gtk.Button) -> None:
-        dialog = Adw.MessageDialog(
-            transient_for=self.get_root(),
+        dialog = Adw.AlertDialog(
             heading="Reset progress?",
             body="This erases all XP, levels and achievements. It cannot be undone.")
         dialog.add_response("cancel", "Cancel")
-        dialog.add_response("reset", "Reset")
+        dialog.add_response("reset", "Reset Progress")
         dialog.set_response_appearance("reset", Adw.ResponseAppearance.DESTRUCTIVE)
         dialog.set_default_response("cancel")
         dialog.set_close_response("cancel")
@@ -82,4 +81,4 @@ class ProgressTab(Adw.PreferencesPage):
                     root._toast_overlay.add_toast(toast)
 
         dialog.connect("response", on_response)
-        dialog.present()
+        dialog.present(self.get_root())
