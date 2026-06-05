@@ -965,30 +965,32 @@ class PackEditorContent:
 
         keys = self._corruption_level_keys()
 
-        # Move up/down buttons
-        up_btn = Gtk.Button(icon_name="go-up-symbolic")
-        up_btn.set_valign(Gtk.Align.CENTER)
-        up_btn.add_css_class("flat")
-        up_btn.set_tooltip_text("Move level up")
-        up_btn.set_sensitive(level != keys[0])
-        up_btn.connect("clicked", lambda _b, lv=level: self._on_move_corruption_level(lv, -1))
-        exp.add_suffix(up_btn)
-
-        down_btn = Gtk.Button(icon_name="go-down-symbolic")
-        down_btn.set_valign(Gtk.Align.CENTER)
-        down_btn.add_css_class("flat")
-        down_btn.set_tooltip_text("Move level down")
-        down_btn.set_sensitive(level != keys[-1])
-        down_btn.connect("clicked", lambda _b, lv=level: self._on_move_corruption_level(lv, +1))
-        exp.add_suffix(down_btn)
-
-        # Delete-level button
+        # Delete button added first → packs rightmost (suffixes fill right-to-left)
         del_btn = Gtk.Button(icon_name="user-trash-symbolic")
         del_btn.set_valign(Gtk.Align.CENTER)
         del_btn.add_css_class("destructive-action")
         del_btn.set_tooltip_text("Delete level")
         del_btn.connect("clicked", lambda _b, lv=level: self._on_delete_corruption_level(lv))
         exp.add_suffix(del_btn)
+
+        # Linked ↑↓ pair added second → packs left of delete, visually distinct from expander
+        reorder_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+        reorder_box.add_css_class("linked")
+        reorder_box.set_valign(Gtk.Align.CENTER)
+
+        up_btn = Gtk.Button(icon_name="go-up-symbolic")
+        up_btn.set_tooltip_text("Move level up")
+        up_btn.set_sensitive(level != keys[0])
+        up_btn.connect("clicked", lambda _b, lv=level: self._on_move_corruption_level(lv, -1))
+        reorder_box.append(up_btn)
+
+        down_btn = Gtk.Button(icon_name="go-down-symbolic")
+        down_btn.set_tooltip_text("Move level down")
+        down_btn.set_sensitive(level != keys[-1])
+        down_btn.connect("clicked", lambda _b, lv=level: self._on_move_corruption_level(lv, +1))
+        reorder_box.append(down_btn)
+
+        exp.add_suffix(reorder_box)
 
         exp.add_row(self._corruption_name_row(level, exp))
         exp.add_row(self._corruption_mood_row(level, "add", "Add moods"))
