@@ -74,11 +74,22 @@ def _niri_keybind_snippet(key_label: str) -> str:
     )
 
 
-def _niri_keybind_configured() -> bool:
-    if not _NIRI_CONFIG.is_file():
+def _search_niri_kdls(pattern: str) -> bool:
+    """Return True if `pattern` matches any text in any .kdl under ~/.config/niri/."""
+    niri_dir = _NIRI_CONFIG.parent
+    if not niri_dir.is_dir():
         return False
-    content = _NIRI_CONFIG.read_text(encoding="utf-8", errors="replace")
-    return bool(re.search(r'"[^"]*edgeware[^"]*"\s+"panic"', content))
+    for kdl in niri_dir.rglob("*.kdl"):
+        try:
+            if re.search(pattern, kdl.read_text(encoding="utf-8", errors="replace")):
+                return True
+        except OSError:
+            pass
+    return False
+
+
+def _niri_keybind_configured() -> bool:
+    return _search_niri_kdls(r'"[^"]*edgeware[^"]*"\s+"panic"')
 
 
 def _niri_append_config(path: Path, snippet: str) -> "str | None":
@@ -140,7 +151,7 @@ def _niri_keybind_row(key_var) -> Adw.ActionRow:
     status_stack.set_visible_child_name("ok" if already else "warn")
     vbox.append(status_stack)
 
-    # Monospaced snippet
+    # Monospaced snippet + hint + buttons — hidden when already configured
     code_view = Gtk.TextView()
     code_view.set_editable(False)
     code_view.set_monospace(True)
@@ -148,6 +159,7 @@ def _niri_keybind_row(key_var) -> Adw.ActionRow:
     code_view.set_cursor_visible(False)
     code_view.add_css_class("card")
     code_view.get_buffer().set_text(snippet)
+    code_view.set_visible(not already)
     vbox.append(code_view)
 
     hint = Gtk.Label(
@@ -155,15 +167,15 @@ def _niri_keybind_row(key_var) -> Adw.ActionRow:
         xalign=0, wrap=True,
     )
     hint.add_css_class("dim-label")
+    hint.set_visible(not already)
     vbox.append(hint)
 
-    # Buttons
     btn_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
     btn_box.set_halign(Gtk.Align.END)
+    btn_box.set_visible(not already)
 
     add_btn = Gtk.Button(label="Add to config.kdl")
     add_btn.add_css_class("suggested-action")
-    add_btn.set_sensitive(not already)
 
     copy_btn = Gtk.Button(icon_name="edit-copy-symbolic")
     copy_btn.set_tooltip_text("Copy niri keybind to clipboard")
@@ -172,14 +184,19 @@ def _niri_keybind_row(key_var) -> Adw.ActionRow:
     btn_box.append(copy_btn)
     vbox.append(btn_box)
 
+    def _set_configured():
+        status_stack.set_visible_child_name("ok")
+        code_view.set_visible(False)
+        hint.set_visible(False)
+        btn_box.set_visible(False)
+
     def on_add(_b):
         from config.gtk_window.toast import toast
         err = _niri_append_config(_NIRI_CONFIG, snippet)
         if err:
             toast(f"Failed: {err}")
         else:
-            status_stack.set_visible_child_name("ok")
-            add_btn.set_sensitive(False)
+            _set_configured()
             toast("Added to config.kdl — reload: niri msg action reload-config")
 
     def on_copy(_b):

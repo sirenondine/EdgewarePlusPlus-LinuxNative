@@ -92,11 +92,22 @@ def _is_niri() -> bool:
     return bool(os.environ.get("NIRI_SOCKET"))
 
 
-def _niri_blur_configured() -> bool:
-    if not _NIRI_LAYER_RULES.is_file():
+def _search_niri_kdls(pattern: str) -> bool:
+    """Return True if `pattern` is found in any .kdl file under ~/.config/niri/."""
+    niri_dir = _NIRI_LAYER_RULES.parent
+    if not niri_dir.is_dir():
         return False
-    content = _NIRI_LAYER_RULES.read_text(encoding="utf-8", errors="replace")
-    return 'namespace="^edgeware' in content
+    for kdl in niri_dir.rglob("*.kdl"):
+        try:
+            if pattern in kdl.read_text(encoding="utf-8", errors="replace"):
+                return True
+        except OSError:
+            pass
+    return False
+
+
+def _niri_blur_configured() -> bool:
+    return _search_niri_kdls('namespace="^edgeware')
 
 
 def _niri_append_config(path: "Path", snippet: str) -> "str | None":
@@ -306,20 +317,22 @@ class CompanionTab(Adw.PreferencesPage):
         code_view.set_cursor_visible(False)
         code_view.add_css_class("card")
         code_view.get_buffer().set_text(_NIRI_BLUR_SNIPPET)
+        code_view.set_visible(not already)
         vbox.append(code_view)
 
         hint = Gtk.Label(
             label="~/.config/niri/layer-rules.kdl — niri reloads it automatically.",
             xalign=0, wrap=True)
         hint.add_css_class("dim-label")
+        hint.set_visible(not already)
         vbox.append(hint)
 
         btn_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         btn_box.set_halign(Gtk.Align.END)
+        btn_box.set_visible(not already)
 
         add_btn = Gtk.Button(label="Add to layer-rules.kdl")
         add_btn.add_css_class("suggested-action")
-        add_btn.set_sensitive(not already)
 
         copy_btn = Gtk.Button(icon_name="edit-copy-symbolic")
         copy_btn.set_tooltip_text("Copy layer-rule to clipboard")
@@ -328,14 +341,19 @@ class CompanionTab(Adw.PreferencesPage):
         btn_box.append(copy_btn)
         vbox.append(btn_box)
 
+        def _set_configured():
+            status_stack.set_visible_child_name("ok")
+            code_view.set_visible(False)
+            hint.set_visible(False)
+            btn_box.set_visible(False)
+
         def on_add(_b) -> None:
             from config.gtk_window.toast import toast
             err = _niri_append_config(_NIRI_LAYER_RULES, _NIRI_BLUR_SNIPPET)
             if err:
                 toast(f"Failed: {err}")
             else:
-                status_stack.set_visible_child_name("ok")
-                add_btn.set_sensitive(False)
+                _set_configured()
                 toast("Added to layer-rules.kdl — niri will reload automatically.")
 
         def on_copy(_b) -> None:
