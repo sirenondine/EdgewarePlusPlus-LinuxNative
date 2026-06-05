@@ -119,6 +119,7 @@ class PackEditorContent:
         self._build_config_save_group(page)
         if self.editor.has_index:
             self._build_corruption_row(page)
+        self._build_verify_group(page)
 
     # --- info.json --------------------------------------------------------
     def _build_info_group(self, page: Adw.PreferencesPage) -> None:
@@ -1323,6 +1324,108 @@ class PackEditorContent:
             GLib.source_remove(self._save_source)
             self._save_source = None
         self._do_save()
+
+    # --- Pack verification ------------------------------------------------
+    def _build_verify_group(self, page: Adw.PreferencesPage) -> None:
+        group = Adw.PreferencesGroup(
+            title="Verification",
+            description="Check for invalid JSON, missing media, broken references, and more.",
+        )
+        page.add(group)
+        btn = Gtk.Button()
+        btn.set_child(Adw.ButtonContent(
+            label="Verify Pack", icon_name="emblem-ok-symbolic"))
+        btn.set_halign(Gtk.Align.START)
+        btn.add_css_class("suggested-action")
+        btn.connect("clicked", lambda _b: self._run_verify(btn))
+        row = Adw.ActionRow(title="Run a full check of all pack files")
+        row.add_suffix(btn)
+        row.set_activatable_widget(btn)
+        group.add(row)
+
+    def _run_verify(self, anchor: Gtk.Widget) -> None:
+        issues = self.editor.verify()
+        self._show_verify_results(issues, anchor)
+
+    def _show_verify_results(self, issues: list, anchor: Gtk.Widget) -> None:
+        dialog = Adw.Dialog()
+        dialog.set_title("Pack Verification")
+        dialog.set_content_width(560)
+        dialog.set_content_height(600)
+
+        tv = Adw.ToolbarView()
+        tv.add_top_bar(Adw.HeaderBar())
+        dialog.set_child(tv)
+
+        if not issues:
+            status = Adw.StatusPage(
+                icon_name="emblem-ok-symbolic",
+                title="All checks passed",
+                description="No errors, warnings, or notices found.",
+            )
+            tv.set_content(status)
+            dialog.present(anchor.get_root())
+            return
+
+        page = Adw.PreferencesPage()
+        scroller = Gtk.ScrolledWindow()
+        scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        scroller.set_vexpand(True)
+        scroller.set_child(page)
+        tv.set_content(scroller)
+
+        _SEVERITY_META = {
+            "error":   ("dialog-error-symbolic",   "Errors",   "error"),
+            "warning": ("dialog-warning-symbolic",  "Warnings", "warning"),
+            "info":    ("dialog-information-symbolic", "Notices", None),
+        }
+        groups: dict[str, Adw.PreferencesGroup] = {}
+        for sev, category, message in issues:
+            if sev not in groups:
+                icon, title, css = _SEVERITY_META.get(sev, ("dialog-information-symbolic", sev.title(), None))
+                g = Adw.PreferencesGroup(title=title)
+                groups[sev] = g
+                page.add(g)
+            else:
+                icon, _, css = _SEVERITY_META.get(sev, ("dialog-information-symbolic", sev.title(), None))
+
+            row = Adw.ActionRow(title=category, subtitle=message)
+            img = Gtk.Image.new_from_icon_name(icon)
+            img.set_valign(Gtk.Align.CENTER)
+            if css:
+                img.add_css_class(css)
+            row.add_prefix(img)
+            groups[sev].add(row)
+
+        # Summary row at top
+        n_err = sum(1 for s, _, __ in issues if s == "error")
+        n_warn = sum(1 for s, _, __ in issues if s == "warning")
+        n_info = sum(1 for s, _, __ in issues if s == "info")
+        parts = []
+        if n_err:   parts.append(f"{n_err} error{'s' if n_err != 1 else ''}")
+        if n_warn:  parts.append(f"{n_warn} warning{'s' if n_warn != 1 else ''}")
+        if n_info:  parts.append(f"{n_info} notice{'s' if n_info != 1 else ''}")
+        summary_group = Adw.PreferencesGroup()
+        summary_row = Adw.ActionRow(
+            title="Summary",
+            subtitle=", ".join(parts),
+        )
+        img = Gtk.Image.new_from_icon_name(
+            "dialog-error-symbolic" if n_err else "dialog-warning-symbolic")
+        img.set_valign(Gtk.Align.CENTER)
+        img.add_css_class("error" if n_err else "warning")
+        summary_row.add_prefix(img)
+        summary_group.add(summary_row)
+        page.add(summary_group)
+        # Move summary to top by rebuilding page order
+        page.remove(summary_group)
+        for g in list(groups.values()):
+            page.remove(g)
+        page.add(summary_group)
+        for g in groups.values():
+            page.add(g)
+
+        dialog.present(anchor.get_root())
 
 
 # ---------------------------------------------------------------------------

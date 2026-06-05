@@ -283,5 +283,62 @@ class CreatePackTest(unittest.TestCase):
         self.assertIn("moods", idx)
 
 
+class PackEditorVerifyTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        root = Path(self.tmp.name)
+        self.pack_dir = _make_pack(root)
+        self.ed = PackEditor(self.pack_dir)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _severities(self, issues):
+        return [s for s, _, __ in issues]
+
+    def test_clean_pack_no_issues(self):
+        # Add a mood with a caption so the "empty pack" warning doesn't fire
+        self.ed.add_mood("test")
+        self.ed.set_mood_list("test", "captions", ["hello"])
+        issues = self.ed.verify()
+        self.assertEqual(issues, [])
+
+    def test_invalid_info_json(self):
+        (self.pack_dir / "info.json").write_text("{bad json", encoding="utf-8")
+        issues = self.ed.verify()
+        self.assertTrue(any(s == "error" and "info.json" in c for s, c, _ in issues))
+
+    def test_missing_media_file(self):
+        self.ed.add_mood("test")
+        # Directly inject a media reference without creating the file
+        self.ed._find_mood("test")["media"] = ["ghost.png"]
+        issues = self.ed.verify()
+        self.assertTrue(any(s == "error" and "media" in c for s, c, _ in issues))
+
+    def test_missing_media_not_reported_when_file_exists(self):
+        self.ed.add_mood("test")
+        img_dir = self.pack_dir / "img"
+        img_dir.mkdir(exist_ok=True)
+        (img_dir / "real.png").write_bytes(b"")
+        self.ed._find_mood("test")["media"] = ["real.png"]
+        issues = self.ed.verify()
+        self.assertFalse(any("real.png" in msg for _, __, msg in issues))
+
+    def test_corruption_stale_mood_warning(self):
+        import json
+        (self.pack_dir / "corruption.json").write_text(
+            json.dumps({"moods": {"1": {"add": ["ghost"], "remove": []}},
+                        "wallpapers": {}, "config": {}, "names": {}}),
+            encoding="utf-8")
+        issues = self.ed.verify()
+        self.assertTrue(any(s == "warning" and "corruption" in c for s, c, _ in issues))
+
+    def test_empty_pack_warning(self):
+        # Fresh pack from _make_pack has no moods and no captions
+        issues = self.ed.verify()
+        # _make_pack creates index with no moods and empty default → warning
+        self.assertTrue(any(s == "warning" for s, _, __ in issues))
+
+
 if __name__ == "__main__":
     unittest.main()

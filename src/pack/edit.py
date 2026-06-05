@@ -725,3 +725,89 @@ class PackEditor:
         except Exception as e:
             logging.warning(f"pack edit: legacy migration failed: {e}")
             return str(e)
+
+    # --- Pack verification ------------------------------------------------
+    def verify(self) -> list[tuple[str, str, str]]:
+        """Return a list of (severity, category, message) issues.
+
+        severity: "error" | "warning" | "info"
+        Errors block correct runtime behaviour; warnings degrade it; info is cosmetic.
+        """
+        issues: list[tuple[str, str, str]] = []
+        pack_dir = self.pack_dir
+
+        # JSON validity for every JSON file that can exist
+        for fname in ("info.json", "index.json", "corruption.json",
+                      "companion.json", "config.json"):
+            p = pack_dir / fname
+            if p.is_file():
+                try:
+                    json.loads(p.read_text(encoding="utf-8", errors="replace"))
+                except json.JSONDecodeError as e:
+                    issues.append(("error", fname, f"Invalid JSON: {e}"))
+
+        # info.json schema
+        info_err = self.validate_info()
+        if info_err:
+            issues.append(("error", "info.json", info_err))
+
+        # index.json schema (promptMinLength / promptMaxLength / etc.)
+        idx_err = self.validate_index()
+        if idx_err:
+            issues.append(("error", "index.json", idx_err))
+
+        # Missing media files referenced in moods
+        media_dirs = [pack_dir / "img", pack_dir / "vid", pack_dir / "aud"]
+        for mood in self._moods():
+            mood_name = mood.get("mood", "?")
+            for filename in mood.get("media", []):
+                if not any((d / filename).is_file() for d in media_dirs):
+                    issues.append(("error", "media",
+                                   f"\"{filename}\" (mood: {mood_name}) not found on disk"))
+
+        # Corruption: stale mood references and missing wallpapers
+        corruption = self.get_corruption()
+        mood_set = set(self.mood_names())
+        for lv_key, mood_data in corruption.get("moods", {}).items():
+            if not lv_key.isdigit():
+                continue
+            for kind in ("add", "remove"):
+                for name in mood_data.get(kind, []):
+                    if name not in mood_set:
+                        issues.append(("warning", "corruption.json",
+                                       f"Level {lv_key} {kind}s unknown mood \"{name}\""))
+        for lv_key, wp in corruption.get("wallpapers", {}).items():
+            if lv_key.isdigit() and wp and not (pack_dir / wp).is_file():
+                issues.append(("warning", "corruption.json",
+                               f"Level {lv_key} wallpaper not found: {wp}"))
+
+        # Companion: missing avatar / spritesheet
+        companion = self.get_companion()
+        if companion:
+            for field in ("avatar", "spritesheet"):
+                f = companion.get(field)
+                if f and not (pack_dir / f).is_file():
+                    issues.append(("warning", "companion.json",
+                                   f"{field} file not found: {f}"))
+
+        # Empty pack (no moods, no default captions)
+        if not mood_set and not self.get_list("captions"):
+            issues.append(("warning", "index.json",
+                           "No moods and no default captions — pack will show nothing at runtime."))
+
+        # Moods with no media and no captions
+        for name in self.mood_names():
+            mood = self._find_mood(name)
+            if mood and not mood.get("media") and not self.get_mood_list(name, "captions"):
+                issues.append(("info", "moods",
+                               f"Mood \"{name}\" has no media and no captions."))
+
+        # Legacy files alongside index.json
+        legacy = [f for f in ("captions.json", "media.json", "prompt.json", "web.json")
+                  if (pack_dir / f).is_file()]
+        if legacy and self.index_path.is_file():
+            issues.append(("info", "legacy",
+                           f"Legacy files alongside index.json: {', '.join(legacy)}. "
+                           "Consider migrating via the editor."))
+
+        return issues
