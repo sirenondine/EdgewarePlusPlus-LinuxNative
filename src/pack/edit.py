@@ -31,10 +31,22 @@ import logging
 import os
 import shutil
 import tempfile
+from collections.abc import Callable
 from pathlib import Path
+from typing import NamedTuple
 
 from voluptuous import ALLOW_EXTRA, All, Optional, Range, Schema
 from voluptuous.error import Invalid
+
+
+class VerifyIssue(NamedTuple):
+    """Single verification result. fix_fn() returns an error string or None on success."""
+    severity: str   # "error" | "warning" | "info"
+    category: str
+    message: str
+    fix_fn: Callable[[], "str | None"] | None = None
+    fix_label: str = "Fix"
+
 
 # default-mood fields the Phase 1 editor exposes, by their index.json key.
 DEFAULT_TEXT_LISTS = ["captions", "denial", "subliminals", "notifications", "prompts"]
@@ -726,14 +738,39 @@ class PackEditor:
             logging.warning(f"pack edit: legacy migration failed: {e}")
             return str(e)
 
+    # --- Auto-fix helpers (called from VerifyIssue.fix_fn lambdas) --------
+    def fix_remove_media_ref(self, mood_name: str, filename: str) -> "str | None":
+        mood = self._find_mood(mood_name)
+        if mood and filename in mood.get("media", []):
+            mood["media"].remove(filename)
+        return self.save_index()
+
+    def fix_corruption_stale_mood(self, lv_key: str, kind: str, name: str) -> "str | None":
+        data = self.get_corruption()
+        lst = data.get("moods", {}).get(lv_key, {}).get(kind, [])
+        if name in lst:
+            lst.remove(name)
+        return self.save_corruption(data)
+
+    def fix_corruption_missing_wallpaper(self, lv_key: str) -> "str | None":
+        data = self.get_corruption()
+        data.setdefault("wallpapers", {})[lv_key] = ""
+        return self.save_corruption(data)
+
+    def fix_companion_missing_field(self, field: str) -> "str | None":
+        data = self.get_companion()
+        data.pop(field, None)
+        return self.save_companion(data)
+
     # --- Pack verification ------------------------------------------------
-    def verify(self) -> list[tuple[str, str, str]]:
-        """Return a list of (severity, category, message) issues.
+    def verify(self) -> "list[VerifyIssue]":
+        """Return a list of VerifyIssue for this pack.
 
         severity: "error" | "warning" | "info"
         Errors block correct runtime behaviour; warnings degrade it; info is cosmetic.
+        Issues with fix_fn can be auto-corrected by calling fix_fn().
         """
-        issues: list[tuple[str, str, str]] = []
+        issues: list[VerifyIssue] = []
         pack_dir = self.pack_dir
 
         # JSON validity for every JSON file that can exist
@@ -744,17 +781,17 @@ class PackEditor:
                 try:
                     json.loads(p.read_text(encoding="utf-8", errors="replace"))
                 except json.JSONDecodeError as e:
-                    issues.append(("error", fname, f"Invalid JSON: {e}"))
+                    issues.append(VerifyIssue("error", fname, f"Invalid JSON: {e}"))
 
         # info.json schema
         info_err = self.validate_info()
         if info_err:
-            issues.append(("error", "info.json", info_err))
+            issues.append(VerifyIssue("error", "info.json", info_err))
 
         # index.json schema (promptMinLength / promptMaxLength / etc.)
         idx_err = self.validate_index()
         if idx_err:
-            issues.append(("error", "index.json", idx_err))
+            issues.append(VerifyIssue("error", "index.json", idx_err))
 
         # Missing media files referenced in moods
         media_dirs = [pack_dir / "img", pack_dir / "vid", pack_dir / "aud"]
@@ -762,8 +799,12 @@ class PackEditor:
             mood_name = mood.get("mood", "?")
             for filename in mood.get("media", []):
                 if not any((d / filename).is_file() for d in media_dirs):
-                    issues.append(("error", "media",
-                                   f"\"{filename}\" (mood: {mood_name}) not found on disk"))
+                    issues.append(VerifyIssue(
+                        "error", "media",
+                        f"\"{filename}\" (mood: {mood_name}) not found on disk",
+                        fix_fn=lambda mn=mood_name, fn=filename: self.fix_remove_media_ref(mn, fn),
+                        fix_label="Remove reference",
+                    ))
 
         # Corruption: stale mood references and missing wallpapers
         corruption = self.get_corruption()
@@ -774,12 +815,21 @@ class PackEditor:
             for kind in ("add", "remove"):
                 for name in mood_data.get(kind, []):
                     if name not in mood_set:
-                        issues.append(("warning", "corruption.json",
-                                       f"Level {lv_key} {kind}s unknown mood \"{name}\""))
+                        issues.append(VerifyIssue(
+                            "warning", "corruption.json",
+                            f"Level {lv_key} {kind}s unknown mood \"{name}\"",
+                            fix_fn=lambda k=lv_key, kd=kind, n=name:
+                                self.fix_corruption_stale_mood(k, kd, n),
+                            fix_label="Remove",
+                        ))
         for lv_key, wp in corruption.get("wallpapers", {}).items():
             if lv_key.isdigit() and wp and not (pack_dir / wp).is_file():
-                issues.append(("warning", "corruption.json",
-                               f"Level {lv_key} wallpaper not found: {wp}"))
+                issues.append(VerifyIssue(
+                    "warning", "corruption.json",
+                    f"Level {lv_key} wallpaper not found: {wp}",
+                    fix_fn=lambda k=lv_key: self.fix_corruption_missing_wallpaper(k),
+                    fix_label="Clear",
+                ))
 
         # Companion: missing avatar / spritesheet
         companion = self.get_companion()
@@ -787,26 +837,30 @@ class PackEditor:
             for field in ("avatar", "spritesheet"):
                 f = companion.get(field)
                 if f and not (pack_dir / f).is_file():
-                    issues.append(("warning", "companion.json",
-                                   f"{field} file not found: {f}"))
+                    issues.append(VerifyIssue(
+                        "warning", "companion.json",
+                        f"{field} file not found: {f}",
+                        fix_fn=lambda fld=field: self.fix_companion_missing_field(fld),
+                        fix_label="Clear",
+                    ))
 
         # Empty pack (no moods, no default captions)
         if not mood_set and not self.get_list("captions"):
-            issues.append(("warning", "index.json",
+            issues.append(VerifyIssue("warning", "index.json",
                            "No moods and no default captions — pack will show nothing at runtime."))
 
         # Moods with no media and no captions
         for name in self.mood_names():
             mood = self._find_mood(name)
             if mood and not mood.get("media") and not self.get_mood_list(name, "captions"):
-                issues.append(("info", "moods",
+                issues.append(VerifyIssue("info", "moods",
                                f"Mood \"{name}\" has no media and no captions."))
 
         # Legacy files alongside index.json
         legacy = [f for f in ("captions.json", "media.json", "prompt.json", "web.json")
                   if (pack_dir / f).is_file()]
         if legacy and self.index_path.is_file():
-            issues.append(("info", "legacy",
+            issues.append(VerifyIssue("info", "legacy",
                            f"Legacy files alongside index.json: {', '.join(legacy)}. "
                            "Consider migrating via the editor."))
 

@@ -7,6 +7,7 @@ import tests._path  # noqa: F401
 
 from pack.edit import (
     PackEditor,
+    VerifyIssue,
     _slugify,
     _PACK_CONFIG_BLOCKLIST,
     create_pack,
@@ -294,7 +295,7 @@ class PackEditorVerifyTest(unittest.TestCase):
         self.tmp.cleanup()
 
     def _severities(self, issues):
-        return [s for s, _, __ in issues]
+        return [i.severity for i in issues]
 
     def test_clean_pack_no_issues(self):
         # Add a mood with a caption so the "empty pack" warning doesn't fire
@@ -306,14 +307,14 @@ class PackEditorVerifyTest(unittest.TestCase):
     def test_invalid_info_json(self):
         (self.pack_dir / "info.json").write_text("{bad json", encoding="utf-8")
         issues = self.ed.verify()
-        self.assertTrue(any(s == "error" and "info.json" in c for s, c, _ in issues))
+        self.assertTrue(any(i.severity == "error" and "info.json" in i.category for i in issues))
 
     def test_missing_media_file(self):
         self.ed.add_mood("test")
         # Directly inject a media reference without creating the file
         self.ed._find_mood("test")["media"] = ["ghost.png"]
         issues = self.ed.verify()
-        self.assertTrue(any(s == "error" and "media" in c for s, c, _ in issues))
+        self.assertTrue(any(i.severity == "error" and "media" in i.category for i in issues))
 
     def test_missing_media_not_reported_when_file_exists(self):
         self.ed.add_mood("test")
@@ -322,7 +323,7 @@ class PackEditorVerifyTest(unittest.TestCase):
         (img_dir / "real.png").write_bytes(b"")
         self.ed._find_mood("test")["media"] = ["real.png"]
         issues = self.ed.verify()
-        self.assertFalse(any("real.png" in msg for _, __, msg in issues))
+        self.assertFalse(any("real.png" in i.message for i in issues))
 
     def test_corruption_stale_mood_warning(self):
         import json
@@ -331,13 +332,54 @@ class PackEditorVerifyTest(unittest.TestCase):
                         "wallpapers": {}, "config": {}, "names": {}}),
             encoding="utf-8")
         issues = self.ed.verify()
-        self.assertTrue(any(s == "warning" and "corruption" in c for s, c, _ in issues))
+        self.assertTrue(any(i.severity == "warning" and "corruption" in i.category for i in issues))
 
     def test_empty_pack_warning(self):
         # Fresh pack from _make_pack has no moods and no captions
         issues = self.ed.verify()
         # _make_pack creates index with no moods and empty default → warning
-        self.assertTrue(any(s == "warning" for s, _, __ in issues))
+        self.assertTrue(any(i.severity == "warning" for i in issues))
+
+    def test_missing_media_has_fix_fn(self):
+        self.ed.add_mood("test")
+        self.ed._find_mood("test")["media"] = ["ghost.png"]
+        issues = self.ed.verify()
+        media_issues = [i for i in issues if i.category == "media"]
+        self.assertEqual(len(media_issues), 1)
+        self.assertIsNotNone(media_issues[0].fix_fn)
+        self.assertEqual(media_issues[0].fix_label, "Remove reference")
+
+    def test_missing_media_fix_removes_ref(self):
+        self.ed.add_mood("test")
+        self.ed._find_mood("test")["media"] = ["ghost.png"]
+        issues = self.ed.verify()
+        media_issue = next(i for i in issues if i.category == "media")
+        err = media_issue.fix_fn()
+        self.assertIsNone(err)
+        # After fix, verify should not report it
+        issues2 = self.ed.verify()
+        self.assertFalse(any(i.category == "media" for i in issues2))
+
+    def test_corruption_stale_mood_has_fix_fn(self):
+        (self.pack_dir / "corruption.json").write_text(
+            json.dumps({"moods": {"1": {"add": ["ghost"], "remove": []}},
+                        "wallpapers": {}, "config": {}, "names": {}}),
+            encoding="utf-8")
+        issues = self.ed.verify()
+        corr_issues = [i for i in issues if i.category == "corruption.json" and i.fix_fn]
+        self.assertTrue(len(corr_issues) > 0)
+
+    def test_corruption_stale_mood_fix_removes_entry(self):
+        (self.pack_dir / "corruption.json").write_text(
+            json.dumps({"moods": {"1": {"add": ["ghost"], "remove": []}},
+                        "wallpapers": {}, "config": {}, "names": {}}),
+            encoding="utf-8")
+        issues = self.ed.verify()
+        corr_issue = next(i for i in issues if i.category == "corruption.json" and i.fix_fn)
+        err = corr_issue.fix_fn()
+        self.assertIsNone(err)
+        issues2 = self.ed.verify()
+        self.assertFalse(any(i.category == "corruption.json" and i.fix_fn for i in issues2))
 
 
 if __name__ == "__main__":

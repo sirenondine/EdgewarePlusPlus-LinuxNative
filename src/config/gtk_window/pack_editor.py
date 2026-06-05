@@ -1348,14 +1348,36 @@ class PackEditorContent:
         self._show_verify_results(issues, anchor)
 
     def _show_verify_results(self, issues: list, anchor: Gtk.Widget) -> None:
+        from config.gtk_window.toast import toast as _toast
+
         dialog = Adw.Dialog()
         dialog.set_title("Pack Verification")
         dialog.set_content_width(560)
         dialog.set_content_height(600)
 
         tv = Adw.ToolbarView()
-        tv.add_top_bar(Adw.HeaderBar())
+        hdr = Adw.HeaderBar()
+        tv.add_top_bar(hdr)
         dialog.set_child(tv)
+
+        def _fix_and_rerun(fix_fn, label):
+            err = fix_fn()
+            if err:
+                _toast(f"Fix failed: {err}")
+            else:
+                _toast(f"{label} — fixed.")
+            dialog.close()
+            self._run_verify(anchor)
+
+        def _fix_all(_btn):
+            fixable = [i for i in issues if i.fix_fn is not None]
+            count = 0
+            for issue in fixable:
+                if issue.fix_fn() is None:
+                    count += 1
+            _toast(f"Fixed {count} of {len(fixable)} issue(s).")
+            dialog.close()
+            self._run_verify(anchor)
 
         if not issues:
             status = Adw.StatusPage(
@@ -1366,6 +1388,13 @@ class PackEditorContent:
             tv.set_content(status)
             dialog.present(anchor.get_root())
             return
+
+        fixable_count = sum(1 for i in issues if i.fix_fn is not None)
+        if fixable_count:
+            fix_all_btn = Gtk.Button(label=f"Fix All ({fixable_count})")
+            fix_all_btn.add_css_class("suggested-action")
+            fix_all_btn.connect("clicked", _fix_all)
+            hdr.pack_end(fix_all_btn)
 
         page = Adw.PreferencesPage()
         scroller = Gtk.ScrolledWindow()
@@ -1380,7 +1409,8 @@ class PackEditorContent:
             "info":    ("dialog-information-symbolic", "Notices", None),
         }
         groups: dict[str, Adw.PreferencesGroup] = {}
-        for sev, category, message in issues:
+        for issue in issues:
+            sev, category, message = issue.severity, issue.category, issue.message
             if sev not in groups:
                 icon, title, css = _SEVERITY_META.get(sev, ("dialog-information-symbolic", sev.title(), None))
                 g = Adw.PreferencesGroup(title=title)
@@ -1395,12 +1425,21 @@ class PackEditorContent:
             if css:
                 img.add_css_class(css)
             row.add_prefix(img)
+            if issue.fix_fn is not None:
+                fix_btn = Gtk.Button(label=issue.fix_label)
+                fix_btn.set_valign(Gtk.Align.CENTER)
+                fix_btn.add_css_class("pill")
+                fix_btn.connect(
+                    "clicked",
+                    lambda _b, fn=issue.fix_fn, lbl=issue.fix_label: _fix_and_rerun(fn, lbl),
+                )
+                row.add_suffix(fix_btn)
             groups[sev].add(row)
 
         # Summary row at top
-        n_err = sum(1 for s, _, __ in issues if s == "error")
-        n_warn = sum(1 for s, _, __ in issues if s == "warning")
-        n_info = sum(1 for s, _, __ in issues if s == "info")
+        n_err = sum(1 for i in issues if i.severity == "error")
+        n_warn = sum(1 for i in issues if i.severity == "warning")
+        n_info = sum(1 for i in issues if i.severity == "info")
         parts = []
         if n_err:   parts.append(f"{n_err} error{'s' if n_err != 1 else ''}")
         if n_warn:  parts.append(f"{n_warn} warning{'s' if n_warn != 1 else ''}")
