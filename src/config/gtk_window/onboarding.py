@@ -33,24 +33,20 @@ from gi.repository import Adw, GLib, Gtk
 
 
 def show_onboarding(parent: Gtk.Window, vars, pack) -> None:
-    """Show the onboarding dialog, hiding *parent* until it closes."""
+    """Show the onboarding dialog."""
     dialog = _OnboardingDialog(vars, pack)
-    dialog.set_transient_for(parent)
-    parent.set_visible(False)
-    dialog.connect("destroy", lambda _: parent.set_visible(True))
-    dialog.present()
+    dialog.present(parent)
 
 
-class _OnboardingDialog(Adw.Window):
+class _OnboardingDialog(Adw.Dialog):
     def __init__(self, vars, pack) -> None:
         super().__init__()
         self._vars = vars
         self._pack = pack
         self._pack_imported = False
 
-        self.set_default_size(540, 580)
-        self.set_resizable(False)
-        self.set_modal(True)
+        self.set_content_width(540)
+        self.set_content_height(580)
         self.set_title("Welcome to Edgeware++")
 
         toolbar_view = Adw.ToolbarView()
@@ -59,7 +55,7 @@ class _OnboardingDialog(Adw.Window):
         self._title_widget = Adw.WindowTitle(title="Welcome to Edgeware++", subtitle="Step 1 of 5")
         header.set_title_widget(self._title_widget)
         toolbar_view.add_top_bar(header)
-        self.set_content(toolbar_view)
+        self.set_child(toolbar_view)
 
         outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         toolbar_view.set_content(outer)
@@ -273,7 +269,7 @@ class _OnboardingDialog(Adw.Window):
 
     def _on_skip(self, _btn) -> None:
         if self._page_idx < len(self._pages) - 1:
-            self._on_next(None)
+            self._on_next_or_finish(None)
         else:
             self._do_save(launch=False)
 
@@ -336,7 +332,7 @@ class _OnboardingDialog(Adw.Window):
         filt.add_mime_type("image/jpeg")
         filt.add_mime_type("image/png")
         fd.set_default_filter(filt)
-        fd.open(self, None, self._on_wallpaper_selected, None)
+        fd.open(self.get_root(), None, self._on_wallpaper_selected, None)
 
     def _on_wallpaper_selected(self, fd, result, _ud) -> None:
         try:
@@ -361,10 +357,7 @@ class _OnboardingDialog(Adw.Window):
             self._wallpaper_status.set_text("No panic wallpaper set yet.")
 
     def _do_save(self, launch: bool) -> None:
-        # Destroy the onboarding window first so the main window becomes
-        # visible again before write_save runs.  The destroy signal fires
-        # parent.set_visible(True), giving safe_check a valid transient parent.
-        self.destroy()
+        self.force_close()
         from config.gtk_window.utils import write_save
         write_save(self._vars, launch)
 

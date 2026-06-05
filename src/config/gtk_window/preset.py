@@ -98,12 +98,10 @@ def show_config_diff(parent, title: str, description: str,
     require_version("Adw", "1")
     from gi.repository import Adw
 
-    win = Adw.Window()
-    win.set_title(title)
-    win.set_default_size(480, 520)
-    win.set_modal(True)
-    if parent is not None:
-        win.set_transient_for(parent)
+    dialog = Adw.Dialog()
+    dialog.set_title(title)
+    dialog.set_content_width(480)
+    dialog.set_content_height(520)
 
     toolbar_view = Adw.ToolbarView()
     header = Adw.HeaderBar()
@@ -114,7 +112,7 @@ def show_config_diff(parent, title: str, description: str,
                   if changes else "No changes from current settings"),
     ))
     toolbar_view.add_top_bar(header)
-    win.set_content(toolbar_view)
+    dialog.set_child(toolbar_view)
 
     page = Adw.PreferencesPage()
     toolbar_view.set_content(page)
@@ -149,16 +147,16 @@ def show_config_diff(parent, title: str, description: str,
     btn_bar.set_halign(Gtk.Align.END)
 
     cancel_btn = Gtk.Button(label="Cancel")
-    cancel_btn.connect("clicked", lambda _: win.close())
+    cancel_btn.connect("clicked", lambda _: dialog.close())
     btn_bar.append(cancel_btn)
 
     apply_btn = Gtk.Button(label=apply_label)
     apply_btn.add_css_class("suggested-action")
-    apply_btn.connect("clicked", lambda _: (on_apply(), win.close()))
+    apply_btn.connect("clicked", lambda _: (on_apply(), dialog.close()))
     btn_bar.append(apply_btn)
 
     toolbar_view.add_bottom_bar(btn_bar)
-    win.present()
+    dialog.present(parent)
 
 
 def save_preset(anchor: Gtk.Widget) -> None:

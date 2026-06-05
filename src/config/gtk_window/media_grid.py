@@ -181,14 +181,20 @@ class _MediaTab(Gtk.Box):
         grid.set_min_columns(1)
         grid.add_css_class("media-grid")
 
-        scroller = Gtk.ScrolledWindow()
-        scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-        scroller.set_vexpand(True)
-        scroller.set_child(grid)
-        self.append(scroller)
+        self._scroller = Gtk.ScrolledWindow()
+        self._scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        self._scroller.set_vexpand(True)
+        self._scroller.set_child(grid)
+        self.append(self._scroller)
 
-        self._empty = Gtk.Label(label=f"No {media_type}s in this pack. Use Add to import.")
-        self._empty.add_css_class("dim-label")
+        _ICONS = {"image": "image-x-generic-symbolic",
+                  "video": "video-x-generic-symbolic",
+                  "audio": "audio-x-generic-symbolic"}
+        self._empty = Adw.StatusPage(
+            icon_name=_ICONS.get(media_type, "folder-open-symbolic"),
+            title=f"No {media_type}s yet",
+            description="Use Add… above to import files into this pack.",
+        )
         self._empty.set_vexpand(True)
         self.append(self._empty)
         self._update_empty()
@@ -210,7 +216,9 @@ class _MediaTab(Gtk.Box):
             return []
 
     def _update_empty(self) -> None:
-        self._empty.set_visible(self.model.get_n_items() == 0)
+        empty = self.model.get_n_items() == 0
+        self._empty.set_visible(empty)
+        self._scroller.set_visible(not empty)
 
     # --- filter ---
     def _match(self, item) -> bool:
