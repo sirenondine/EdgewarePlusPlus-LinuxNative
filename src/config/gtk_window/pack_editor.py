@@ -500,7 +500,7 @@ class PackEditorContent:
         # Choose button
         choose_btn = Gtk.Button()
         choose_btn.set_child(Adw.ButtonContent(
-            label="Choose…", icon_name="document-open-symbolic"))
+            label="Choose", icon_name="document-open-symbolic"))
         choose_btn.set_valign(Gtk.Align.CENTER)
 
         def on_chosen(fd, result, _k=key, _row=row, _preview=preview,
@@ -586,7 +586,7 @@ class PackEditorContent:
         self._load_discord_thumb(thumb, image_id)
 
         choose_btn = Gtk.Button()
-        choose_btn.set_child(Adw.ButtonContent(label="Choose…", icon_name="image-x-generic-symbolic"))
+        choose_btn.set_child(Adw.ButtonContent(label="Choose", icon_name="image-x-generic-symbolic"))
         choose_btn.set_valign(Gtk.Align.CENTER)
         choose_btn.connect("clicked", lambda _b, r=image_row, t=thumb, tr=text_row:
                            self._open_discord_picker(r, t, tr))
@@ -794,7 +794,7 @@ class PackEditorContent:
         clear_btn.set_sensitive(bool(current))
 
         choose_btn = Gtk.Button(valign=Gtk.Align.CENTER)
-        choose_btn.set_child(Adw.ButtonContent(label="Choose…", icon_name="document-open-symbolic"))
+        choose_btn.set_child(Adw.ButtonContent(label="Choose", icon_name="document-open-symbolic"))
 
         def on_chosen(fd, result) -> None:
             try:
@@ -868,7 +868,7 @@ class PackEditorContent:
         )
         save_btn = Gtk.Button()
         save_btn.set_child(Adw.ButtonContent(
-            label="Save Settings…", icon_name="document-save-symbolic"))
+            label="Save Settings", icon_name="document-save-symbolic"))
         save_btn.set_valign(Gtk.Align.CENTER)
         save_btn.connect("clicked", lambda _b, r=row: self._on_save_config(r))
         row.add_suffix(save_btn)
@@ -1062,7 +1062,7 @@ class PackEditorContent:
         subtitle_parts = [f"{m} (?)" if m not in known else m for m in selected]
         row.set_subtitle(", ".join(subtitle_parts) if subtitle_parts else "None")
 
-        btn = Gtk.MenuButton(label="Select…")
+        btn = Gtk.MenuButton(label="Select")
         btn.set_valign(Gtk.Align.CENTER)
         btn.set_popover(self._mood_select_popover(key, kind, row))
         row.add_suffix(btn)
@@ -1146,7 +1146,7 @@ class PackEditorContent:
         self._load_wallpaper_thumb(thumb, current)
 
         choose_btn = Gtk.Button()
-        choose_btn.set_child(Adw.ButtonContent(label="Choose…", icon_name="image-x-generic-symbolic"))
+        choose_btn.set_child(Adw.ButtonContent(label="Choose", icon_name="image-x-generic-symbolic"))
         choose_btn.set_valign(Gtk.Align.CENTER)
 
         def on_pick(name: str, k=key, r=row, t=thumb) -> None:
@@ -1259,7 +1259,7 @@ class PackEditorContent:
         if has_legacy:
             migrate_btn = Gtk.Button()
             migrate_btn.set_child(Adw.ButtonContent(
-                label="Migrate…", icon_name="emblem-synchronizing-symbolic"))
+                label="Migrate", icon_name="emblem-synchronizing-symbolic"))
             migrate_btn.set_valign(Gtk.Align.CENTER)
             migrate_btn.connect("clicked", self._on_migrate)
             migrate_row.add_suffix(migrate_btn)
@@ -1334,7 +1334,7 @@ class PackEditorContent:
         btn = Gtk.Button()
         btn.set_child(Adw.ButtonContent(
             label="Verify Pack", icon_name="emblem-ok-symbolic"))
-        btn.set_halign(Gtk.Align.START)
+        btn.set_valign(Gtk.Align.CENTER)
         btn.add_css_class("suggested-action")
         btn.connect("clicked", lambda _b: self._run_verify(btn))
         row = Adw.ActionRow(title="Run a full check of all pack files")
