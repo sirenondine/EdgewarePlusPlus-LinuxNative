@@ -372,3 +372,27 @@ def make_backend(
     if kind != "scripted":
         logging.warning(f"Unknown companion backend '{backend}', using scripted fallback.")
     return ScriptedBackend(scripted_corpus)
+
+
+# --- per-slot backend resolution (single connection per backend type) ---------
+
+def resolve_connection(backend: str, conns: dict) -> tuple[str, str | None]:
+    """Return (base_url, api_key) for a backend type, from a connection dict with
+    keys ollama_url / openai_url / openai_key / opencode_url / opencode_key."""
+    b = (backend or "").lower()
+    if b == "ollama":
+        return conns.get("ollama_url") or "http://localhost:11434", None
+    if b == "openai":
+        return conns.get("openai_url") or "", (conns.get("openai_key") or None)
+    if b in ("opencode", "opencode-cli"):
+        return conns.get("opencode_url") or "", (conns.get("opencode_key") or None)
+    return "", None
+
+
+def make_slot_backend(backend: str, model: str, conns: dict, *,
+                      scripted_corpus=None, timeout: int = DEFAULT_TIMEOUT) -> LLMBackend:
+    """Build a backend for one model slot: resolve its connection from `conns`
+    by backend type, then construct it."""
+    base_url, api_key = resolve_connection(backend, conns)
+    return make_backend(backend, base_url=base_url, model=model, api_key=api_key,
+                        scripted_corpus=scripted_corpus, timeout=timeout)

@@ -248,11 +248,22 @@ CONFIG_ITEMS = {
     "companion_auto_memory": Item("companionAutoMemory", BOOLEAN, VAR, bool, block=True),
     "companion_memory_model": Item("companionMemoryModel", STRING, VAR, str, block=True),
     "companion_observe_interval": Item("companionObserveInterval", NONNEGATIVE, VAR, int, block=True),
+    # Per-backend-type connection settings (single connection per type).
+    "ollama_url": Item("ollamaUrl", STRING, VAR, str, block=True),
+    "openai_url": Item("openaiUrl", STRING, VAR, str, block=True),
+    "openai_key": Item("openaiKey", STRING, VAR, str, block=True),
+    "opencode_url": Item("opencodeUrl", STRING, VAR, str, block=True),
+    "opencode_key": Item("opencodeKey", STRING, VAR, str, block=True),
+    # Per-slot backend choice (empty = follow the main companion backend).
     "companion_backend": Item("companionBackend", STRING, VAR, str, danger=Danger(DangerLevel.MEDIUM, Schema("openai"), COMPANION_CLOUD_DANGER), block=True),
-    "companion_base_url": Item("companionBaseUrl", STRING, VAR, str, block=True),
     "companion_model": Item("companionModel", STRING, VAR, str, block=True),
+    "companion_vision_backend": Item("companionVisionBackend", STRING, VAR, str, block=True),
     "companion_vision_model": Item("companionVisionModel", STRING, VAR, str, block=True),
+    "companion_memory_backend": Item("companionMemoryBackend", STRING, VAR, str, block=True),
+    "pack_edit_backend": Item("packEditBackend", STRING, VAR, str, block=True),
     "pack_edit_model": Item("packEditModel", STRING, VAR, str, block=True),
+    # Legacy (kept for migration; superseded by ollama_url / openai_* / opencode_*).
+    "companion_base_url": Item("companionBaseUrl", STRING, VAR, str, block=True),
     "companion_api_key": Item("companionApiKey", STRING, VAR, str, block=True),
     "companion_follow": Item("companionFollow", BOOLEAN, VAR, bool, block=True),
     "companion_chatter_chance": Item("companionChatterChance", PERCENTAGE, VAR, int),

@@ -94,17 +94,37 @@ class CompanionTab(Adw.PreferencesPage):
         super().__init__()
         self._vars = vars
 
+        # Default the per-slot backends to the main backend so their combos show
+        # a concrete choice (empty = "follow main" is still honoured at runtime).
+        for slot in (vars.companion_vision_backend, vars.companion_memory_backend):
+            if not (slot.get() or "").strip():
+                slot.set(vars.companion_backend.get())
+
         group = Adw.PreferencesGroup(title="AI Companion", description=COMPANION_TEXT)
         self.add(group)
         group.add(AdwSwitchRow("Enable Companion", vars.companion_enabled))
-        group.add(AdwComboRow("Backend", vars.companion_backend, BACKENDS))
-        group.add(AdwEntryRow("Server URL", vars.companion_base_url))
-        group.add(AdwEntryRow("Model", vars.companion_model))
-        group.add(self._model_picker(vars, vars.companion_model))
-        group.add(AdwEntryRow("Vision model (optional)", vars.companion_vision_model))
-        group.add(self._model_picker(vars, vars.companion_vision_model,
-                                     subtitle="Used for screenshot / image analysis; defaults to the main model"))
-        group.add(AdwEntryRow("API key", vars.companion_api_key, password=True))
+
+        # Connection settings per backend type (one connection per type).
+        conn = Adw.PreferencesGroup(
+            title="Backend Connections",
+            description="Set the connection for each backend type you use. Each model "
+                        "below picks which of these backends to run on.")
+        self.add(conn)
+        conn.add(AdwEntryRow("Ollama URL", vars.ollama_url))
+        conn.add(AdwEntryRow("OpenAI-compatible URL", vars.openai_url))
+        conn.add(AdwEntryRow("OpenAI key", vars.openai_key, password=True))
+        conn.add(AdwEntryRow("opencode URL (optional)", vars.opencode_url))
+        conn.add(AdwEntryRow("opencode key (optional)", vars.opencode_key, password=True))
+
+        # Models — backend + detected-model dropdowns, no free text.
+        models = Adw.PreferencesGroup(title="Models")
+        self.add(models)
+        models.add(AdwComboRow("Chat backend", vars.companion_backend, BACKENDS))
+        models.add(self._model_picker(vars, vars.companion_model, vars.companion_backend,
+                                      subtitle="Main chat / text model"))
+        models.add(AdwComboRow("Vision backend", vars.companion_vision_backend, BACKENDS))
+        models.add(self._model_picker(vars, vars.companion_vision_model, vars.companion_vision_backend,
+                                      subtitle="Screenshot / image analysis; falls back to the chat model"))
 
         # niri-only: stop the compositor blurring behind the companion bubble.
         if _is_niri():
@@ -129,9 +149,9 @@ class CompanionTab(Adw.PreferencesPage):
             description="When on, the companion summarises each session into durable facts about you (kept locally, editable below). Uses the optional model below, else the main model.")
         self.add(mem_group)
         mem_group.add(AdwSwitchRow("Auto-memory", vars.companion_auto_memory))
-        mem_group.add(AdwEntryRow("Memory model (optional)", vars.companion_memory_model))
-        mem_group.add(self._model_picker(vars, vars.companion_memory_model,
-                                         subtitle="Pick the memory-extraction model"))
+        mem_group.add(AdwComboRow("Memory backend", vars.companion_memory_backend, BACKENDS))
+        mem_group.add(self._model_picker(vars, vars.companion_memory_model, vars.companion_memory_backend,
+                                         subtitle="Memory-extraction model; falls back to the chat model"))
         mem_group.add(self._memory_facts_editor())
 
         behaviour = Adw.PreferencesGroup(title="Behaviour")
@@ -299,11 +319,11 @@ class CompanionTab(Adw.PreferencesPage):
         browse.connect("clicked", on_browse)
         return row
 
-    def _model_picker(self, vars: Vars, target_var, *,
-                      subtitle: str = "Pick from the Ollama server above") -> Gtk.Widget:
+    def _model_picker(self, vars: Vars, target_var, backend_var=None, *,
+                      subtitle: str = "Detected models for the selected backend") -> Gtk.Widget:
         """Detected-models dropdown — see widgets.model_picker (shared with Packs)."""
         from config.gtk_window.widgets import model_picker
-        return model_picker(vars, target_var, subtitle=subtitle)
+        return model_picker(vars, target_var, backend_var, subtitle=subtitle)
 
     def _memory_facts_editor(self) -> Gtk.Widget:
         """Editor for the learned-memory facts file (one fact per line), with a
@@ -348,10 +368,10 @@ class CompanionTab(Adw.PreferencesPage):
 
     def _on_test(self, _btn: Gtk.Button) -> None:
         from features.companion.engine import _DEFAULT_SYSTEM
+        from config.gtk_window.widgets import _slot_connection
         backend = self._vars.companion_backend.get() or "scripted"
-        url = self._vars.companion_base_url.get() or ""
+        url, key = _slot_connection(self._vars, backend)
         model = self._vars.companion_model.get() or ""
-        key = self._vars.companion_api_key.get() or ""
         # Use the configured persona prompt so Test previews the real companion;
         # fall back to the built-in default when left blank.
         prompt = (self._vars.companion_system_prompt.get() or "").strip() or _DEFAULT_SYSTEM

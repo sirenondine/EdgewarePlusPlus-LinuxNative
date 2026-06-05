@@ -43,12 +43,39 @@ def load_config() -> dict:
                 config[key] = value
                 new_keys = True
 
+        # One-time migration: the single shared backend connection
+        # (companionBaseUrl / companionApiKey) became per-backend-type settings.
+        if not config.get("migratedBackendsV2"):
+            _migrate_backends_v2(config)
+            config["migratedBackendsV2"] = 1
+            new_keys = True
+
         if new_keys:
             f.seek(0)
-            f.write(json.dumps(config))
+            f.write(json.dumps(config, indent=2))
             f.truncate()
 
     return config
+
+
+def _migrate_backends_v2(config: dict) -> None:
+    """Seed the per-backend connection keys from the legacy single connection,
+    based on which backend the user had selected."""
+    backend = (config.get("companionBackend") or "ollama").lower()
+    base = config.get("companionBaseUrl") or ""
+    key = config.get("companionApiKey") or ""
+    if backend == "ollama" and base:
+        config["ollamaUrl"] = base
+    elif backend == "openai":
+        if base:
+            config["openaiUrl"] = base
+        if key:
+            config["openaiKey"] = key
+    elif backend in ("opencode", "opencode-cli"):
+        if base:
+            config["opencodeUrl"] = base
+        if key:
+            config["opencodeKey"] = key
 
 
 def load_default_config() -> dict:

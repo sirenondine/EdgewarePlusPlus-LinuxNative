@@ -158,7 +158,10 @@ DISCORD_IMAGE_IDS = [
 _PACK_CONFIG_BLOCKLIST = {
     "version", "versionplusplus", "packPath", "wallpaperDat",
     "safeword", "panicButton", "globalPanicButton", "drivePath", "safeMode",
-    "toggleInternet", "companionApiKey", "intifaceAddress",
+    "toggleInternet", "intifaceAddress",
+    # Secrets / machine-local endpoints — never ship these in a pack config.
+    "companionApiKey", "openaiKey", "opencodeKey",
+    "companionBaseUrl", "ollamaUrl", "openaiUrl", "opencodeUrl", "migratedBackendsV2",
 }
 
 

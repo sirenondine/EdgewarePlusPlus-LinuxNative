@@ -1275,26 +1275,33 @@ def _build_style_selector():
     return group, get_direction
 
 
+def _conns_from_config(c: dict) -> dict:
+    """Connection dict for make_slot_backend, from a config.json dict. Uses only
+    the per-type keys (migration already moved the legacy shared connection)."""
+    return {
+        "ollama_url": c.get("ollamaUrl") or "",
+        "openai_url": c.get("openaiUrl") or "",
+        "openai_key": c.get("openaiKey") or "",
+        "opencode_url": c.get("opencodeUrl") or "",
+        "opencode_key": c.get("opencodeKey") or "",
+    }
+
+
 def _make_backend_from_config():
-    """Build an LLM backend from the current config.json. Returns None if the
-    companion is disabled or no network backend is configured."""
+    """Build the pack-edit generation backend from config.json. Returns None if
+    the companion is disabled or the resolved backend is scripted."""
     try:
         from config import load_config
-        from features.companion.llm import make_backend
+        from features.companion.llm import make_slot_backend
         c = load_config()
         if not c.get("companionEnabled"):
             return None
-        backend = c.get("companionBackend", "scripted")
-        if backend == "scripted":
+        # Pack-edit slot: its own backend + model, each falling back to the main.
+        backend = (c.get("packEditBackend") or "").strip() or c.get("companionBackend", "scripted")
+        if (backend or "scripted").lower() == "scripted":
             return None  # scripted can't generate useful content
-        # Pack-edit generation can use its own model; falls back to the companion's.
         model = (c.get("packEditModel") or "").strip() or c.get("companionModel") or None
-        return make_backend(
-            backend,
-            base_url=c.get("companionBaseUrl") or None,
-            model=model,
-            api_key=c.get("companionApiKey") or None,
-        )
+        return make_slot_backend(backend, model or "", _conns_from_config(c))
     except Exception:
         return None
 
@@ -1427,7 +1434,8 @@ def _open_generate_dialog(
             GLib.idle_add(_buf_append, buf, tok)
 
         def on_done(full: str) -> None:
-            items = [ln.strip() for ln in full.splitlines() if ln.strip()][:count]
+            items = [_clean_generated_line(ln) for ln in full.splitlines() if ln.strip()]
+            items = [it for it in items if it][:count]
             _generated[0] = items
             label = f"Add {len(items)} to list"
             GLib.idle_add(add_btn.set_child, Adw.ButtonContent(
@@ -1460,6 +1468,17 @@ def _open_generate_dialog(
 def _buf_append(buf: Gtk.TextBuffer, text: str) -> bool:
     buf.insert(buf.get_end_iter(), text)
     return False
+
+
+def _clean_generated_line(line: str) -> str:
+    """Strip leading list markers a model may add despite instructions
+    ("1. ", "1) ", "- ", "* ", "• ") plus surrounding quotes/whitespace."""
+    import re
+    s = line.strip()
+    s = re.sub(r'^\s*(?:\d+[.)]|[-*•])\s+', '', s)
+    if len(s) >= 2 and s[0] == s[-1] and s[0] in "\"'":
+        s = s[1:-1].strip()
+    return s
 
 
 def _open_prompt_generate_dialog(

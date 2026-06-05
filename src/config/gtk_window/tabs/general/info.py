@@ -118,19 +118,24 @@ class InfoTab(Gtk.Box):
         # the companion's main model). Surfaced here so it's selectable right
         # from the Packs screen, not buried in the Companion tab.
         if vars is not None:
-            from config.gtk_window.widgets import AdwEntryRow, model_picker
+            from config.gtk_window.widgets import AdwComboRow, model_picker
+            from config.gtk_window.tabs.companion import BACKENDS
+
+            # Default the pack-edit backend to the companion's main backend so the
+            # combo shows a concrete choice (empty still = follow main at runtime).
+            if not (vars.pack_edit_backend.get() or "").strip():
+                vars.pack_edit_backend.set(vars.companion_backend.get())
 
             ai_group = Adw.PreferencesGroup(
                 title="AI Text Generation",
-                description="Model used by the pack editor's Generate buttons. Uses the "
-                            "companion's server and API key; leave blank to use the "
-                            "companion's main model.",
+                description="Backend + model used by the pack editor's Generate buttons. "
+                            "Connections are configured in Settings → Companion.",
             )
             page.add(ai_group)
-            ai_group.add(AdwEntryRow("Pack editor model", vars.pack_edit_model))
+            ai_group.add(AdwComboRow("Backend", vars.pack_edit_backend, BACKENDS))
             ai_group.add(model_picker(
-                vars, vars.pack_edit_model,
-                subtitle="Detected on the companion's Ollama server"))
+                vars, vars.pack_edit_model, vars.pack_edit_backend,
+                subtitle="Pack-editor generation model"))
 
         # ---- Pack configuration ------------------------------------------
         if vars is not None:

@@ -305,15 +305,29 @@ def AdwEntryRow(title: str, variable: ConfigVar, password: bool = False) -> Adw.
     return row
 
 
-def model_picker(vars, target_var, *,
-                 subtitle: str = "Pick from the Ollama server above") -> Gtk.Widget:
-    """A ComboRow of models detected on the configured Ollama server, tagged with
-    their capabilities (vision/tools). Selecting one fills target_var; a Refresh
-    button re-queries. Empty for non-Ollama / offline backends. State is kept
-    per-picker (closure-local) so several pickers can coexist.
+def _slot_connection(vars, backend: str) -> tuple[str, str]:
+    """(base_url, api_key) for a backend type from the per-type connection vars.
+    Uses only the per-type keys (migration moved the legacy shared connection)."""
+    backend = (backend or "").lower()
+    def g(name):
+        v = getattr(vars, name, None)
+        return (v.get() if v else "") or ""
+    if backend == "ollama":
+        return g("ollama_url") or "http://localhost:11434", ""
+    if backend == "openai":
+        return g("openai_url"), g("openai_key")
+    if backend in ("opencode", "opencode-cli"):
+        return g("opencode_url"), g("opencode_key")
+    return "", ""
 
-    Shared by the Companion tab and the Packs page (companion_base_url is the
-    single source for the server address)."""
+
+def model_picker(vars, target_var, backend_var=None, *,
+                 subtitle: str = "Detected models for the selected backend") -> Gtk.Widget:
+    """A ComboRow of models detected for the slot's backend, tagged with their
+    capabilities (vision/tools). Selecting one fills target_var; a Refresh button
+    re-queries; it also re-queries when `backend_var` changes. `backend_var` is
+    the slot's backend ConfigVar (empty value -> fall back to companion_backend).
+    State is closure-local so several pickers can coexist."""
     row = Adw.ComboRow(title="Detected models", subtitle=subtitle)
     refresh = Gtk.Button(icon_name="view-refresh-symbolic", valign=Gtk.Align.CENTER)
     refresh.set_tooltip_text("Refresh model list")
@@ -354,9 +368,16 @@ def model_picker(vars, target_var, *,
             target_var.set(st["names"][i])
     row.connect("notify::selected", on_selected)
 
+    def _backend() -> str:
+        slot = (backend_var.get() if backend_var else "") or ""
+        if not slot:
+            mv = getattr(vars, "companion_backend", None)
+            slot = (mv.get() if mv else "") or ""
+        return slot.lower()
+
     def refresh_now(*_a) -> None:
-        base = vars.companion_base_url.get() or ""
-        backend = (vars.companion_backend.get() or "").lower()
+        backend = _backend()
+        base, key = _slot_connection(vars, backend)
 
         def work() -> None:
             if backend in ("opencode", "opencode-cli"):
@@ -365,12 +386,15 @@ def model_picker(vars, target_var, *,
                 from features.companion import ollama
                 items = ollama.models_with_capabilities(base)
             elif backend == "openai":
-                items = _openai_models(base, vars.companion_api_key.get() or "")
+                items = _openai_models(base, key)
             else:
                 items = []
             GLib.idle_add(populate, items)
         threading.Thread(target=work, daemon=True).start()
+
     refresh.connect("clicked", refresh_now)
+    if backend_var is not None:
+        backend_var.trace_add(lambda *_: refresh_now())
     refresh_now()
     return row
 

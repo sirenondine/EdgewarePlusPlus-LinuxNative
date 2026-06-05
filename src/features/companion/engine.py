@@ -113,34 +113,48 @@ class Companion:
         return resolve_persona(self.settings, self.pack)
 
     # ------------------------------------------------------------------
+    def _conns(self) -> dict:
+        """Connection settings for every backend type (single connection per
+        type). Reads only the per-type keys — legacy companionBaseUrl/ApiKey were
+        moved into these by the one-time migration (see config._migrate_backends_v2)."""
+        s = self.settings
+        return {
+            "ollama_url": getattr(s, "ollama_url", "") or "",
+            "openai_url": getattr(s, "openai_url", "") or "",
+            "openai_key": getattr(s, "openai_key", "") or "",
+            "opencode_url": getattr(s, "opencode_url", "") or "",
+            "opencode_key": getattr(s, "opencode_key", "") or "",
+        }
+
+    def _slot(self, backend_attr: str, model_attr: str) -> tuple[str, str]:
+        """Resolve (backend, model) for a slot, each falling back to the main."""
+        s = self.settings
+        backend = (getattr(s, backend_attr, "") or "").strip() or (getattr(s, "companion_backend", "scripted") or "scripted")
+        model = (getattr(s, model_attr, "") or "").strip() or (getattr(s, "companion_model", "") or "")
+        return backend, model
+
     def _build_backend(self) -> llm.LLMBackend:
         s = self.settings
         # Scripted fallback corpus: persona lines first, else live pack captions.
         corpus = self.persona.idle_lines or self.persona.greetings or None
-        return llm.make_backend(
+        return llm.make_slot_backend(
             getattr(s, "companion_backend", "scripted"),
-            base_url=getattr(s, "companion_base_url", None),
-            model=getattr(s, "companion_model", None),
-            api_key=(getattr(s, "companion_api_key", None) or None),
+            getattr(s, "companion_model", "") or "",
+            self._conns(),
             scripted_corpus=corpus or (lambda: self.pack.random_caption()),
         )
 
     def _get_vision_backend(self) -> llm.LLMBackend:
-        """Backend used for image (vision) calls. If companion_vision_model is set
-        and differs from the text model, build a separate backend reusing the same
-        endpoint/key but the vision model; otherwise reuse the main backend."""
-        s = self.settings
-        vmodel = (getattr(s, "companion_vision_model", "") or "").strip()
-        if not vmodel or vmodel == (getattr(s, "companion_model", "") or ""):
+        """Backend used for image (vision) calls. Uses the vision slot's backend +
+        model (each falling back to the main); reuses the main backend if they
+        resolve to the same thing."""
+        v_backend, v_model = self._slot("companion_vision_backend", "companion_vision_model")
+        main_backend, main_model = (getattr(self.settings, "companion_backend", "scripted") or "scripted",
+                                    getattr(self.settings, "companion_model", "") or "")
+        if v_backend == main_backend and v_model == main_model:
             return self.backend
         if self._vision_backend is None:
-            self._vision_backend = llm.make_backend(
-                getattr(s, "companion_backend", "scripted"),
-                base_url=getattr(s, "companion_base_url", None),
-                model=vmodel,
-                api_key=(getattr(s, "companion_api_key", None) or None),
-                scripted_corpus=None,
-            )
+            self._vision_backend = llm.make_slot_backend(v_backend, v_model, self._conns())
         return self._vision_backend
 
     def _control_mode(self) -> str:
@@ -276,11 +290,13 @@ class Companion:
                 # Compact line for memory extraction (cue + reply, no boilerplate).
                 cue = user_text.splitlines()[0][:120]
                 self._log.append(f"{cue} => {text}")
-            self._busy = False
+            with self._lock:
+                self._busy = False
             self._on_done(text)
 
         def err(e: Exception) -> None:
-            self._busy = False
+            with self._lock:
+                self._busy = False
             self._on_error(e)
 
         tools = on_tool_calls = None
@@ -395,13 +411,13 @@ class Companion:
         import tempfile
         from pathlib import Path
 
-        s = self.settings
-        model = (getattr(s, "companion_memory_model", "") or "").strip() or getattr(s, "companion_model", "")
+        backend, model = self._slot("companion_memory_backend", "companion_memory_model")
+        base_url, api_key = llm.resolve_connection(backend, self._conns())
         payload = {
-            "backend": getattr(s, "companion_backend", "scripted"),
-            "base_url": getattr(s, "companion_base_url", None),
+            "backend": backend,
+            "base_url": base_url,
             "model": model,
-            "api_key": (getattr(s, "companion_api_key", None) or None),
+            "api_key": api_key,
             "log": list(self._log),
         }
         try:
@@ -423,13 +439,9 @@ class Companion:
             return False
 
     def _extraction_backend(self) -> llm.LLMBackend:
-        s = self.settings
-        model = (getattr(s, "companion_memory_model", "") or "").strip() or getattr(s, "companion_model", "")
-        return llm.make_backend(
-            getattr(s, "companion_backend", "scripted"),
-            base_url=getattr(s, "companion_base_url", None), model=model,
-            api_key=(getattr(s, "companion_api_key", None) or None),
-            scripted_corpus=[], timeout=_MEMORY_TIMEOUT)
+        backend, model = self._slot("companion_memory_backend", "companion_memory_model")
+        return llm.make_slot_backend(backend, model, self._conns(),
+                                     scripted_corpus=[], timeout=_MEMORY_TIMEOUT)
 
     def cancel(self) -> None:
         self._cancel.set()

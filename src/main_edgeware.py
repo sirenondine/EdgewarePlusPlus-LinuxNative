@@ -105,6 +105,9 @@ _COMPANION_KEYS = {
     "companionObserveInterval", "companionFollow", "companionGreetOnStart",
     "companionWindowAware", "companionScreenshotAware", "companionClipboardAware",
     "companionControl", "companionControlMode",
+    # Per-backend connections + per-slot backend/model (rebuild companion on change).
+    "ollamaUrl", "openaiUrl", "openaiKey", "opencodeUrl", "opencodeKey",
+    "companionVisionBackend", "companionVisionModel", "companionMemoryBackend",
 }
 
 
