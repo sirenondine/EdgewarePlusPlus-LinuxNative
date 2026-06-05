@@ -16,7 +16,9 @@
 # along with Edgeware++.  If not, see <https://www.gnu.org/licenses/>.
 
 import os
+import re
 import threading
+from pathlib import Path
 
 from gi import require_version
 
@@ -83,10 +85,31 @@ _NIRI_BLUR_SNIPPET = (
     '    }\n'
     '}'
 )
+_NIRI_LAYER_RULES = Path.home() / ".config" / "niri" / "layer-rules.kdl"
 
 
 def _is_niri() -> bool:
     return bool(os.environ.get("NIRI_SOCKET"))
+
+
+def _niri_blur_configured() -> bool:
+    if not _NIRI_LAYER_RULES.is_file():
+        return False
+    content = _NIRI_LAYER_RULES.read_text(encoding="utf-8", errors="replace")
+    return 'namespace="^edgeware' in content
+
+
+def _niri_append_config(path: "Path", snippet: str) -> "str | None":
+    lines = snippet.splitlines()
+    body = "\n".join(lines[1:] if lines and lines[0].startswith("//") else lines)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        sep = "\n\n" if path.is_file() and path.stat().st_size > 0 else ""
+        with path.open("a", encoding="utf-8") as f:
+            f.write(sep + body + "\n")
+        return None
+    except OSError as e:
+        return str(e)
 
 
 class CompanionTab(Adw.PreferencesPage):
@@ -236,8 +259,9 @@ class CompanionTab(Adw.PreferencesPage):
 
     def _niri_blur_row(self) -> Gtk.Widget:
         """A copy-pastable niri layer-rule that keeps blur on the popups but
-        excludes the companion bubble and HUD. niri reloads it automatically.
-        Mirrors the panic-key niri keybind helper on the Start tab."""
+        excludes the companion bubble and HUD. niri reloads it automatically."""
+        already = _niri_blur_configured()
+
         row = Adw.ActionRow()
         row.set_activatable(False)
 
@@ -247,17 +271,33 @@ class CompanionTab(Adw.PreferencesPage):
         vbox.set_margin_top(10)
         vbox.set_margin_bottom(10)
 
-        info_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        # Status stack: info (not configured) vs verified (configured)
+        info_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         info_icon = Gtk.Image.new_from_icon_name("dialog-information-symbolic")
         info_icon.set_valign(Gtk.Align.START)
-        info_label = Gtk.Label(wrap=True, xalign=0, hexpand=True)
-        info_label.set_text(
+        info_lbl = Gtk.Label(wrap=True, xalign=0, hexpand=True)
+        info_lbl.set_text(
             "Seeing a blur behind the companion? Add this layer-rule. It keeps "
             "the frosted blur on popups but excludes the companion and the "
             "gamification HUD so they render crisp:")
-        info_row.append(info_icon)
-        info_row.append(info_label)
-        vbox.append(info_row)
+        info_box.append(info_icon)
+        info_box.append(info_lbl)
+
+        ok_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        ok_icon = Gtk.Image.new_from_icon_name("emblem-ok-symbolic")
+        ok_icon.add_css_class("success")
+        ok_icon.set_valign(Gtk.Align.CENTER)
+        ok_lbl = Gtk.Label(wrap=True, xalign=0, hexpand=True)
+        ok_lbl.set_text("layer-rules.kdl is configured — companion and HUD will render without blur.")
+        ok_box.append(ok_icon)
+        ok_box.append(ok_lbl)
+
+        status_stack = Gtk.Stack()
+        status_stack.set_transition_type(Gtk.StackTransitionType.CROSSFADE)
+        status_stack.add_named(info_box, "info")
+        status_stack.add_named(ok_box, "ok")
+        status_stack.set_visible_child_name("ok" if already else "info")
+        vbox.append(status_stack)
 
         code_view = Gtk.TextView()
         code_view.set_editable(False)
@@ -269,14 +309,34 @@ class CompanionTab(Adw.PreferencesPage):
         vbox.append(code_view)
 
         hint = Gtk.Label(
-            label="Paste into ~/.config/niri/layer-rules.kdl — niri reloads it automatically.",
+            label="~/.config/niri/layer-rules.kdl — niri reloads it automatically.",
             xalign=0, wrap=True)
         hint.add_css_class("dim-label")
         vbox.append(hint)
 
+        btn_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        btn_box.set_halign(Gtk.Align.END)
+
+        add_btn = Gtk.Button(label="Add to layer-rules.kdl")
+        add_btn.add_css_class("suggested-action")
+        add_btn.set_sensitive(not already)
+
         copy_btn = Gtk.Button(icon_name="edit-copy-symbolic")
         copy_btn.set_tooltip_text("Copy layer-rule to clipboard")
-        copy_btn.set_halign(Gtk.Align.END)
+
+        btn_box.append(add_btn)
+        btn_box.append(copy_btn)
+        vbox.append(btn_box)
+
+        def on_add(_b) -> None:
+            from config.gtk_window.toast import toast
+            err = _niri_append_config(_NIRI_LAYER_RULES, _NIRI_BLUR_SNIPPET)
+            if err:
+                toast(f"Failed: {err}")
+            else:
+                status_stack.set_visible_child_name("ok")
+                add_btn.set_sensitive(False)
+                toast("Added to layer-rules.kdl — niri will reload automatically.")
 
         def on_copy(_b) -> None:
             clipboard = copy_btn.get_clipboard()
@@ -284,8 +344,9 @@ class CompanionTab(Adw.PreferencesPage):
                 clipboard.set(_NIRI_BLUR_SNIPPET)
             from config.gtk_window.toast import toast
             toast("Layer-rule copied")
+
+        add_btn.connect("clicked", on_add)
         copy_btn.connect("clicked", on_copy)
-        vbox.append(copy_btn)
 
         row.set_child(vbox)
         return row
