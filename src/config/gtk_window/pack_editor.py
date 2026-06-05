@@ -1244,7 +1244,7 @@ class PackEditorContent:
             title="Popup Text",
             description="This pack uses the legacy format (captions.json / media.json / "
                         "prompt.json / web.json). Migrate to index.json to enable text editing "
-                        "and media assignment. Legacy files are kept — migration is non-destructive.",
+                        "and media assignment.",
         )
         page.add(group)
 
@@ -1278,8 +1278,7 @@ class PackEditorContent:
         files_str = "\n".join(f"  • {f}" for f in legacy)
         if not ask_yes_no(
             "Migrate to index.json?",
-            f"The following files will be read and combined into index.json:\n{files_str}\n\n"
-            "Legacy files are kept — nothing will be deleted.",
+            f"The following files will be combined into index.json, then deleted:\n{files_str}",
             heading="Migrate pack format?",
         ):
             return

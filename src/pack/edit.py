@@ -733,10 +733,23 @@ class PackEditor:
             _write_atomic(self.index_path, {"default": default, "moods": moods_out})
             # Refresh our in-memory view so has_index becomes True immediately.
             self.index = _read_raw(self.index_path)
+            self.remove_legacy_files()
             return None
         except Exception as e:
             logging.warning(f"pack edit: legacy migration failed: {e}")
             return str(e)
+
+    def remove_legacy_files(self) -> "str | None":
+        """Delete captions/media/prompt/web.json if present. Returns error or None."""
+        errors = []
+        for fname in ("captions.json", "media.json", "prompt.json", "web.json"):
+            p = self.pack_dir / fname
+            if p.is_file():
+                try:
+                    p.unlink()
+                except OSError as e:
+                    errors.append(str(e))
+        return "; ".join(errors) if errors else None
 
     # --- Auto-fix helpers (called from VerifyIssue.fix_fn lambdas) --------
     def fix_remove_media_ref(self, mood_name: str, filename: str) -> "str | None":
@@ -860,8 +873,11 @@ class PackEditor:
         legacy = [f for f in ("captions.json", "media.json", "prompt.json", "web.json")
                   if (pack_dir / f).is_file()]
         if legacy and self.index_path.is_file():
-            issues.append(VerifyIssue("info", "legacy",
-                           f"Legacy files alongside index.json: {', '.join(legacy)}. "
-                           "Consider migrating via the editor."))
+            issues.append(VerifyIssue(
+                "info", "legacy",
+                f"Orphaned legacy files alongside index.json: {', '.join(legacy)}.",
+                fix_fn=self.remove_legacy_files,
+                fix_label="Delete files",
+            ))
 
         return issues
