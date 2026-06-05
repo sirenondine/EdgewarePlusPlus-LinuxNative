@@ -86,13 +86,24 @@ def make_string_list_group(
             store.append(item)
         sync()
 
+    has_sel = selection.get_selected() != Gtk.INVALID_LIST_POSITION
+
     remove_btn = Gtk.Button(icon_name="list-remove-symbolic")
     remove_btn.set_tooltip_text("Remove selected")
     # SingleSelection auto-selects row 0, but notify::selected won't fire for
     # that initial pick, so seed sensitivity from the current selection.
-    remove_btn.set_sensitive(selection.get_selected() != Gtk.INVALID_LIST_POSITION)
-    selection.connect("notify::selected", lambda sel, _p: remove_btn.set_sensitive(
-        sel.get_selected() != Gtk.INVALID_LIST_POSITION))
+    remove_btn.set_sensitive(has_sel)
+
+    edit_btn = Gtk.Button(icon_name="document-edit-symbolic")
+    edit_btn.set_tooltip_text("Edit selected")
+    edit_btn.set_sensitive(has_sel)
+
+    def _update_sel_buttons(sel, _p=None) -> None:
+        s = sel.get_selected() != Gtk.INVALID_LIST_POSITION
+        remove_btn.set_sensitive(s)
+        edit_btn.set_sensitive(s)
+
+    selection.connect("notify::selected", _update_sel_buttons)
 
     def on_remove(_b) -> None:
         pos = selection.get_selected()
@@ -100,7 +111,18 @@ def make_string_list_group(
             store.remove(pos)
             sync()
 
+    def on_edit(_b) -> None:
+        pos = selection.get_selected()
+        if pos == Gtk.INVALID_LIST_POSITION:
+            return
+        current = store.get_string(pos)
+        def do_replace(new_text: str) -> None:
+            store.splice(pos, 1, [new_text])
+            sync()
+        name_popover(edit_btn, add_prompt, do_replace, initial=current)
+
     remove_btn.connect("clicked", on_remove)
+    edit_btn.connect("clicked", on_edit)
 
     add_btn = Gtk.Button(icon_name="list-add-symbolic")
     add_btn.set_tooltip_text("Add")
@@ -108,6 +130,7 @@ def make_string_list_group(
 
     buttons = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
     buttons.append(add_btn)
+    buttons.append(edit_btn)
     buttons.append(remove_btn)
 
     if reset_to is not None:

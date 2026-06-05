@@ -104,6 +104,28 @@ class PackEditorMoodsTest(unittest.TestCase):
         self.ed.remove_mood("shy")
         self.assertIsNone(self.ed.get_media_assignment("file.png"))
 
+    def test_move_mood_up(self):
+        self.ed.add_mood("A")
+        self.ed.add_mood("B")
+        self.ed.add_mood("C")
+        self.ed.move_mood("B", -1)
+        self.assertEqual(self.ed.mood_names(), ["B", "A", "C"])
+
+    def test_move_mood_down(self):
+        self.ed.add_mood("A")
+        self.ed.add_mood("B")
+        self.ed.add_mood("C")
+        self.ed.move_mood("B", +1)
+        self.assertEqual(self.ed.mood_names(), ["A", "C", "B"])
+
+    def test_move_mood_at_boundary_noop(self):
+        self.ed.add_mood("A")
+        self.ed.add_mood("B")
+        self.ed.move_mood("A", -1)
+        self.assertEqual(self.ed.mood_names(), ["A", "B"])
+        self.ed.move_mood("B", +1)
+        self.assertEqual(self.ed.mood_names(), ["A", "B"])
+
 
 class PackEditorMediaAssignmentTest(unittest.TestCase):
     def setUp(self):

@@ -360,6 +360,16 @@ class PackEditor:
         for k in keys_to_clear:
             del mm[k]
 
+    def move_mood(self, name: str, direction: int) -> None:
+        """Swap mood `name` with its neighbour at direction (-1 up, +1 down)."""
+        moods = self._moods()
+        idx = next((i for i, m in enumerate(moods) if m.get("mood") == name), None)
+        if idx is None:
+            return
+        other = idx + direction
+        if 0 <= other < len(moods):
+            moods[idx], moods[other] = moods[other], moods[idx]
+
     # --- per-mood text lists -----------------------------------------------
     def get_mood_list(self, mood_name: str, key: str) -> list[str]:
         mood = self._find_mood(mood_name)

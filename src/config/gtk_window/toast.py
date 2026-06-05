@@ -20,7 +20,8 @@ def toast(message: str) -> None:
         window._show_toast(message)
 
 
-def name_popover(anchor: Gtk.Widget, title: str, on_ok: Callable) -> None:
+def name_popover(anchor: Gtk.Widget, title: str, on_ok: Callable,
+                 initial: str = "") -> None:
     window = _get_window()
     if window and hasattr(window, "_show_name_popover"):
-        window._show_name_popover(anchor, title, on_ok)
+        window._show_name_popover(anchor, title, on_ok, initial)

@@ -862,7 +862,8 @@ class SettingsWindow(Adw.ApplicationWindow):
         toast.set_timeout(3)
         self._toast_overlay.add_toast(toast)
 
-    def _show_name_popover(self, anchor: Gtk.Widget, title: str, on_ok) -> None:
+    def _show_name_popover(self, anchor: Gtk.Widget, title: str, on_ok,
+                           initial: str = "") -> None:
         """A small popover with an entry + Save/Cancel, anchored to a widget.
         Used by name_popover() for tag/wallpaper/blacklist/preset naming."""
         popover = Gtk.Popover()
@@ -876,6 +877,9 @@ class SettingsWindow(Adw.ApplicationWindow):
 
         entry = Gtk.Entry()
         entry.set_placeholder_text(title)
+        if initial:
+            entry.set_text(initial)
+            entry.select_region(0, -1)
         box.append(entry)
 
         btn_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)

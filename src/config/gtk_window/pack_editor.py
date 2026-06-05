@@ -89,6 +89,8 @@ class PackEditorContent:
         self._pop_page = None
         self._on_migrated = None
         self._page = None
+        self._moods_group: "Adw.PreferencesGroup | None" = None
+        self._mood_rows: list = []
 
     def build_into(self, page: Adw.PreferencesPage,
                    push_page=None, pop_page=None, on_migrated=None) -> None:
@@ -204,16 +206,23 @@ class PackEditorContent:
             description="Named content groups. Click a mood to edit its text lists.",
         )
         page.add(group)
+        self._moods_group = group
 
         add_btn = Gtk.Button(icon_name="list-add-symbolic")
         add_btn.set_tooltip_text("Add mood")
         from config.gtk_window.toast import name_popover
         add_btn.connect("clicked", lambda b: name_popover(
-            b, "New mood name", self._on_add_mood_commit(group)))
+            b, "New mood name", self._on_add_mood_commit()))
         group.set_header_suffix(add_btn)
 
+        self._rebuild_moods()
+
+    def _rebuild_moods(self) -> None:
+        for row in self._mood_rows:
+            self._moods_group.remove(row)
+        self._mood_rows = []
         for name in self.editor.mood_names():
-            self._append_mood_row(group, name)
+            self._append_mood_row(self._moods_group, name)
 
     def _append_mood_row(self, group: Adw.PreferencesGroup, name: str) -> Adw.ActionRow:
         row = Adw.ActionRow(title=name)
@@ -224,6 +233,8 @@ class PackEditorContent:
                          f"{len(self.editor.get_mood_list(name, 'media'))} media")
         row.set_activatable(self._push_page is not None)
 
+        # Suffix order: last add_suffix = leftmost. Target: [↑↓] [🗑️] [→]
+        # So add: nav arrow first, del second, reorder box third (last = leftmost).
         if self._push_page is not None:
             arrow = Gtk.Image.new_from_icon_name("go-next-symbolic")
             arrow.set_valign(Gtk.Align.CENTER)
@@ -237,19 +248,45 @@ class PackEditorContent:
         del_btn.connect("clicked", lambda _b, r=row: self._on_delete_mood(r))
         row.add_suffix(del_btn)
 
+        names = self.editor.mood_names()
+        reorder_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+        reorder_box.add_css_class("linked")
+        reorder_box.set_valign(Gtk.Align.CENTER)
+
+        up_btn = Gtk.Button(icon_name="go-up-symbolic")
+        up_btn.set_tooltip_text("Move mood up")
+        up_btn.set_sensitive(name != names[0] if names else False)
+        up_btn.connect("clicked", lambda _b, n=name: self._on_move_mood(n, -1))
+        reorder_box.append(up_btn)
+
+        down_btn = Gtk.Button(icon_name="go-down-symbolic")
+        down_btn.set_tooltip_text("Move mood down")
+        down_btn.set_sensitive(name != names[-1] if names else False)
+        down_btn.connect("clicked", lambda _b, n=name: self._on_move_mood(n, +1))
+        reorder_box.append(down_btn)
+
+        row.add_suffix(reorder_box)
+
         group.add(row)
+        self._mood_rows.append(row)
         return row
 
-    def _on_add_mood_commit(self, group: Adw.PreferencesGroup):
+    def _on_add_mood_commit(self):
         def commit(name: str) -> None:
             err = self.editor.add_mood(name)
             if err:
                 toast(err)
                 return
-            self._append_mood_row(group, name.strip())
+            self._rebuild_moods()
             self._dirty_index = True
             self._schedule_save()
         return commit
+
+    def _on_move_mood(self, name: str, direction: int) -> None:
+        self.editor.move_mood(name, direction)
+        self._rebuild_moods()
+        self._dirty_index = True
+        self._schedule_save()
 
     def _on_delete_mood(self, row: Adw.ActionRow) -> None:
         from gtk_dialog import ask_yes_no
@@ -263,12 +300,7 @@ class PackEditorContent:
         ):
             return
         self.editor.remove_mood(name)
-        parent = row.get_parent()
-        if parent:
-            while parent and not isinstance(parent, Adw.PreferencesGroup):
-                parent = parent.get_parent()
-            if isinstance(parent, Adw.PreferencesGroup):
-                parent.remove(row)
+        self._rebuild_moods()
         self._dirty_index = True
         self._schedule_save()
 
@@ -1025,7 +1057,9 @@ class PackEditorContent:
         key = str(level)
         row = Adw.ActionRow(title=title)
         selected = self._corruption_data["moods"][key][kind]
-        row.set_subtitle(", ".join(selected) if selected else "None")
+        known = set(self.editor.mood_names())
+        subtitle_parts = [f"{m} (?)" if m not in known else m for m in selected]
+        row.set_subtitle(", ".join(subtitle_parts) if subtitle_parts else "None")
 
         btn = Gtk.MenuButton(label="Select…")
         btn.set_valign(Gtk.Align.CENTER)
@@ -1042,6 +1076,7 @@ class PackEditorContent:
 
         selected = set(self._corruption_data["moods"][key][kind])
         mood_names = self._corruption_mood_names
+        known = set(mood_names)
 
         if not mood_names:
             box.append(Gtk.Label(label="This pack has no moods."))
@@ -1051,6 +1086,24 @@ class PackEditorContent:
             check.connect("toggled", lambda c, n=name, k=key, knd=kind, r=row:
                           self._toggle_corruption_mood(k, knd, n, c.get_active(), r))
             box.append(check)
+
+        # Stale entries: in the level's list but no longer a pack mood.
+        stale = [m for m in self._corruption_data["moods"][key][kind] if m not in known]
+        if stale:
+            sep = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
+            sep.set_margin_top(4); sep.set_margin_bottom(4)
+            box.append(sep)
+            lbl = Gtk.Label(label="Removed moods (uncheck to clean up):")
+            lbl.add_css_class("dim-label")
+            lbl.set_xalign(0)
+            box.append(lbl)
+            for name in stale:
+                check = Gtk.CheckButton(label=name)
+                check.set_active(True)
+                check.add_css_class("dim-label")
+                check.connect("toggled", lambda c, n=name, k=key, knd=kind, r=row:
+                              self._toggle_corruption_mood(k, knd, n, c.get_active(), r))
+                box.append(check)
 
         scroller = Gtk.ScrolledWindow()
         scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
@@ -1068,7 +1121,9 @@ class PackEditorContent:
             lst.append(name)
         elif not active and name in lst:
             lst.remove(name)
-        row.set_subtitle(", ".join(lst) if lst else "None")
+        known = set(self.editor.mood_names())
+        parts = [f"{m} (?)" if m not in known else m for m in lst]
+        row.set_subtitle(", ".join(parts) if parts else "None")
         self._save_corruption()
 
     def _corruption_wallpaper_row(self, level: int) -> Adw.ActionRow:
