@@ -963,6 +963,25 @@ class PackEditorContent:
         exp = Adw.ExpanderRow(title=f"Level {level}: {name}" if name else f"Level {level}")
         exp.set_subtitle(f"+{len(mood_entry['add'])} / -{len(mood_entry['remove'])} moods")
 
+        keys = self._corruption_level_keys()
+
+        # Move up/down buttons
+        up_btn = Gtk.Button(icon_name="go-up-symbolic")
+        up_btn.set_valign(Gtk.Align.CENTER)
+        up_btn.add_css_class("flat")
+        up_btn.set_tooltip_text("Move level up")
+        up_btn.set_sensitive(level != keys[0])
+        up_btn.connect("clicked", lambda _b, lv=level: self._on_move_corruption_level(lv, -1))
+        exp.add_suffix(up_btn)
+
+        down_btn = Gtk.Button(icon_name="go-down-symbolic")
+        down_btn.set_valign(Gtk.Align.CENTER)
+        down_btn.add_css_class("flat")
+        down_btn.set_tooltip_text("Move level down")
+        down_btn.set_sensitive(level != keys[-1])
+        down_btn.connect("clicked", lambda _b, lv=level: self._on_move_corruption_level(lv, +1))
+        exp.add_suffix(down_btn)
+
         # Delete-level button
         del_btn = Gtk.Button(icon_name="user-trash-symbolic")
         del_btn.set_valign(Gtk.Align.CENTER)
@@ -1109,6 +1128,22 @@ class PackEditorContent:
         else:
             self._corruption_data["wallpapers"].pop(key, None)
         self._save_corruption()
+
+    def _on_move_corruption_level(self, level: int, direction: int) -> None:
+        other = level + direction
+        if other not in self._corruption_level_keys():
+            return
+        d = self._corruption_data
+        for section in ("moods", "config", "wallpapers", "names"):
+            sec = d.get(section, {})
+            a = sec.pop(str(level), None)
+            b = sec.pop(str(other), None)
+            if a is not None:
+                sec[str(other)] = a
+            if b is not None:
+                sec[str(level)] = b
+        self._save_corruption()
+        self._rebuild_corruption_levels()
 
     def _on_add_corruption_level(self) -> None:
         keys = self._corruption_level_keys()
