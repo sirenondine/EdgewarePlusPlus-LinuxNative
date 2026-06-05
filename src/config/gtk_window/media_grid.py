@@ -526,6 +526,20 @@ def _image_thumbnail(path: Path) -> "Gdk.Texture | None":
     return Gdk.Texture.new_for_pixbuf(pb)
 
 
+def _load_image_texture(path: Path) -> "Gdk.Texture | None":
+    """Load a full-size image via PIL. Handles WebP, AVIF, and other formats
+    that GdkPixbuf may not support without optional loader plugins."""
+    try:
+        from PIL import Image
+        img = Image.open(path).convert("RGBA")
+        w, h = img.size
+        pb = GdkPixbuf.Pixbuf.new_from_data(
+            img.tobytes(), GdkPixbuf.Colorspace.RGB, True, 8, w, h, w * 4)
+        return Gdk.Texture.new_for_pixbuf(pb)
+    except Exception:
+        return None
+
+
 def _video_thumbnail(path: Path) -> "Gdk.Texture | None":
     """Grab a frame ~1s into the video via GStreamer and return it as a texture.
     Blocking — call from the worker thread only."""
@@ -595,7 +609,9 @@ def _open_lightbox(path: Path, root) -> None:
     dialog.set_title(path.name)
     dialog.set_content_width(900)
     dialog.set_content_height(700)
-    picture = Gtk.Picture.new_for_filename(str(path))
+    texture = _load_image_texture(path)
+    picture = (Gtk.Picture.new_for_paintable(texture) if texture
+               else Gtk.Picture.new_for_filename(str(path)))
     picture.set_content_fit(Gtk.ContentFit.CONTAIN)
     picture.set_can_shrink(True)
     picture.set_vexpand(True); picture.set_hexpand(True)
