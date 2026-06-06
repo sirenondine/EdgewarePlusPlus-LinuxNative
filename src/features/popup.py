@@ -95,6 +95,10 @@ class Popup(Gtk.Window):
         self.on_close = on_close
 
         self.denial = roll(self.settings.denial_chance)
+        # Pick the denial caption up front (thread-safe random.choice) so the
+        # image worker thread can burn it into the pixels when requested.
+        self.denial_text = self.pack.random_denial() if self.denial else None
+        self._caption_burned = False  # set by ImagePopup when the caption is drawn into the image
         self.opacity = self.settings.opacity
         self._move_id: int | None = None
         self._timeout_id: int | None = None
@@ -249,8 +253,11 @@ class Popup(Gtk.Window):
 
     def try_denial_text(self) -> None:
         if self.denial:
-            denial = self.pack.random_denial()
-            self._add_text(denial, Gtk.Align.CENTER, Gtk.Align.CENTER)
+            denial = self.denial_text
+            # When the caption was burned into the image (Beta-Caption style), skip
+            # the floating GTK label; otherwise show it as before.
+            if not self._caption_burned:
+                self._add_text(denial, Gtk.Align.CENTER, Gtk.Align.CENTER)
             self._note_text(denial)
             if self.settings.gamification:
                 from features import gamification

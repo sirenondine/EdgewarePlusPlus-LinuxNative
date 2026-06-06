@@ -172,6 +172,7 @@ data/panic_wallpaper.*
 data/theme_demo.*
 data/corruption_launches.json
 data/empty.png
+data/nsfw-anime-medium.onnx
 
 # OS
 .DS_Store

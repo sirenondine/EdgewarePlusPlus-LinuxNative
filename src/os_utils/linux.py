@@ -90,8 +90,19 @@ def set_wallpaper(wallpaper: Path) -> None:
         logging.info(f"Can't set wallpaper for desktop environment {desktop}")
 
 
+def _external_env() -> dict:
+    """Environment for launching external programs (browser, file manager). We
+    force GDK_BACKEND/GSK_RENDERER for our own GTK4 process at startup; inheriting
+    those crashes GTK/Firefox-based children ("gdk_display_manager_get() called
+    before gtk_init()"), so strip them for the child."""
+    env = os.environ.copy()
+    for key in ("GDK_BACKEND", "GSK_RENDERER", "GTK_USE_PORTAL"):
+        env.pop(key, None)
+    return env
+
+
 def open_directory(url: str) -> None:
-    subprocess.Popen(["xdg-open", url])
+    subprocess.Popen(["xdg-open", url], start_new_session=True, env=_external_env())
 
 
 def open_url(url: str) -> None:
@@ -123,8 +134,9 @@ def open_url(url: str) -> None:
         logging.warning(f"open_url: portal OpenURI failed ({e}); falling back to xdg-open")
     try:
         # start_new_session detaches the browser from our process group so it
-        # doesn't share our signal handlers / controlling state.
-        subprocess.Popen(["xdg-open", url], start_new_session=True)
+        # doesn't share our signal handlers / controlling state; _external_env
+        # strips the GTK/GDK vars we set on ourselves so the browser starts clean.
+        subprocess.Popen(["xdg-open", url], start_new_session=True, env=_external_env())
     except Exception as e:
         logging.error(f"open_url: failed to open {url}: {e}")
 

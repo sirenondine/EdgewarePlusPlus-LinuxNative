@@ -31,10 +31,22 @@ import logging
 import os
 import shutil
 import tempfile
+from collections.abc import Callable
 from pathlib import Path
+from typing import NamedTuple
 
 from voluptuous import ALLOW_EXTRA, All, Optional, Range, Schema
 from voluptuous.error import Invalid
+
+
+class VerifyIssue(NamedTuple):
+    """Single verification result. fix_fn() returns an error string or None on success."""
+    severity: str   # "error" | "warning" | "info"
+    category: str
+    message: str
+    fix_fn: Callable[[], "str | None"] | None = None
+    fix_label: str = "Fix"
+
 
 # default-mood fields the Phase 1 editor exposes, by their index.json key.
 DEFAULT_TEXT_LISTS = ["captions", "denial", "subliminals", "notifications", "prompts"]
@@ -359,6 +371,16 @@ class PackEditor:
         keys_to_clear = [k for k, v in mm.items() if v == name]
         for k in keys_to_clear:
             del mm[k]
+
+    def move_mood(self, name: str, direction: int) -> None:
+        """Swap mood `name` with its neighbour at direction (-1 up, +1 down)."""
+        moods = self._moods()
+        idx = next((i for i, m in enumerate(moods) if m.get("mood") == name), None)
+        if idx is None:
+            return
+        other = idx + direction
+        if 0 <= other < len(moods):
+            moods[idx], moods[other] = moods[other], moods[idx]
 
     # --- per-mood text lists -----------------------------------------------
     def get_mood_list(self, mood_name: str, key: str) -> list[str]:
@@ -711,7 +733,151 @@ class PackEditor:
             _write_atomic(self.index_path, {"default": default, "moods": moods_out})
             # Refresh our in-memory view so has_index becomes True immediately.
             self.index = _read_raw(self.index_path)
+            self.remove_legacy_files()
             return None
         except Exception as e:
             logging.warning(f"pack edit: legacy migration failed: {e}")
             return str(e)
+
+    def remove_legacy_files(self) -> "str | None":
+        """Delete captions/media/prompt/web.json if present. Returns error or None."""
+        errors = []
+        for fname in ("captions.json", "media.json", "prompt.json", "web.json"):
+            p = self.pack_dir / fname
+            if p.is_file():
+                try:
+                    p.unlink()
+                except OSError as e:
+                    errors.append(str(e))
+        return "; ".join(errors) if errors else None
+
+    # --- Auto-fix helpers (called from VerifyIssue.fix_fn lambdas) --------
+    def fix_remove_media_ref(self, mood_name: str, filename: str) -> "str | None":
+        mood = self._find_mood(mood_name)
+        if mood and filename in mood.get("media", []):
+            mood["media"].remove(filename)
+        return self.save_index()
+
+    def fix_corruption_stale_mood(self, lv_key: str, kind: str, name: str) -> "str | None":
+        data = self.get_corruption()
+        lst = data.get("moods", {}).get(lv_key, {}).get(kind, [])
+        if name in lst:
+            lst.remove(name)
+        return self.save_corruption(data)
+
+    def fix_corruption_missing_wallpaper(self, lv_key: str) -> "str | None":
+        data = self.get_corruption()
+        data.setdefault("wallpapers", {})[lv_key] = ""
+        return self.save_corruption(data)
+
+    def fix_companion_missing_field(self, field: str) -> "str | None":
+        data = self.get_companion()
+        data.pop(field, None)
+        return self.save_companion(data)
+
+    # --- Pack verification ------------------------------------------------
+    def verify(self) -> "list[VerifyIssue]":
+        """Return a list of VerifyIssue for this pack.
+
+        severity: "error" | "warning" | "info"
+        Errors block correct runtime behaviour; warnings degrade it; info is cosmetic.
+        Issues with fix_fn can be auto-corrected by calling fix_fn().
+        """
+        issues: list[VerifyIssue] = []
+        pack_dir = self.pack_dir
+
+        # JSON validity for every JSON file that can exist
+        for fname in ("info.json", "index.json", "corruption.json",
+                      "companion.json", "config.json"):
+            p = pack_dir / fname
+            if p.is_file():
+                try:
+                    json.loads(p.read_text(encoding="utf-8", errors="replace"))
+                except json.JSONDecodeError as e:
+                    issues.append(VerifyIssue("error", fname, f"Invalid JSON: {e}"))
+
+        # info.json schema
+        info_err = self.validate_info()
+        if info_err:
+            issues.append(VerifyIssue("error", "info.json", info_err))
+
+        # index.json schema (promptMinLength / promptMaxLength / etc.)
+        idx_err = self.validate_index()
+        if idx_err:
+            issues.append(VerifyIssue("error", "index.json", idx_err))
+
+        # Missing media files referenced in moods
+        media_dirs = [pack_dir / "img", pack_dir / "vid", pack_dir / "aud"]
+        for mood in self._moods():
+            mood_name = mood.get("mood", "?")
+            for filename in mood.get("media", []):
+                if not any((d / filename).is_file() for d in media_dirs):
+                    issues.append(VerifyIssue(
+                        "error", "media",
+                        f"\"{filename}\" (mood: {mood_name}) not found on disk",
+                        fix_fn=lambda mn=mood_name, fn=filename: self.fix_remove_media_ref(mn, fn),
+                        fix_label="Remove reference",
+                    ))
+
+        # Corruption: stale mood references and missing wallpapers
+        corruption = self.get_corruption()
+        mood_set = set(self.mood_names())
+        for lv_key, mood_data in corruption.get("moods", {}).items():
+            if not lv_key.isdigit():
+                continue
+            for kind in ("add", "remove"):
+                for name in mood_data.get(kind, []):
+                    if name not in mood_set:
+                        issues.append(VerifyIssue(
+                            "warning", "corruption.json",
+                            f"Level {lv_key} {kind}s unknown mood \"{name}\"",
+                            fix_fn=lambda k=lv_key, kd=kind, n=name:
+                                self.fix_corruption_stale_mood(k, kd, n),
+                            fix_label="Remove",
+                        ))
+        for lv_key, wp in corruption.get("wallpapers", {}).items():
+            if lv_key.isdigit() and wp and not (pack_dir / wp).is_file():
+                issues.append(VerifyIssue(
+                    "warning", "corruption.json",
+                    f"Level {lv_key} wallpaper not found: {wp}",
+                    fix_fn=lambda k=lv_key: self.fix_corruption_missing_wallpaper(k),
+                    fix_label="Clear",
+                ))
+
+        # Companion: missing avatar / spritesheet
+        companion = self.get_companion()
+        if companion:
+            for field in ("avatar", "spritesheet"):
+                f = companion.get(field)
+                if f and not (pack_dir / f).is_file():
+                    issues.append(VerifyIssue(
+                        "warning", "companion.json",
+                        f"{field} file not found: {f}",
+                        fix_fn=lambda fld=field: self.fix_companion_missing_field(fld),
+                        fix_label="Clear",
+                    ))
+
+        # Empty pack (no moods, no default captions)
+        if not mood_set and not self.get_list("captions"):
+            issues.append(VerifyIssue("warning", "index.json",
+                           "No moods and no default captions — pack will show nothing at runtime."))
+
+        # Moods with no media and no captions
+        for name in self.mood_names():
+            mood = self._find_mood(name)
+            if mood and not mood.get("media") and not self.get_mood_list(name, "captions"):
+                issues.append(VerifyIssue("info", "moods",
+                               f"Mood \"{name}\" has no media and no captions."))
+
+        # Legacy files alongside index.json
+        legacy = [f for f in ("captions.json", "media.json", "prompt.json", "web.json")
+                  if (pack_dir / f).is_file()]
+        if legacy and self.index_path.is_file():
+            issues.append(VerifyIssue(
+                "info", "legacy",
+                f"Orphaned legacy files alongside index.json: {', '.join(legacy)}.",
+                fix_fn=self.remove_legacy_files,
+                fix_label="Delete files",
+            ))
+
+        return issues

@@ -89,6 +89,8 @@ class PackEditorContent:
         self._pop_page = None
         self._on_migrated = None
         self._page = None
+        self._moods_group: "Adw.PreferencesGroup | None" = None
+        self._mood_rows: list = []
 
     def build_into(self, page: Adw.PreferencesPage,
                    push_page=None, pop_page=None, on_migrated=None) -> None:
@@ -117,6 +119,7 @@ class PackEditorContent:
         self._build_config_save_group(page)
         if self.editor.has_index:
             self._build_corruption_row(page)
+        self._build_verify_group(page)
 
     # --- info.json --------------------------------------------------------
     def _build_info_group(self, page: Adw.PreferencesPage) -> None:
@@ -168,19 +171,28 @@ class PackEditorContent:
             description="Button labels and prompt settings for the default mood.",
         )
         page.add(group)
-        for key, title in (("popupClose",     "Popup Close Button"),
-                           ("promptCommand",  "Prompt Command Text"),
-                           ("promptSubmit",   "Prompt Submit Button")):
+        for key, title, subtitle in (
+            ("popupClose",    "Popup Close Button", "Label on the button that closes a popup."),
+            ("promptCommand", "Prompt Command Text", "Instruction shown above the box the user types into."),
+            ("promptSubmit",  "Prompt Submit Button", "Label on the button that submits a typed prompt."),
+        ):
             row = Adw.EntryRow(title=title)
             row.set_text(self.editor.get_string(key))
+            row.set_tooltip_text(subtitle)  # EntryRow has no subtitle; tooltip carries the description
             row.connect("changed", self._make_string_handler(key))
             group.add(row)
 
-        for key, title in (("promptMinLength", "Prompt Min Length"),
-                           ("promptMaxLength", "Prompt Max Length")):
+        # A prompt is built by stringing together several random phrases from the
+        # mood's "prompts" list; the count is random between min and max.
+        for key, title, subtitle in (
+            ("promptMinLength", "Prompt Min Length",
+             "Fewest prompt phrases strung together to form one typing prompt."),
+            ("promptMaxLength", "Prompt Max Length",
+             "Most prompt phrases strung together. A random count between min and max is used each time."),
+        ):
             adj = Gtk.Adjustment(
                 value=self.editor.get_int(key, 1), lower=1, upper=999, step_increment=1)
-            row = Adw.SpinRow(title=title, adjustment=adj)
+            row = Adw.SpinRow(title=title, subtitle=subtitle, adjustment=adj)
             row.connect("notify::value", self._make_spin_handler(key))
             group.add(row)
 
@@ -204,16 +216,23 @@ class PackEditorContent:
             description="Named content groups. Click a mood to edit its text lists.",
         )
         page.add(group)
+        self._moods_group = group
 
         add_btn = Gtk.Button(icon_name="list-add-symbolic")
         add_btn.set_tooltip_text("Add mood")
         from config.gtk_window.toast import name_popover
         add_btn.connect("clicked", lambda b: name_popover(
-            b, "New mood name", self._on_add_mood_commit(group)))
+            b, "New mood name", self._on_add_mood_commit()))
         group.set_header_suffix(add_btn)
 
+        self._rebuild_moods()
+
+    def _rebuild_moods(self) -> None:
+        for row in self._mood_rows:
+            self._moods_group.remove(row)
+        self._mood_rows = []
         for name in self.editor.mood_names():
-            self._append_mood_row(group, name)
+            self._append_mood_row(self._moods_group, name)
 
     def _append_mood_row(self, group: Adw.PreferencesGroup, name: str) -> Adw.ActionRow:
         row = Adw.ActionRow(title=name)
@@ -224,6 +243,8 @@ class PackEditorContent:
                          f"{len(self.editor.get_mood_list(name, 'media'))} media")
         row.set_activatable(self._push_page is not None)
 
+        # Suffix order: last add_suffix = leftmost. Target: [↑↓] [🗑️] [→]
+        # So add: nav arrow first, del second, reorder box third (last = leftmost).
         if self._push_page is not None:
             arrow = Gtk.Image.new_from_icon_name("go-next-symbolic")
             arrow.set_valign(Gtk.Align.CENTER)
@@ -237,19 +258,45 @@ class PackEditorContent:
         del_btn.connect("clicked", lambda _b, r=row: self._on_delete_mood(r))
         row.add_suffix(del_btn)
 
+        names = self.editor.mood_names()
+        reorder_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+        reorder_box.add_css_class("linked")
+        reorder_box.set_valign(Gtk.Align.CENTER)
+
+        up_btn = Gtk.Button(icon_name="go-up-symbolic")
+        up_btn.set_tooltip_text("Move mood up")
+        up_btn.set_sensitive(name != names[0] if names else False)
+        up_btn.connect("clicked", lambda _b, n=name: self._on_move_mood(n, -1))
+        reorder_box.append(up_btn)
+
+        down_btn = Gtk.Button(icon_name="go-down-symbolic")
+        down_btn.set_tooltip_text("Move mood down")
+        down_btn.set_sensitive(name != names[-1] if names else False)
+        down_btn.connect("clicked", lambda _b, n=name: self._on_move_mood(n, +1))
+        reorder_box.append(down_btn)
+
+        row.add_suffix(reorder_box)
+
         group.add(row)
+        self._mood_rows.append(row)
         return row
 
-    def _on_add_mood_commit(self, group: Adw.PreferencesGroup):
+    def _on_add_mood_commit(self):
         def commit(name: str) -> None:
             err = self.editor.add_mood(name)
             if err:
                 toast(err)
                 return
-            self._append_mood_row(group, name.strip())
+            self._rebuild_moods()
             self._dirty_index = True
             self._schedule_save()
         return commit
+
+    def _on_move_mood(self, name: str, direction: int) -> None:
+        self.editor.move_mood(name, direction)
+        self._rebuild_moods()
+        self._dirty_index = True
+        self._schedule_save()
 
     def _on_delete_mood(self, row: Adw.ActionRow) -> None:
         from gtk_dialog import ask_yes_no
@@ -263,12 +310,7 @@ class PackEditorContent:
         ):
             return
         self.editor.remove_mood(name)
-        parent = row.get_parent()
-        if parent:
-            while parent and not isinstance(parent, Adw.PreferencesGroup):
-                parent = parent.get_parent()
-            if isinstance(parent, Adw.PreferencesGroup):
-                parent.remove(row)
+        self._rebuild_moods()
         self._dirty_index = True
         self._schedule_save()
 
@@ -467,7 +509,7 @@ class PackEditorContent:
         # Choose button
         choose_btn = Gtk.Button()
         choose_btn.set_child(Adw.ButtonContent(
-            label="Choose…", icon_name="document-open-symbolic"))
+            label="Choose", icon_name="document-open-symbolic"))
         choose_btn.set_valign(Gtk.Align.CENTER)
 
         def on_chosen(fd, result, _k=key, _row=row, _preview=preview,
@@ -553,7 +595,7 @@ class PackEditorContent:
         self._load_discord_thumb(thumb, image_id)
 
         choose_btn = Gtk.Button()
-        choose_btn.set_child(Adw.ButtonContent(label="Choose…", icon_name="image-x-generic-symbolic"))
+        choose_btn.set_child(Adw.ButtonContent(label="Choose", icon_name="image-x-generic-symbolic"))
         choose_btn.set_valign(Gtk.Align.CENTER)
         choose_btn.connect("clicked", lambda _b, r=image_row, t=thumb, tr=text_row:
                            self._open_discord_picker(r, t, tr))
@@ -761,7 +803,7 @@ class PackEditorContent:
         clear_btn.set_sensitive(bool(current))
 
         choose_btn = Gtk.Button(valign=Gtk.Align.CENTER)
-        choose_btn.set_child(Adw.ButtonContent(label="Choose…", icon_name="document-open-symbolic"))
+        choose_btn.set_child(Adw.ButtonContent(label="Choose", icon_name="document-open-symbolic"))
 
         def on_chosen(fd, result) -> None:
             try:
@@ -835,7 +877,7 @@ class PackEditorContent:
         )
         save_btn = Gtk.Button()
         save_btn.set_child(Adw.ButtonContent(
-            label="Save Settings…", icon_name="document-save-symbolic"))
+            label="Save Settings", icon_name="document-save-symbolic"))
         save_btn.set_valign(Gtk.Align.CENTER)
         save_btn.connect("clicked", lambda _b, r=row: self._on_save_config(r))
         row.add_suffix(save_btn)
@@ -1025,9 +1067,11 @@ class PackEditorContent:
         key = str(level)
         row = Adw.ActionRow(title=title)
         selected = self._corruption_data["moods"][key][kind]
-        row.set_subtitle(", ".join(selected) if selected else "None")
+        known = set(self.editor.mood_names())
+        subtitle_parts = [f"{m} (?)" if m not in known else m for m in selected]
+        row.set_subtitle(", ".join(subtitle_parts) if subtitle_parts else "None")
 
-        btn = Gtk.MenuButton(label="Select…")
+        btn = Gtk.MenuButton(label="Select")
         btn.set_valign(Gtk.Align.CENTER)
         btn.set_popover(self._mood_select_popover(key, kind, row))
         row.add_suffix(btn)
@@ -1042,6 +1086,7 @@ class PackEditorContent:
 
         selected = set(self._corruption_data["moods"][key][kind])
         mood_names = self._corruption_mood_names
+        known = set(mood_names)
 
         if not mood_names:
             box.append(Gtk.Label(label="This pack has no moods."))
@@ -1051,6 +1096,24 @@ class PackEditorContent:
             check.connect("toggled", lambda c, n=name, k=key, knd=kind, r=row:
                           self._toggle_corruption_mood(k, knd, n, c.get_active(), r))
             box.append(check)
+
+        # Stale entries: in the level's list but no longer a pack mood.
+        stale = [m for m in self._corruption_data["moods"][key][kind] if m not in known]
+        if stale:
+            sep = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
+            sep.set_margin_top(4); sep.set_margin_bottom(4)
+            box.append(sep)
+            lbl = Gtk.Label(label="Removed moods (uncheck to clean up):")
+            lbl.add_css_class("dim-label")
+            lbl.set_xalign(0)
+            box.append(lbl)
+            for name in stale:
+                check = Gtk.CheckButton(label=name)
+                check.set_active(True)
+                check.add_css_class("dim-label")
+                check.connect("toggled", lambda c, n=name, k=key, knd=kind, r=row:
+                              self._toggle_corruption_mood(k, knd, n, c.get_active(), r))
+                box.append(check)
 
         scroller = Gtk.ScrolledWindow()
         scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
@@ -1068,7 +1131,9 @@ class PackEditorContent:
             lst.append(name)
         elif not active and name in lst:
             lst.remove(name)
-        row.set_subtitle(", ".join(lst) if lst else "None")
+        known = set(self.editor.mood_names())
+        parts = [f"{m} (?)" if m not in known else m for m in lst]
+        row.set_subtitle(", ".join(parts) if parts else "None")
         self._save_corruption()
 
     def _corruption_wallpaper_row(self, level: int) -> Adw.ActionRow:
@@ -1090,7 +1155,7 @@ class PackEditorContent:
         self._load_wallpaper_thumb(thumb, current)
 
         choose_btn = Gtk.Button()
-        choose_btn.set_child(Adw.ButtonContent(label="Choose…", icon_name="image-x-generic-symbolic"))
+        choose_btn.set_child(Adw.ButtonContent(label="Choose", icon_name="image-x-generic-symbolic"))
         choose_btn.set_valign(Gtk.Align.CENTER)
 
         def on_pick(name: str, k=key, r=row, t=thumb) -> None:
@@ -1188,7 +1253,7 @@ class PackEditorContent:
             title="Popup Text",
             description="This pack uses the legacy format (captions.json / media.json / "
                         "prompt.json / web.json). Migrate to index.json to enable text editing "
-                        "and media assignment. Legacy files are kept — migration is non-destructive.",
+                        "and media assignment.",
         )
         page.add(group)
 
@@ -1203,7 +1268,7 @@ class PackEditorContent:
         if has_legacy:
             migrate_btn = Gtk.Button()
             migrate_btn.set_child(Adw.ButtonContent(
-                label="Migrate…", icon_name="emblem-synchronizing-symbolic"))
+                label="Migrate", icon_name="emblem-synchronizing-symbolic"))
             migrate_btn.set_valign(Gtk.Align.CENTER)
             migrate_btn.connect("clicked", self._on_migrate)
             migrate_row.add_suffix(migrate_btn)
@@ -1222,8 +1287,7 @@ class PackEditorContent:
         files_str = "\n".join(f"  • {f}" for f in legacy)
         if not ask_yes_no(
             "Migrate to index.json?",
-            f"The following files will be read and combined into index.json:\n{files_str}\n\n"
-            "Legacy files are kept — nothing will be deleted.",
+            f"The following files will be combined into index.json, then deleted:\n{files_str}",
             heading="Migrate pack format?",
         ):
             return
@@ -1268,6 +1332,147 @@ class PackEditorContent:
             GLib.source_remove(self._save_source)
             self._save_source = None
         self._do_save()
+
+    # --- Pack verification ------------------------------------------------
+    def _build_verify_group(self, page: Adw.PreferencesPage) -> None:
+        group = Adw.PreferencesGroup(
+            title="Verification",
+            description="Check for invalid JSON, missing media, broken references, and more.",
+        )
+        page.add(group)
+        btn = Gtk.Button()
+        btn.set_child(Adw.ButtonContent(
+            label="Verify Pack", icon_name="emblem-ok-symbolic"))
+        btn.set_valign(Gtk.Align.CENTER)
+        btn.add_css_class("suggested-action")
+        btn.connect("clicked", lambda _b: self._run_verify(btn))
+        row = Adw.ActionRow(title="Run a full check of all pack files")
+        row.add_suffix(btn)
+        row.set_activatable_widget(btn)
+        group.add(row)
+
+    def _run_verify(self, anchor: Gtk.Widget) -> None:
+        issues = self.editor.verify()
+        self._show_verify_results(issues, anchor)
+
+    def _show_verify_results(self, issues: list, anchor: Gtk.Widget) -> None:
+        from config.gtk_window.toast import toast as _toast
+
+        dialog = Adw.Dialog()
+        dialog.set_title("Pack Verification")
+        dialog.set_content_width(560)
+        dialog.set_content_height(600)
+
+        tv = Adw.ToolbarView()
+        hdr = Adw.HeaderBar()
+        tv.add_top_bar(hdr)
+        dialog.set_child(tv)
+
+        def _fix_and_rerun(fix_fn, label):
+            err = fix_fn()
+            if err:
+                _toast(f"Fix failed: {err}")
+            else:
+                _toast(f"{label} — fixed.")
+            dialog.close()
+            self._run_verify(anchor)
+
+        def _fix_all(_btn):
+            fixable = [i for i in issues if i.fix_fn is not None]
+            count = 0
+            for issue in fixable:
+                if issue.fix_fn() is None:
+                    count += 1
+            _toast(f"Fixed {count} of {len(fixable)} issue(s).")
+            dialog.close()
+            self._run_verify(anchor)
+
+        if not issues:
+            status = Adw.StatusPage(
+                icon_name="emblem-ok-symbolic",
+                title="All checks passed",
+                description="No errors, warnings, or notices found.",
+            )
+            tv.set_content(status)
+            dialog.present(anchor.get_root())
+            return
+
+        fixable_count = sum(1 for i in issues if i.fix_fn is not None)
+        if fixable_count:
+            fix_all_btn = Gtk.Button(label=f"Fix All ({fixable_count})")
+            fix_all_btn.add_css_class("suggested-action")
+            fix_all_btn.connect("clicked", _fix_all)
+            hdr.pack_end(fix_all_btn)
+
+        page = Adw.PreferencesPage()
+        scroller = Gtk.ScrolledWindow()
+        scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        scroller.set_vexpand(True)
+        scroller.set_child(page)
+        tv.set_content(scroller)
+
+        _SEVERITY_META = {
+            "error":   ("dialog-error-symbolic",   "Errors",   "error"),
+            "warning": ("dialog-warning-symbolic",  "Warnings", "warning"),
+            "info":    ("dialog-information-symbolic", "Notices", None),
+        }
+        groups: dict[str, Adw.PreferencesGroup] = {}
+        for issue in issues:
+            sev, category, message = issue.severity, issue.category, issue.message
+            if sev not in groups:
+                icon, title, css = _SEVERITY_META.get(sev, ("dialog-information-symbolic", sev.title(), None))
+                g = Adw.PreferencesGroup(title=title)
+                groups[sev] = g
+                page.add(g)
+            else:
+                icon, _, css = _SEVERITY_META.get(sev, ("dialog-information-symbolic", sev.title(), None))
+
+            row = Adw.ActionRow(title=category, subtitle=message)
+            img = Gtk.Image.new_from_icon_name(icon)
+            img.set_valign(Gtk.Align.CENTER)
+            if css:
+                img.add_css_class(css)
+            row.add_prefix(img)
+            if issue.fix_fn is not None:
+                fix_btn = Gtk.Button(label=issue.fix_label)
+                fix_btn.set_valign(Gtk.Align.CENTER)
+                fix_btn.add_css_class("pill")
+                fix_btn.connect(
+                    "clicked",
+                    lambda _b, fn=issue.fix_fn, lbl=issue.fix_label: _fix_and_rerun(fn, lbl),
+                )
+                row.add_suffix(fix_btn)
+            groups[sev].add(row)
+
+        # Summary row at top
+        n_err = sum(1 for i in issues if i.severity == "error")
+        n_warn = sum(1 for i in issues if i.severity == "warning")
+        n_info = sum(1 for i in issues if i.severity == "info")
+        parts = []
+        if n_err:   parts.append(f"{n_err} error{'s' if n_err != 1 else ''}")
+        if n_warn:  parts.append(f"{n_warn} warning{'s' if n_warn != 1 else ''}")
+        if n_info:  parts.append(f"{n_info} notice{'s' if n_info != 1 else ''}")
+        summary_group = Adw.PreferencesGroup()
+        summary_row = Adw.ActionRow(
+            title="Summary",
+            subtitle=", ".join(parts),
+        )
+        img = Gtk.Image.new_from_icon_name(
+            "dialog-error-symbolic" if n_err else "dialog-warning-symbolic")
+        img.set_valign(Gtk.Align.CENTER)
+        img.add_css_class("error" if n_err else "warning")
+        summary_row.add_prefix(img)
+        summary_group.add(summary_row)
+        page.add(summary_group)
+        # Move summary to top by rebuilding page order
+        page.remove(summary_group)
+        for g in list(groups.values()):
+            page.remove(g)
+        page.add(summary_group)
+        for g in groups.values():
+            page.add(g)
+
+        dialog.present(anchor.get_root())
 
 
 # ---------------------------------------------------------------------------

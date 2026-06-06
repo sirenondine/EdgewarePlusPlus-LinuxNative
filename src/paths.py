@@ -61,6 +61,12 @@ class Assets:
     # Unchangeable defaults
     DEFAULT_CONFIG = ROOT / "default_config.json"
     DEFAULT_IMAGE = ROOT / "default_image.png"
+    CENSOR_FONT = ROOT / "censor_font.ttf"  # bold TTF for burned-in censor captions (DejaVu Bold)
+    FONT_ANTON = ROOT / "font_anton.ttf"
+    FONT_BEBAS = ROOT / "font_bebasneue.ttf"
+    FONT_FREDOKA = ROOT / "font_fredoka.ttf"
+    FONT_PACIFICO = ROOT / "font_pacifico.ttf"
+    FACE_LANDMARKS = ROOT / "landmarks_68_pfld.onnx"  # PFLD 68-pt model for precise eye bars
 
     # Changeable defaults
     DEFAULT_CONFIG_ICON = ROOT / "default_config_icon.ico"
@@ -86,6 +92,7 @@ class Data:
 
     # Files
     CONFIG = _CONFIG_ROOT / "config.json"
+    ANIME_MODEL = _DATA_ROOT / "nsfw-anime-medium.onnx"  # optional anime NSFW detector (downloaded on demand)
     CORRUPTION_LAUNCHES = _DATA_ROOT / "corruption_launches.dat"
     PROGRESS = _STATE_ROOT / "progress.json"  # local gamification stats
     COMPANION_MEMORY = _STATE_ROOT / "companion_memory.json"  # companion auto-memory facts

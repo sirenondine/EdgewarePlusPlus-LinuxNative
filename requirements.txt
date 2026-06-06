@@ -11,3 +11,7 @@ requests
 screeninfo
 voluptuous
 websockets
+
+# Optional: AI region detection for the denial/censor feature (pulls onnxruntime,
+# downloads a model on first use). Without it, censoring falls back to whole-image.
+# nudenet
