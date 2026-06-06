@@ -67,6 +67,7 @@ class Assets:
     FONT_FREDOKA = ROOT / "font_fredoka.ttf"
     FONT_PACIFICO = ROOT / "font_pacifico.ttf"
     FACE_LANDMARKS = ROOT / "landmarks_68_pfld.onnx"  # PFLD 68-pt model for precise eye bars
+    NUDENET_MODEL = ROOT / "nudenet_detect.onnx"  # bundled NudeNet YOLOv8-detect (320px, 18 classes)
     BREASTS_MODEL = ROOT / "breasts_seg.onnx"  # Anzhc full-breast YOLOv8-seg (bundled)
     FACE_SEG = ROOT / "face_seg.onnx"  # Anzhc full-face YOLOv8-seg (bundled)
     # Single-class YOLOv8-seg models (bundled) feeding the generic seg registry.

@@ -229,42 +229,27 @@ _ANIME_TO_PART = {
 }
 _ANIME_IDX_TO_PART = {i: _ANIME_TO_PART[n] for i, n in _ANIME_NAMES.items() if n in _ANIME_TO_PART}
 
+# Bundled NudeNet YOLOv8-detect model (best.onnx, 320px, 18 classes). Replaces the
+# old pip `nudenet` dependency: run directly via onnxruntime like the seg models.
+_NUDENET_NAMES = {
+    0: "FEMALE_GENITALIA_COVERED", 1: "FACE_FEMALE", 2: "BUTTOCKS_EXPOSED",
+    3: "FEMALE_BREAST_EXPOSED", 4: "FEMALE_GENITALIA_EXPOSED", 5: "MALE_BREAST_EXPOSED",
+    6: "ANUS_EXPOSED", 7: "FEET_EXPOSED", 8: "BELLY_COVERED", 9: "FEET_COVERED",
+    10: "ARMPITS_COVERED", 11: "ARMPITS_EXPOSED", 12: "FACE_MALE", 13: "BELLY_EXPOSED",
+    14: "MALE_GENITALIA_EXPOSED", 15: "ANUS_COVERED", 16: "FEMALE_BREAST_COVERED",
+    17: "BUTTOCKS_COVERED",
+}
+_NUDENET_IDX_TO_PART = {i: part_for_class(n) for i, n in _NUDENET_NAMES.items() if part_for_class(n)}
+_NUDENET_INPUT = 320
+_NUDENET_CONF = 0.2
+_NUDENET_IOU = 0.5
+
 
 def is_available() -> bool:
-    """True if the optional NudeNet dependency is importable (no model load)."""
+    """True if the bundled NudeNet model + onnxruntime are present."""
     import importlib.util
 
-    return importlib.util.find_spec("nudenet") is not None
-
-
-def reset_detector() -> None:
-    """Clear the cached detector + failure latch so a freshly-installed NudeNet is
-    picked up without restarting Edgeware."""
-    global _detector, _detector_failed
-    with _detector_lock:
-        _detector, _detector_failed = None, False
-
-
-def install_detector() -> tuple[bool, str]:
-    """Pip-install NudeNet into the running interpreter. Blocking; call off the UI
-    thread. Returns (ok, message)."""
-    import importlib
-    import subprocess
-    import sys
-
-    try:
-        proc = subprocess.run(
-            [sys.executable, "-m", "pip", "install", "nudenet"],
-            capture_output=True, text=True,
-        )
-    except Exception as e:
-        return False, str(e)
-    if proc.returncode != 0:
-        tail = (proc.stderr or proc.stdout or "pip failed").strip().splitlines()
-        return False, (tail[-1] if tail else "pip failed")[:200]
-    importlib.invalidate_caches()
-    reset_detector()
-    return (is_available(), "Installed" if is_available() else "Installed, but import still fails")
+    return Assets.NUDENET_MODEL.is_file() and importlib.util.find_spec("onnxruntime") is not None
 
 
 def _clamp(value: int, low: int, high: int) -> int:
@@ -275,8 +260,8 @@ def _clamp(value: int, low: int, high: int) -> int:
 # Detection (optional, lazy)
 # ---------------------------------------------------------------------------
 def _get_detector():
-    """Lazily construct a single NudeDetector. Returns None (and latches) if the
-    optional dependency or model is unavailable."""
+    """Lazily load the bundled NudeNet YOLOv8-detect ONNX session. Returns None
+    (and latches) if onnxruntime or the model file is unavailable."""
     global _detector, _detector_failed
     if _detector is not None or _detector_failed:
         return _detector
@@ -284,37 +269,14 @@ def _get_detector():
         if _detector is not None or _detector_failed:
             return _detector
         try:
-            from nudenet import NudeDetector
+            import onnxruntime as ort
 
-            _detector = NudeDetector()  # bundled 320 model; higher res tested worse
-            logging.info("censor: NudeNet detector loaded")
+            _detector = ort.InferenceSession(str(Assets.NUDENET_MODEL), providers=["CPUExecutionProvider"])
+            logging.info("censor: NudeNet detect model loaded")
         except Exception as e:
             _detector_failed = True
             logging.warning(f"censor: NudeNet unavailable, falling back to whole-image censor ({e})")
     return _detector
-
-
-def _raw_detect(detector, image: Image.Image) -> Optional[list[dict]]:
-    """Run NudeNet on one PIL image (via a temp file). Returns raw detections or
-    None on failure."""
-    import os
-    import tempfile
-
-    tmp = None
-    try:
-        fd, tmp = tempfile.mkstemp(suffix=".png")
-        os.close(fd)
-        image.convert("RGB").save(tmp)
-        return detector.detect(tmp)
-    except Exception as e:
-        logging.warning(f"censor: detection failed ({e})")
-        return None
-    finally:
-        if tmp:
-            try:
-                os.unlink(tmp)
-            except OSError:
-                pass
 
 
 def _dilate(box: Region, iw: int, ih: int) -> Region:
@@ -367,41 +329,31 @@ def detect_regions(image: Image.Image) -> Optional[list[tuple[Region, str, bool]
     Detection runs on the image AND its horizontal mirror; boxes are unioned. The
     single 320 model is pose-sensitive and often catches a breast/part on one side
     or orientation but not the other, so the flip pass markedly improves recall."""
-    detector = _get_detector()
-    if detector is None:
+    session = _get_detector()
+    if session is None:
         return None
 
     from PIL import ImageOps
 
     iw, ih = image.size
-    passes = [(image, False), (ImageOps.mirror(image), True)]
-    raw: list[dict] = []
+    out: list[tuple[Region, str, bool]] = []
     any_ok = False
-    for img, flipped in passes:
-        res = _raw_detect(detector, img)
-        if res is None:
+    for img, flipped in ((image, False), (ImageOps.mirror(image), True)):
+        try:
+            res = _run_yolo_seg(session, img, _NUDENET_INPUT, _NUDENET_IDX_TO_PART,
+                                _NUDENET_CONF, _NUDENET_IOU, False, seg=False, names=_NUDENET_NAMES)
+        except Exception as e:
+            logging.warning(f"censor: detection failed ({e})")
             continue
         any_ok = True
-        for det in res:
+        for box, part, covered in res:
             if flipped:
-                box = det.get("box")
-                if box and len(box) == 4:
-                    x, y, w, h = box
-                    det = {**det, "box": [iw - (x + w), y, w, h]}  # mirror x back
-            raw.append(det)
+                x, y, w, h = box
+                box = (iw - (x + w), y, w, h)  # mirror x back
+            out.append((box, part, covered))
     if not any_ok:
         return None  # both passes errored -> treat as unavailable
-
-    regions: list[tuple[Region, str, bool]] = []
-    for det in raw:
-        cls = det.get("class", "")
-        part = part_for_class(cls)
-        if part and det.get("score", 0) >= _DETECT_THRESHOLD:
-            box = det.get("box")
-            if box and len(box) == 4:
-                x, y, w, h = (int(v) for v in box)
-                regions.append((_dilate((x, y, w, h), iw, ih), part, is_covered(cls)))
-    return _merge_same_part(regions)
+    return _merge_same_part(out)
 
 
 def union_detections(a, b):
@@ -513,10 +465,12 @@ def _nms(boxes, scores, iou_thr: float):
 
 
 def _run_yolo_seg(session, image: Image.Image, size: int, idx_to_part: dict,
-                  conf_thr: float, iou_thr: float, with_masks: bool):
-    """Generic YOLOv8/11-seg inference + decode. Returns ((x,y,w,h), part, covered)
+                  conf_thr: float, iou_thr: float, with_masks: bool,
+                  seg: bool = True, names: Optional[dict] = None):
+    """Generic YOLOv8/11 inference + decode. Returns ((x,y,w,h), part, covered)
     triples, or 4-tuples with a box-local boolean mask when `with_masks`. Shared by
-    every seg detector (anime, breast, …). `idx_to_part` maps class index -> part."""
+    every detector. `idx_to_part` maps class index -> part; `seg` False = plain
+    detect head (no mask coeffs); `names` (idx->class) sets covered via is_covered."""
     import numpy as np
 
     iw, ih = image.size
@@ -528,8 +482,8 @@ def _run_yolo_seg(session, image: Image.Image, size: int, idx_to_part: dict,
     arr = np.transpose(np.asarray(canvas, dtype=np.float32) / 255.0, (2, 0, 1))[None]
 
     out = session.run(None, {session.get_inputs()[0].name: arr})
-    p = out[0][0].T  # [N, 4 + ncls + 32]
-    ncls = p.shape[1] - 4 - 32  # derive class count from the tensor
+    p = out[0][0].T  # [N, 4 + ncls (+32 mask coeffs when seg)]
+    ncls = p.shape[1] - (4 + 32 if seg else 4)  # derive class count from the tensor
     if ncls < 1:
         return []
     scores = p[:, 4:4 + ncls]
@@ -547,7 +501,7 @@ def _run_yolo_seg(session, image: Image.Image, size: int, idx_to_part: dict,
     xyxy = np.stack([x1, y1, x2, y2], 1)
 
     protos_flat = coeffs = cv2 = None
-    if with_masks and len(out) > 1:
+    if seg and with_masks and len(out) > 1:
         try:
             import cv2 as _cv2
 
@@ -564,6 +518,7 @@ def _run_yolo_seg(session, image: Image.Image, size: int, idx_to_part: dict,
         part = idx_to_part.get(int(c))
         if not part:
             continue
+        covered = is_covered(names[int(c)]) if names else False
         cls_mask = cls == c
         cidx = np.where(cls_mask)[0]
         for idx in _nms(xyxy[cls_mask], conf[cls_mask], iou_thr):
@@ -587,9 +542,9 @@ def _run_yolo_seg(session, image: Image.Image, size: int, idx_to_part: dict,
                         bmask = (m[dy:dy + dh, dx:dx + dw] > 0.5)
                     except Exception:
                         bmask = None
-                regions.append((dbox, part, False, bmask))
+                regions.append((dbox, part, covered, bmask))
             else:
-                regions.append((dbox, part, False))
+                regions.append((dbox, part, covered))
     return regions
 
 

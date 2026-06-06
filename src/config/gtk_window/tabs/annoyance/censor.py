@@ -87,8 +87,7 @@ class CensorTab(Adw.PreferencesPage):
         self.add(detect)
         detect.add(AdwSwitchRow(
             "AI Region Detection", vars.denial_detect,
-            subtitle="Censor only explicit regions (needs NudeNet; stills only)."))
-        detect.add(self._build_nudenet_row())
+            subtitle="Censor only the detected explicit regions (bundled model; stills only)."))
         detect.add(AdwSwitchRow(
             "Anime Detection (Union)", vars.denial_detect_anime,
             subtitle="Add an anime-tuned detector — better on 2D/stylised art. Needs the model below."))
@@ -171,16 +170,6 @@ class CensorTab(Adw.PreferencesPage):
         button.connect("clicked", on_click)
         show_installed() if available_fn() else show_missing()
         return row
-
-    def _build_nudenet_row(self) -> Adw.ActionRow:
-        """Status + installer for the optional NudeNet detector (whole-image fallback without it)."""
-        from features import censor
-
-        return self._model_install_row(
-            "AI Detector (NudeNet)", censor.is_available, censor.install_detector,
-            "Installed — region detection ready.",
-            "Not installed — detection falls back to censoring the whole image.",
-            "Installing NudeNet… (downloads ~100 MB, first run fetches a model)")
 
     def _build_anime_row(self) -> Adw.ActionRow:
         """Status + downloader for the optional anime-tuned detector model."""

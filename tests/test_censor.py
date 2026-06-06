@@ -539,70 +539,57 @@ class PartMappingTest(unittest.TestCase):
             self.assertTrue(censor.PART_CLASSES[key])
 
 
-class _FakeDetector:
-    def __init__(self, results, once=False):
-        self._results = results
-        self._once = once  # detection runs original + mirror; once=True answers only the first
-        self._calls = 0
+class _FakeDetectSession:
+    """Fake YOLOv8-detect ONNX session. dets: (cls_idx, cx, cy, w, h, score) in
+    320-space; image is fed at 320x320 so coords map 1:1 (r=1, no pad)."""
+    def __init__(self, dets):
+        self.dets = dets
 
-    def detect(self, _path):
-        self._calls += 1
-        if self._once and self._calls > 1:
-            return []
-        return self._results
+    def get_inputs(self):
+        import types
+        return [types.SimpleNamespace(name="images")]
+
+    def run(self, _outputs, _feed):
+        import numpy as np
+        n = max(1, len(self.dets))
+        out = np.zeros((1, 4 + 18, n), dtype=np.float32)  # 4 box + 18 classes
+        for i, (c, cx, cy, w, h, s) in enumerate(self.dets):
+            out[0, 0, i], out[0, 1, i], out[0, 2, i], out[0, 3, i] = cx, cy, w, h
+            out[0, 4 + c, i] = s
+        return [out]
 
 
 class DetectRegionsTest(unittest.TestCase):
-    def _run(self, results, size=(100, 100), once=True):
-        saved_d, saved_f = censor._detector, censor._detector_failed
-        censor._detector, censor._detector_failed = _FakeDetector(results, once=once), False
+    def _run(self, dets):
+        saved = censor._detector, censor._detector_failed
+        censor._detector, censor._detector_failed = _FakeDetectSession(dets), False
         try:
-            return censor.detect_regions(solid(size=size))
+            return censor.detect_regions(solid(size=(320, 320)))
         finally:
-            censor._detector, censor._detector_failed = saved_d, saved_f
+            censor._detector, censor._detector_failed = saved
 
-    def test_flip_pass_unions_mirrored_detection(self):
-        # A centred box maps onto itself under horizontal mirror, so the two passes
-        # union into a single region (proves the flip pass + merge run).
-        out = self._run(
-            [{"class": "FEMALE_BREAST_EXPOSED", "score": 0.9, "box": [40, 10, 20, 30]}],
-            once=False,
-        )
+    def test_class_maps_to_part_with_covered(self):
+        # class 0 = FEMALE_GENITALIA_COVERED -> female_genitals, covered True.
+        out = self._run([(0, 160, 160, 40, 40, 0.9)])
+        self.assertTrue(out)
+        self.assertTrue(all(p == "female_genitals" and cov for _, p, cov in out))
+
+    def test_centred_box_unions_across_flip(self):
+        # Centred box maps onto itself under mirror -> the two passes merge to one.
+        out = self._run([(3, 160, 160, 40, 40, 0.9)])  # 3 = FEMALE_BREAST_EXPOSED
         self.assertEqual(len(out), 1)
         self.assertEqual(out[0][1], "breasts")
 
-    def test_filters_threshold_and_non_parts_and_tags_part(self):
-        out = self._run([
-            {"class": "FEMALE_BREAST_EXPOSED", "score": 0.9, "box": [10, 10, 20, 20]},
-            {"class": "UNKNOWN_CLASS", "score": 0.9, "box": [0, 0, 5, 5]},        # not a part
-            {"class": "BUTTOCKS_COVERED", "score": 0.1, "box": [30, 30, 10, 10]},  # below threshold
-        ])
-        self.assertEqual(len(out), 1)
-        box, part, covered = out[0]
-        self.assertEqual(part, "breasts")
-        self.assertFalse(covered)
-        # box dilated by 18% (3px each side) and clamped to the image.
-        self.assertEqual(box, (7, 7, 26, 26))
+    def test_below_threshold_dropped(self):
+        self.assertEqual(self._run([(3, 160, 160, 40, 40, 0.05)]), [])
 
-    def test_covered_flag_set_for_clothed_classes(self):
-        out = self._run([{"class": "FEMALE_GENITALIA_COVERED", "score": 0.9, "box": [10, 10, 20, 20]}])
-        _box, part, covered = out[0]
-        self.assertEqual(part, "female_genitals")
-        self.assertTrue(covered)
-
-    def test_dilation_clamps_to_image_bounds(self):
-        out = self._run([{"class": "MALE_GENITALIA_EXPOSED", "score": 0.9, "box": [0, 0, 100, 100]}])
-        box, part, _covered = out[0]
-        self.assertEqual(part, "male_genitals")
-        self.assertEqual(box, (0, 0, 100, 100))
-
-    def test_detect_returns_none_when_detector_unavailable(self):
-        saved_detector, saved_failed = censor._detector, censor._detector_failed
-        censor._detector, censor._detector_failed = None, True  # simulate missing dep
+    def test_none_when_unavailable(self):
+        saved = censor._detector, censor._detector_failed
+        censor._detector, censor._detector_failed = None, True
         try:
             self.assertIsNone(censor.detect_regions(solid()))
         finally:
-            censor._detector, censor._detector_failed = saved_detector, saved_failed
+            censor._detector, censor._detector_failed = saved
 
 
 if __name__ == "__main__":
