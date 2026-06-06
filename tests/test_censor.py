@@ -152,6 +152,218 @@ class MixedPoolTest(unittest.TestCase):
         self.assertIn("blur", censor._mixed_pool(False))
 
 
+class PartLabelTest(unittest.TestCase):
+    def test_part_label_map(self):
+        self.assertEqual(censor.part_label("female_genitals"), "pussy")
+        self.assertEqual(censor.part_label("breasts"), "breasts")
+        self.assertEqual(censor.part_label("unknown"), "unknown")
+
+    def test_labels_burned_on_region(self):
+        img = solid(size=(200, 200), color=(0, 0, 0, 255))
+        box = (40, 40, 120, 120)
+        out = censor.apply_censor(img, "blur", 0, regions=[box], masks=[None],
+                                  labels=["pussy"], label_parts=True)
+        # White label text appears inside the region.
+        found = any(out.getpixel((x, y))[0] > 150
+                    for y in range(45, 155, 3) for x in range(45, 155, 3))
+        self.assertTrue(found)
+
+
+class GlowThicknessTest(unittest.TestCase):
+    def test_thicker_glow_covers_more(self):
+        box = (40, 40, 30, 30)
+        def glow_pixels(thick):
+            img = solid(size=(300, 300), color=(0, 0, 0, 255))
+            out = censor.apply_censor(img, "bars", 50, regions=[box], masks=[None],
+                                      glow=True, glow_color="white", glow_thickness=thick)
+            return sum(1 for y in range(0, 300, 2) for x in range(0, 300, 2)
+                       if out.getpixel((x, y)) != (0, 0, 0, 255))
+        self.assertGreater(glow_pixels(3.0), glow_pixels(0.5))
+
+
+class GlowColorTest(unittest.TestCase):
+    def test_dominant_color_of_red_image(self):
+        img = solid(size=(64, 64), color=(220, 20, 20, 255))
+        r, g, b = censor.dominant_color(img)
+        self.assertGreater(r, 180)
+        self.assertLess(g, 80)
+        self.assertLess(b, 80)
+
+    def test_dominant_color_greyscale_falls_back_white(self):
+        self.assertEqual(censor.dominant_color(solid(color=(128, 128, 128, 255))), (255, 255, 255))
+
+    def test_resolve_presets_and_tuple_and_auto(self):
+        from PIL import Image
+        self.assertEqual(censor._resolve_glow_color("red", solid()), (255, 40, 40))
+        self.assertEqual(censor._resolve_glow_color((1, 2, 3), solid()), (1, 2, 3))
+        self.assertEqual(censor._resolve_glow_color("bogus", solid()), (255, 255, 255))
+        auto = censor._resolve_glow_color("auto", solid(color=(10, 200, 10, 255)))
+        self.assertGreater(auto[1], auto[0])  # green channel dominant
+
+    def test_glow_uses_color(self):
+        img = solid(size=(100, 100), color=(0, 0, 0, 255))
+        box = (30, 30, 40, 40)
+        red = censor.apply_censor(img.copy(), "bars", 50, regions=[box], masks=[None], glow=True, glow_color="red")
+        # A red glow tints pixels red (r noticeably above b); white glow would not.
+        found = any((px := red.getpixel((x, y)))[0] > px[2] + 5
+                    for y in range(0, 100, 2) for x in range(0, 100, 2))
+        self.assertTrue(found)
+
+
+class PreferMaskedTest(unittest.TestCase):
+    def test_box_dropped_when_masked_same_part_overlaps(self):
+        import numpy as np
+        m = np.ones((20, 20), dtype=bool)
+        items = [
+            ((0, 0, 20, 20), "breasts", False, None),   # box-only (NudeNet)
+            ((2, 2, 20, 20), "breasts", False, m),       # masked (seg) overlapping
+        ]
+        out = censor.prefer_masked(items)
+        self.assertEqual(len(out), 1)
+        self.assertIsNotNone(out[0][3])  # the masked one survives
+
+    def test_box_kept_when_no_overlapping_mask(self):
+        items = [((0, 0, 10, 10), "breasts", False, None),
+                 ((80, 80, 10, 10), "anus", False, None)]
+        self.assertEqual(len(censor.prefer_masked(items)), 2)
+
+    def test_box_kept_when_mask_is_different_part(self):
+        import numpy as np
+        items = [((0, 0, 20, 20), "breasts", False, None),
+                 ((2, 2, 20, 20), "female_genitals", False, np.ones((20, 20), bool))]
+        self.assertEqual(len(censor.prefer_masked(items)), 2)
+
+
+class MaskShapeTest(unittest.TestCase):
+    def _mask(self, h, w, fill):
+        import numpy as np
+        m = np.zeros((h, w), dtype=bool)
+        m[:fill, :fill] = True
+        return m
+
+    def test_mask_shape_censors_only_mask_pixels(self):
+        img = solid(size=(100, 100), color=(200, 100, 50, 255))
+        box = (20, 20, 60, 60)
+        mask = self._mask(60, 60, 30)  # only top-left 30x30 of the box
+        out = censor.apply_censor(img, "bars", 50, regions=[box], masks=[mask], mask_shape=True)
+        self.assertEqual(out.getpixel((25, 25)), (0, 0, 0, 255))          # inside mask -> censored
+        self.assertEqual(out.getpixel((70, 70)), (200, 100, 50, 255))     # in box, outside mask -> kept
+        self.assertEqual(out.getpixel((5, 5)), (200, 100, 50, 255))       # outside box -> kept
+
+    def test_mask_none_falls_back_to_box(self):
+        img = solid(size=(100, 100), color=(200, 100, 50, 255))
+        box = (20, 20, 60, 60)
+        out = censor.apply_censor(img, "bars", 50, regions=[box], masks=[None], mask_shape=True)
+        self.assertEqual(out.getpixel((70, 70)), (0, 0, 0, 255))          # whole box censored
+
+    def test_glow_changes_pixels_outside_box(self):
+        img = solid(size=(100, 100), color=(20, 20, 20, 255))
+        box = (30, 30, 40, 40)
+        plain = censor.apply_censor(img.copy(), "bars", 50, regions=[box], masks=[None], glow=False)
+        glowed = censor.apply_censor(img.copy(), "bars", 50, regions=[box], masks=[None], glow=True)
+        diff = any(plain.getpixel((x, y)) != glowed.getpixel((x, y))
+                   for y in range(0, 100, 2) for x in range(0, 100, 2))
+        self.assertTrue(diff)
+
+
+class _FakeAnimeSeg:
+    """Fake YOLOv8-seg session returning one nipple detection plus mask protos
+    crafted so the assembled mask is all-True."""
+    def get_inputs(self):
+        import types
+        return [types.SimpleNamespace(name="images")]
+
+    def run(self, _outputs, _feed):
+        import numpy as np
+        out0 = np.zeros((1, 43, 1), dtype=np.float32)
+        out0[0, 0, 0], out0[0, 1, 0], out0[0, 2, 0], out0[0, 3, 0] = 256, 256, 256, 256
+        out0[0, 4 + 1, 0] = 0.9      # class 1 = nipple
+        out0[0, 11:43, 0] = 1.0      # mask coefficients
+        protos = np.ones((1, 32, 8, 8), dtype=np.float32)  # -> sigmoid(32) ~ 1 everywhere
+        return [out0, protos]
+
+
+class AnimeMaskTest(unittest.TestCase):
+    def test_with_masks_returns_mask_array(self):
+        saved, savedf = censor._anime, censor._anime_failed
+        censor._anime, censor._anime_failed = _FakeAnimeSeg(), False
+        try:
+            out = censor.detect_anime_regions(solid(size=(100, 100)), with_masks=True)
+        finally:
+            censor._anime, censor._anime_failed = saved, savedf
+        self.assertEqual(len(out), 1)
+        box, part, covered, mask = out[0]
+        self.assertEqual(part, "breasts")
+        self.assertIsNotNone(mask)
+        self.assertTrue(bool(mask.any()))
+
+
+class BreastSegTest(unittest.TestCase):
+    def test_model_is_bundled_and_available(self):
+        from paths import Assets
+        self.assertTrue(Assets.BREASTS_MODEL.is_file())
+        self.assertTrue(censor.breasts_available())
+
+    def test_detect_runs_on_blank_image(self):
+        # Real bundled model: loads + infers without error; blank image -> [].
+        out = censor.detect_breast_regions(solid(size=(256, 256)))
+        self.assertIsInstance(out, list)
+
+    def test_single_class_seg_maps_to_breasts(self):
+        # Generic decoder derives ncls from the tensor; class 0 -> 'breasts'.
+        import numpy as np
+
+        class _FakeBreast:
+            def get_inputs(self):
+                import types
+                return [types.SimpleNamespace(name="images")]
+
+            def run(self, _o, _f):
+                out0 = np.zeros((1, 37, 1), dtype=np.float32)  # 4 + 1 cls + 32
+                out0[0, 0, 0], out0[0, 1, 0], out0[0, 2, 0], out0[0, 3, 0] = 512, 512, 512, 512
+                out0[0, 4, 0] = 0.9  # class 0 score
+                return [out0]
+
+        out = censor._run_yolo_seg(_FakeBreast(), solid(size=(100, 100)), 1024,
+                                   censor._BREASTS_IDX_TO_PART, 0.3, 0.5, False)
+        self.assertEqual(len(out), 1)
+        self.assertEqual(out[0][1], "breasts")
+
+
+class SegRegistryTest(unittest.TestCase):
+    def test_all_registered_models_bundled_and_run(self):
+        from paths import Assets
+        for key in ("armpits", "belly", "mouth", "underwear", "socks", "skin"):
+            self.assertIn(key, censor._SEG_REGISTRY)
+            path = censor._SEG_REGISTRY[key][0]
+            self.assertTrue(path.is_file(), f"{key} model missing")
+            self.assertTrue(censor.seg_available(key))
+            self.assertIsInstance(censor.detect_seg(key, solid(size=(256, 256))), list)
+
+    def test_unknown_key_not_available(self):
+        self.assertFalse(censor.seg_available("nonexistent"))
+
+
+class FaceBodySegTest(unittest.TestCase):
+    def test_face_seg_bundled_and_runs(self):
+        from paths import Assets
+        self.assertTrue(Assets.FACE_SEG.is_file())
+        self.assertTrue(censor.face_seg_available())
+        self.assertIsInstance(censor.detect_face_regions(solid(size=(256, 256))), list)
+
+    def test_body_unavailable_returns_none_cleanly(self):
+        saved, savedf = censor._body, censor._body_failed
+        censor._body, censor._body_failed = None, True  # simulate model absent
+        try:
+            self.assertIsNone(censor.detect_body_regions(solid()))
+        finally:
+            censor._body, censor._body_failed = saved, savedf
+
+    def test_body_idx_maps_to_body(self):
+        self.assertEqual(censor._BODY_IDX_TO_PART[0], "body")
+        self.assertEqual(censor._FACE_IDX_TO_PART[0], "face")
+
+
 class ReverseTest(unittest.TestCase):
     def test_invert_keeps_region_sharp_censors_rest(self):
         img = solid(size=(120, 120), color=(200, 120, 60, 255))

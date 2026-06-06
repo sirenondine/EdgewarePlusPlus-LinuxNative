@@ -67,6 +67,15 @@ class Assets:
     FONT_FREDOKA = ROOT / "font_fredoka.ttf"
     FONT_PACIFICO = ROOT / "font_pacifico.ttf"
     FACE_LANDMARKS = ROOT / "landmarks_68_pfld.onnx"  # PFLD 68-pt model for precise eye bars
+    BREASTS_MODEL = ROOT / "breasts_seg.onnx"  # Anzhc full-breast YOLOv8-seg (bundled)
+    FACE_SEG = ROOT / "face_seg.onnx"  # Anzhc full-face YOLOv8-seg (bundled)
+    # Single-class YOLOv8-seg models (bundled) feeding the generic seg registry.
+    ARMPIT_SEG = ROOT / "armpit_seg.onnx"
+    BELLY_SEG = ROOT / "belly_seg.onnx"
+    MOUTH_SEG = ROOT / "mouth_seg.onnx"
+    UNDERWEAR_SEG = ROOT / "underwear_seg.onnx"
+    SOCKS_SEG = ROOT / "socks_seg.onnx"
+    SKIN_SEG = ROOT / "skin_seg.onnx"
 
     # Changeable defaults
     DEFAULT_CONFIG_ICON = ROOT / "default_config_icon.ico"
@@ -93,6 +102,7 @@ class Data:
     # Files
     CONFIG = _CONFIG_ROOT / "config.json"
     ANIME_MODEL = _DATA_ROOT / "nsfw-anime-medium.onnx"  # optional anime NSFW detector (downloaded on demand)
+    BODY_MODEL = _DATA_ROOT / "body_seg.onnx"  # optional whole-body seg (~105 MB, not bundled)
     CORRUPTION_LAUNCHES = _DATA_ROOT / "corruption_launches.dat"
     PROGRESS = _STATE_ROOT / "progress.json"  # local gamification stats
     COMPANION_MEMORY = _STATE_ROOT / "companion_memory.json"  # companion auto-memory facts

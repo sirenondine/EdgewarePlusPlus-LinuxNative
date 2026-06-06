@@ -179,3 +179,4 @@ data/nsfw-anime-medium.onnx
 Thumbs.db
 
 appimage-build/
+data/body_seg.onnx

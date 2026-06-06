@@ -143,19 +143,46 @@ class ImagePopup(Popup):
                 from features import censor
 
                 regions = None
+                masks = None
+                labels = None
                 eye_faces = []
                 if self.settings.denial_detect:
+                    # Mask shape / outline glow need the anime detector's masks.
+                    want_masks = self.settings.denial_mask_shape or self.settings.denial_outline_glow
+                    s = self.settings
                     detected = censor.detect_regions(final)
-                    # Optionally union an anime-tuned detector for stylised content.
-                    if self.settings.denial_detect_anime:
-                        anime = censor.detect_anime_regions(final)
-                        if anime is not None:
-                            detected = censor.union_detections(detected, anime)
-                    # None -> detector unavailable -> censor whole image. Otherwise
+                    anime = censor.detect_anime_regions(final, with_masks=want_masks) if s.denial_detect_anime else None
+                    breasts = censor.detect_breast_regions(final, with_masks=want_masks) if s.denial_detect_breasts else None
+                    face = censor.detect_face_regions(final, with_masks=want_masks) if s.denial_detect_face else None
+                    body = censor.detect_body_regions(final, with_masks=want_masks) if s.denial_detect_body else None
+                    extras = [anime, breasts, face, body]
+                    for key, on in (
+                        ("armpits", s.denial_detect_armpits), ("belly", s.denial_detect_belly),
+                        ("mouth", s.denial_detect_mouth), ("underwear", s.denial_detect_underwear),
+                        ("socks", s.denial_detect_socks), ("skin", s.denial_detect_skin),
+                    ):
+                        if on:
+                            extras.append(censor.detect_seg(key, final, with_masks=want_masks))
+                    # Combine into (box, part, covered, mask). When masks are wanted
+                    # we keep them per-detection (no box merge); otherwise union/merge.
+                    combined = None
+                    if detected is not None or any(d is not None for d in extras):
+                        if want_masks:
+                            combined = [(b, p, c, None) for (b, p, c) in (detected or [])]
+                            for ex in extras:
+                                combined += [t if len(t) == 4 else (*t, None) for t in (ex or [])]
+                            # Drop box-only dups that a mask already covers (no box + mask overlap).
+                            combined = censor.prefer_masked(combined)
+                        else:
+                            merged = detected
+                            for ex in extras:
+                                merged = censor.union_detections(merged, ex)
+                            combined = [(b, p, c, None) for (b, p, c) in merged]
+                    # None -> detectors unavailable -> censor whole image. Otherwise
                     # keep regions whose part rolls in, honouring the covered toggle.
-                    if detected is not None:
-                        regions = []
-                        for box, part, covered in detected:
+                    if combined is not None:
+                        regions, masks, labels = [], [], []
+                        for box, part, covered, mask in combined:
                             if covered and not getattr(self.settings, f"censor_part_{part}_covered", True):
                                 continue
                             if roll(getattr(self.settings, f"censor_part_{part}", 100)):
@@ -163,6 +190,8 @@ class ImagePopup(Popup):
                                     eye_faces.append(box)  # rotated bar, drawn post-censor
                                 else:
                                     regions.append(box)
+                                    masks.append(mask)
+                                    labels.append(censor.part_label(part))
                 caption = None
                 if self.settings.denial_caption_in_image:
                     # Size the caption to the censor area: small regions get shorter
@@ -174,7 +203,11 @@ class ImagePopup(Popup):
                 final = censor.apply_censor(
                     final, self.settings.denial_style, self.settings.denial_intensity,
                     regions, caption, invert=self.settings.denial_reverse,
-                    font=self.settings.denial_caption_font,
+                    font=self.settings.denial_caption_font, masks=masks,
+                    mask_shape=self.settings.denial_mask_shape, glow=self.settings.denial_outline_glow,
+                    glow_color=self.settings.denial_glow_color,
+                    glow_thickness=self.settings.denial_glow_thickness / 100,
+                    labels=labels, label_parts=self.settings.denial_part_labels,
                 )
                 for fb in eye_faces:
                     censor.draw_eye_bar(final, fb, self.settings.censor_eye_height / 100)

@@ -144,6 +144,21 @@ CONFIG_ITEMS = {
     "denial_style": Item("denialStyle", Schema(Union("blur", "pixelate", "bars", "mixed")), VAR, str),
     "denial_detect": Item("denialDetect", BOOLEAN, VAR, bool),
     "denial_detect_anime": Item("denialDetectAnime", BOOLEAN, VAR, bool),  # union an anime-tuned detector
+    "denial_detect_breasts": Item("denialDetectBreasts", BOOLEAN, VAR, bool),  # union the bundled full-breast seg
+    "denial_detect_face": Item("denialDetectFace", BOOLEAN, VAR, bool),  # union the bundled full-face seg
+    "denial_detect_body": Item("denialDetectBody", BOOLEAN, VAR, bool),  # union the optional whole-body seg
+    "censor_part_body": Item("censorPartBody", PERCENTAGE, VAR, int),
+    # Bundled single-class seg detectors (generic registry) + their part chances.
+    "denial_detect_armpits": Item("denialDetectArmpits", BOOLEAN, VAR, bool),
+    "denial_detect_belly": Item("denialDetectBelly", BOOLEAN, VAR, bool),
+    "denial_detect_mouth": Item("denialDetectMouth", BOOLEAN, VAR, bool),
+    "denial_detect_underwear": Item("denialDetectUnderwear", BOOLEAN, VAR, bool),
+    "denial_detect_socks": Item("denialDetectSocks", BOOLEAN, VAR, bool),
+    "denial_detect_skin": Item("denialDetectSkin", BOOLEAN, VAR, bool),
+    "censor_part_mouth": Item("censorPartMouth", PERCENTAGE, VAR, int),
+    "censor_part_underwear": Item("censorPartUnderwear", PERCENTAGE, VAR, int),
+    "censor_part_socks": Item("censorPartSocks", PERCENTAGE, VAR, int),
+    "censor_part_skin": Item("censorPartSkin", PERCENTAGE, VAR, int),
     "denial_intensity": Item("denialIntensity", PERCENTAGE, VAR, int),
     "denial_caption_in_image": Item("denialCaptionInImage", BOOLEAN, VAR, bool),
     "denial_caption_font": Item("denialCaptionFont", STRING, VAR, str),  # dejavu/anton/bebas/fredoka/pacifico/random
@@ -171,6 +186,13 @@ CONFIG_ITEMS = {
     "censor_part_feet_covered": Item("censorPartFeetCovered", BOOLEAN, VAR, bool),
     # Reverse mode: censor everything EXCEPT the selected parts.
     "denial_reverse": Item("denialReverse", BOOLEAN, VAR, bool),
+    # Mask-shaped censor (follow the segmented outline) + glowing outline. Both
+    # need the anime detector's masks; without them they degrade to boxes.
+    "denial_mask_shape": Item("denialMaskShape", BOOLEAN, VAR, bool),
+    "denial_outline_glow": Item("denialOutlineGlow", BOOLEAN, VAR, bool),
+    "denial_glow_color": Item("denialGlowColor", STRING, VAR, str),  # auto/white/red/pink/cyan/green/gold
+    "denial_glow_thickness": Item("denialGlowThickness", Schema(All(int, Range(min=10, max=400))), VAR, int),
+    "denial_part_labels": Item("denialPartLabels", BOOLEAN, VAR, bool),  # burn the body-part name on each region
     "buttonless": Item("buttonless", BOOLEAN, VAR, bool),
     "multi_click_popups": Item("multiClick", BOOLEAN, VAR, bool),
     "opacity": Item("lkScaling", PERCENTAGE, VAR, to_float),

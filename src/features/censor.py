@@ -182,6 +182,35 @@ _anime = None
 _anime_lock = threading.Lock()
 _anime_failed = False
 
+_breasts = None
+_breasts_lock = threading.Lock()
+_breasts_failed = False
+# Anzhc Breasts Seg v1 (1024n), exported to ONNX. Bundled. Full-breast instance
+# segmentation (single class) — gives whole-breast masks vs the anime nipple.
+_BREASTS_INPUT = 1024
+_BREASTS_CONF = 0.3
+_BREASTS_IOU = 0.5
+_BREASTS_IDX_TO_PART = {0: "breasts"}
+
+_face = None
+_face_lock = threading.Lock()
+_face_failed = False
+# Anzhc Face Seg (1024n) -> ONNX, bundled. Full-face masks for the 'face' part.
+_FACE_INPUT = 1024
+_FACE_CONF = 0.3
+_FACE_IOU = 0.5
+_FACE_IDX_TO_PART = {0: "face"}
+
+_body = None
+_body_lock = threading.Lock()
+_body_failed = False
+# person_yolov8m-seg -> ONNX (~105 MB, not bundled; lives in Data). Whole-body
+# silhouette for the 'body' part — best with Reverse (sharp body, blurred bg).
+_BODY_INPUT = 640
+_BODY_CONF = 0.3
+_BODY_IOU = 0.5
+_BODY_IDX_TO_PART = {0: "body"}
+
 # 01miku/anime-nsfw-segm-yolo26 (medium, 1280px). MIT repo / AGPL ultralytics export.
 _ANIME_URL = "https://huggingface.co/01miku/anime-nsfw-segm-yolo26/resolve/main/nsfw-anime-medium-x1280.onnx?download=true"
 _ANIME_SIZE = 47600269  # expected bytes (sanity check after download)
@@ -198,6 +227,7 @@ _ANIME_TO_PART = {
     "female face": "face",
     "male face": "face",
 }
+_ANIME_IDX_TO_PART = {i: _ANIME_TO_PART[n] for i, n in _ANIME_NAMES.items() if n in _ANIME_TO_PART}
 
 
 def is_available() -> bool:
@@ -380,6 +410,21 @@ def union_detections(a, b):
     return _merge_same_part((a or []) + (b or []))
 
 
+def prefer_masked(items):
+    """Drop box-only detections that overlap a masked detection of the same part.
+    Stops a segmentation mask and a plain bounding box (e.g. seg model + NudeNet)
+    from both censoring the same region — keep the precise mask, drop the box."""
+    masked = [it for it in items if len(it) > 3 and it[3] is not None]
+    out = []
+    for it in items:
+        box, part = it[0], it[1]
+        has_mask = len(it) > 3 and it[3] is not None
+        if not has_mask and any(part == m[1] and _overlaps(box, m[0]) for m in masked):
+            continue
+        out.append(it)
+    return out
+
+
 # ---------------------------------------------------------------------------
 # Anime detector (optional, YOLOv8-seg, downloaded on demand)
 # ---------------------------------------------------------------------------
@@ -467,58 +512,271 @@ def _nms(boxes, scores, iou_thr: float):
     return keep
 
 
-def detect_anime_regions(image: Image.Image) -> Optional[list[tuple[Region, str, bool]]]:
-    """Run the anime YOLOv8-seg detector. Returns ((x,y,w,h), part, covered=False)
-    triples (covered always False — the model only flags visible parts), [] when
-    nothing is found, or None when the model is unavailable."""
+def _run_yolo_seg(session, image: Image.Image, size: int, idx_to_part: dict,
+                  conf_thr: float, iou_thr: float, with_masks: bool):
+    """Generic YOLOv8/11-seg inference + decode. Returns ((x,y,w,h), part, covered)
+    triples, or 4-tuples with a box-local boolean mask when `with_masks`. Shared by
+    every seg detector (anime, breast, …). `idx_to_part` maps class index -> part."""
+    import numpy as np
+
+    iw, ih = image.size
+    r = min(size / iw, size / ih)
+    nw, nh = int(round(iw * r)), int(round(ih * r))
+    padx, pady = (size - nw) // 2, (size - nh) // 2
+    canvas = Image.new("RGB", (size, size), (114, 114, 114))
+    canvas.paste(image.convert("RGB").resize((nw, nh)), (padx, pady))
+    arr = np.transpose(np.asarray(canvas, dtype=np.float32) / 255.0, (2, 0, 1))[None]
+
+    out = session.run(None, {session.get_inputs()[0].name: arr})
+    p = out[0][0].T  # [N, 4 + ncls + 32]
+    ncls = p.shape[1] - 4 - 32  # derive class count from the tensor
+    if ncls < 1:
+        return []
+    scores = p[:, 4:4 + ncls]
+    conf = scores.max(1)
+    cls = scores.argmax(1)
+    keep = conf >= conf_thr
+    if not keep.any():
+        return []
+    p, conf, cls = p[keep], conf[keep], cls[keep]
+    cx, cy, bw, bh = p[:, 0], p[:, 1], p[:, 2], p[:, 3]
+    x1 = (cx - bw / 2 - padx) / r
+    y1 = (cy - bh / 2 - pady) / r
+    x2 = (cx + bw / 2 - padx) / r
+    y2 = (cy + bh / 2 - pady) / r
+    xyxy = np.stack([x1, y1, x2, y2], 1)
+
+    protos_flat = coeffs = cv2 = None
+    if with_masks and len(out) > 1:
+        try:
+            import cv2 as _cv2
+
+            cv2 = _cv2
+            protos = out[1][0]  # (32, mh, mw)
+            pc, mh, mw = protos.shape
+            protos_flat = protos.reshape(pc, -1)
+            coeffs = p[:, 4 + ncls:4 + ncls + 32]
+        except Exception:
+            protos_flat = None
+
+    regions = []
+    for c in np.unique(cls):
+        part = idx_to_part.get(int(c))
+        if not part:
+            continue
+        cls_mask = cls == c
+        cidx = np.where(cls_mask)[0]
+        for idx in _nms(xyxy[cls_mask], conf[cls_mask], iou_thr):
+            gi = int(cidx[idx])
+            ax, ay, bx, by = xyxy[gi]
+            x, y = max(0, int(ax)), max(0, int(ay))
+            w, h = int(bx - ax), int(by - ay)
+            if w <= 0 or h <= 0:
+                continue
+            dbox = _dilate((x, y, w, h), iw, ih)
+            if with_masks:
+                bmask = None
+                if protos_flat is not None:
+                    try:
+                        m = 1.0 / (1.0 + np.exp(-(coeffs[gi] @ protos_flat)))
+                        m = m.reshape(mh, mw)
+                        m = cv2.resize(m, (size, size))
+                        m = m[pady:size - pady, padx:size - padx]
+                        m = cv2.resize(m, (iw, ih))
+                        dx, dy, dw, dh = dbox
+                        bmask = (m[dy:dy + dh, dx:dx + dw] > 0.5)
+                    except Exception:
+                        bmask = None
+                regions.append((dbox, part, False, bmask))
+            else:
+                regions.append((dbox, part, False))
+    return regions
+
+
+def detect_anime_regions(image: Image.Image, with_masks: bool = False):
+    """Run the anime YOLOv8-seg detector (7 NSFW classes). See `_run_yolo_seg`.
+    Returns None when the model is unavailable."""
     session = _get_anime()
     if session is None:
         return None
     try:
-        import numpy as np
-
-        iw, ih = image.size
-        size = _ANIME_INPUT
-        im = image.convert("RGB")
-        r = min(size / iw, size / ih)
-        nw, nh = int(round(iw * r)), int(round(ih * r))
-        padx, pady = (size - nw) // 2, (size - nh) // 2
-        canvas = Image.new("RGB", (size, size), (114, 114, 114))
-        canvas.paste(im.resize((nw, nh)), (padx, pady))
-        arr = np.transpose(np.asarray(canvas, dtype=np.float32) / 255.0, (2, 0, 1))[None]
-
-        out0 = session.run(None, {session.get_inputs()[0].name: arr})[0]  # [1, 4+nc+32, N]
-        p = out0[0].T  # [N, 43]
-        ncls = len(_ANIME_NAMES)
-        scores = p[:, 4:4 + ncls]
-        conf = scores.max(1)
-        cls = scores.argmax(1)
-        keep = conf >= _ANIME_CONF
-        if not keep.any():
-            return []
-        p, conf, cls = p[keep], conf[keep], cls[keep]
-        cx, cy, bw, bh = p[:, 0], p[:, 1], p[:, 2], p[:, 3]
-        x1 = (cx - bw / 2 - padx) / r
-        y1 = (cy - bh / 2 - pady) / r
-        x2 = (cx + bw / 2 - padx) / r
-        y2 = (cy + bh / 2 - pady) / r
-        xyxy = np.stack([x1, y1, x2, y2], 1)
-
-        regions: list[tuple[Region, str, bool]] = []
-        for c in np.unique(cls):
-            part = _ANIME_TO_PART.get(_ANIME_NAMES.get(int(c), ""))
-            if not part:
-                continue
-            mask = cls == c
-            for idx in _nms(xyxy[mask], conf[mask], _ANIME_IOU):
-                ax, ay, bx, by = xyxy[mask][idx]
-                x, y = max(0, int(ax)), max(0, int(ay))
-                w, h = int(bx - ax), int(by - ay)
-                if w > 0 and h > 0:
-                    regions.append((_dilate((x, y, w, h), iw, ih), part, False))
-        return regions
+        return _run_yolo_seg(session, image, _ANIME_INPUT, _ANIME_IDX_TO_PART, _ANIME_CONF, _ANIME_IOU, with_masks)
     except Exception as e:
         logging.warning(f"censor: anime detection failed ({e})")
+        return None
+
+
+def _get_breasts():
+    """Lazily load the bundled full-breast seg model. Returns None (and latches)
+    if onnxruntime or the model file is unavailable."""
+    global _breasts, _breasts_failed
+    if _breasts is not None or _breasts_failed:
+        return _breasts
+    with _breasts_lock:
+        if _breasts is not None or _breasts_failed:
+            return _breasts
+        try:
+            import onnxruntime as ort
+
+            _breasts = ort.InferenceSession(str(Assets.BREASTS_MODEL), providers=["CPUExecutionProvider"])
+            logging.info("censor: breast-seg model loaded")
+        except Exception as e:
+            _breasts_failed = True
+            logging.warning(f"censor: breast-seg model unavailable ({e})")
+    return _breasts
+
+
+def breasts_available() -> bool:
+    import importlib.util
+
+    return Assets.BREASTS_MODEL.is_file() and importlib.util.find_spec("onnxruntime") is not None
+
+
+def detect_breast_regions(image: Image.Image, with_masks: bool = False):
+    """Run the bundled full-breast seg model (single class -> 'breasts'). Gives
+    whole-breast masks. Returns None when unavailable."""
+    session = _get_breasts()
+    if session is None:
+        return None
+    try:
+        return _run_yolo_seg(session, image, _BREASTS_INPUT, _BREASTS_IDX_TO_PART, _BREASTS_CONF, _BREASTS_IOU, with_masks)
+    except Exception as e:
+        logging.warning(f"censor: breast detection failed ({e})")
+        return None
+
+
+def _get_face():
+    global _face, _face_failed
+    if _face is not None or _face_failed:
+        return _face
+    with _face_lock:
+        if _face is not None or _face_failed:
+            return _face
+        try:
+            import onnxruntime as ort
+
+            _face = ort.InferenceSession(str(Assets.FACE_SEG), providers=["CPUExecutionProvider"])
+            logging.info("censor: face-seg model loaded")
+        except Exception as e:
+            _face_failed = True
+            logging.warning(f"censor: face-seg model unavailable ({e})")
+    return _face
+
+
+def face_seg_available() -> bool:
+    import importlib.util
+
+    return Assets.FACE_SEG.is_file() and importlib.util.find_spec("onnxruntime") is not None
+
+
+def detect_face_regions(image: Image.Image, with_masks: bool = False):
+    """Bundled full-face seg (single class -> 'face'). Returns None when unavailable."""
+    session = _get_face()
+    if session is None:
+        return None
+    try:
+        return _run_yolo_seg(session, image, _FACE_INPUT, _FACE_IDX_TO_PART, _FACE_CONF, _FACE_IOU, with_masks)
+    except Exception as e:
+        logging.warning(f"censor: face detection failed ({e})")
+        return None
+
+
+def _get_body():
+    global _body, _body_failed
+    if _body is not None or _body_failed:
+        return _body
+    with _body_lock:
+        if _body is not None or _body_failed:
+            return _body
+        try:
+            if not Data.BODY_MODEL.is_file():
+                raise FileNotFoundError("body model not present")
+            import onnxruntime as ort
+
+            _body = ort.InferenceSession(str(Data.BODY_MODEL), providers=["CPUExecutionProvider"])
+            logging.info("censor: body-seg model loaded")
+        except Exception as e:
+            _body_failed = True
+            logging.warning(f"censor: body-seg model unavailable ({e})")
+    return _body
+
+
+def body_available() -> bool:
+    import importlib.util
+
+    return Data.BODY_MODEL.is_file() and importlib.util.find_spec("onnxruntime") is not None
+
+
+def detect_body_regions(image: Image.Image, with_masks: bool = False):
+    """Whole-body seg (single class -> 'body'); best with reverse mode. None when
+    the model isn't present (it is large and not bundled)."""
+    session = _get_body()
+    if session is None:
+        return None
+    try:
+        return _run_yolo_seg(session, image, _BODY_INPUT, _BODY_IDX_TO_PART, _BODY_CONF, _BODY_IOU, with_masks)
+    except Exception as e:
+        logging.warning(f"censor: body detection failed ({e})")
+        return None
+
+
+# Generic registry for bundled single-class seg models: key -> (path, input,
+# idx->part). Adding a model is one entry here + a toggle; no bespoke loader.
+_SEG_REGISTRY = {
+    "armpits": (Assets.ARMPIT_SEG, 640, {0: "armpits"}),
+    "belly": (Assets.BELLY_SEG, 640, {0: "belly"}),
+    "mouth": (Assets.MOUTH_SEG, 640, {0: "mouth"}),
+    "underwear": (Assets.UNDERWEAR_SEG, 640, {0: "underwear"}),
+    "socks": (Assets.SOCKS_SEG, 640, {0: "socks"}),
+    "skin": (Assets.SKIN_SEG, 640, {0: "skin"}),
+}
+_seg_sessions: dict = {}
+_seg_failed: set = set()
+_seg_reg_lock = threading.Lock()
+
+
+def seg_available(key: str) -> bool:
+    import importlib.util
+
+    spec = _SEG_REGISTRY.get(key)
+    return bool(spec) and spec[0].is_file() and importlib.util.find_spec("onnxruntime") is not None
+
+
+def _get_seg_model(key: str):
+    if key in _seg_sessions:
+        return _seg_sessions[key]
+    if key in _seg_failed:
+        return None
+    with _seg_reg_lock:
+        if key in _seg_sessions:
+            return _seg_sessions[key]
+        if key in _seg_failed:
+            return None
+        try:
+            path = _SEG_REGISTRY[key][0]
+            if not path.is_file():
+                raise FileNotFoundError(key)
+            import onnxruntime as ort
+
+            _seg_sessions[key] = ort.InferenceSession(str(path), providers=["CPUExecutionProvider"])
+            logging.info(f"censor: seg model '{key}' loaded")
+        except Exception as e:
+            _seg_failed.add(key)
+            logging.warning(f"censor: seg model '{key}' unavailable ({e})")
+            return None
+    return _seg_sessions[key]
+
+
+def detect_seg(key: str, image: Image.Image, with_masks: bool = False):
+    """Run a registered single-class seg model. None when unavailable."""
+    session = _get_seg_model(key)
+    if session is None:
+        return None
+    _, size, idx_to_part = _SEG_REGISTRY[key]
+    try:
+        return _run_yolo_seg(session, image, size, idx_to_part, 0.3, 0.5, with_masks)
+    except Exception as e:
+        logging.warning(f"censor: seg '{key}' detection failed ({e})")
         return None
 
 
@@ -693,6 +951,129 @@ def _burn_caption(image: Image.Image, caption: str, regions: Optional[list[Regio
     _draw_lines(draw, lines, font, size, w / 2, cy)
 
 
+def _region_map(image: Image.Image, pairs, use_mask: bool):
+    """Boolean HxW map of which pixels a set of (box, mask) pairs covers — the
+    exact mask shape when use_mask and a mask exists, else the full box."""
+    import numpy as np
+
+    amap = np.zeros((image.height, image.width), dtype=bool)
+    for (x, y, bw, bh), m in pairs:
+        if use_mask and m is not None:
+            mm = np.asarray(m, dtype=bool)
+            hh, ww = min(mm.shape[0], image.height - y), min(mm.shape[1], image.width - x)
+            if hh > 0 and ww > 0:
+                amap[y:y + hh, x:x + ww] |= mm[:hh, :ww]
+        else:
+            amap[y:y + bh, x:x + bw] = True
+    return amap
+
+
+def _composite(base: Image.Image, work: Image.Image, amap) -> Image.Image:
+    """Take `work` pixels where `amap` is true, `base` elsewhere."""
+    import numpy as np
+
+    b, w = np.array(base), np.array(work)
+    b[amap] = w[amap]
+    return Image.fromarray(b, "RGBA")
+
+
+_GLOW_PRESETS = {
+    "white": (255, 255, 255), "red": (255, 40, 40), "pink": (255, 80, 180),
+    "cyan": (60, 220, 255), "green": (60, 255, 90), "gold": (255, 200, 40),
+}
+
+
+def dominant_color(image: Image.Image) -> tuple:
+    """The image's boldest colour: the dominant hue weighted by vividness
+    (saturation × value), returned fully saturated. Falls back to white for
+    near-greyscale images."""
+    import numpy as np
+
+    hsv = np.asarray(image.convert("RGB").resize((64, 64)).convert("HSV"))
+    h, s, v = hsv[..., 0], hsv[..., 1], hsv[..., 2]
+    weight = (s.astype(np.float32) / 255.0) * (v.astype(np.float32) / 255.0)
+    if float(weight.sum()) < 1.0:
+        return (255, 255, 255)
+    hue = int(np.bincount(h.ravel(), weights=weight.ravel(), minlength=256).argmax())
+    import colorsys
+
+    r, g, b = colorsys.hsv_to_rgb(hue / 255.0, 1.0, 1.0)
+    return (int(r * 255), int(g * 255), int(b * 255))
+
+
+def _resolve_glow_color(spec, image: Image.Image) -> tuple:
+    """Resolve a glow-colour spec to RGB. 'auto' -> image's boldest colour;
+    a preset name -> its colour; an (r,g,b) tuple -> itself."""
+    if isinstance(spec, (tuple, list)) and len(spec) == 3:
+        return tuple(int(c) for c in spec)
+    if spec == "auto":
+        return dominant_color(image)
+    return _GLOW_PRESETS.get(spec or "white", (255, 255, 255))
+
+
+def _draw_glow(image: Image.Image, pairs, use_mask: bool, color=(255, 255, 255), thickness: float = 1.0) -> None:
+    """Composite a soft bright outline around each region — the mask contour when
+    available (needs cv2), else the box rectangle. Stroke width scales with the
+    IMAGE's short side (not the box) so it looks consistent across images/parts."""
+    import numpy as np
+
+    cv2 = None
+    if use_mask:
+        try:
+            import cv2 as _cv2
+            cv2 = _cv2
+        except Exception:
+            cv2 = None
+
+    # Image-relative stroke: ~1.2% of the short side, scaled by the thickness setting.
+    stroke = max(2, int(min(image.width, image.height) * 0.012 * max(0.05, thickness)))
+    radius = max(1, stroke // 4)
+    layer = Image.new("RGBA", image.size, (0, 0, 0, 0))
+    draw = ImageDraw.Draw(layer)
+    rgba = (*color, 255)
+    for (x, y, bw, bh), m in pairs:
+        if use_mask and m is not None and cv2 is not None:
+            full = np.zeros((image.height, image.width), dtype=np.uint8)
+            mm = np.asarray(m, dtype=bool)
+            hh, ww = min(mm.shape[0], image.height - y), min(mm.shape[1], image.width - x)
+            full[y:y + hh, x:x + ww] = mm[:hh, :ww].astype(np.uint8) * 255
+            contours, _ = cv2.findContours(full, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            for c in contours:
+                pts = [(int(p[0][0]), int(p[0][1])) for p in c]
+                if len(pts) >= 2:
+                    draw.line(pts + [pts[0]], fill=rgba, width=stroke)
+        else:
+            draw.rectangle((x, y, x + bw, y + bh), outline=rgba, width=stroke)
+    layer = layer.filter(ImageFilter.GaussianBlur(radius))  # tight glow, not a fog
+    image.alpha_composite(layer)
+
+
+# Display name burned on a region when "label body parts" is on.
+_PART_DISPLAY = {
+    "breasts": "breasts", "female_genitals": "pussy", "male_genitals": "cock",
+    "buttocks": "ass", "anus": "anus", "belly": "belly", "armpits": "armpit",
+    "feet": "feet", "face": "face", "body": "body", "mouth": "mouth",
+    "underwear": "underwear", "socks": "socks", "skin": "skin",
+}
+
+
+def part_label(part: str) -> str:
+    return _PART_DISPLAY.get(part, part)
+
+
+def _draw_part_labels(image: Image.Image, pairs, labels, font_path) -> None:
+    """Burn each region's body-part name, centred and fit to the region box."""
+    draw = ImageDraw.Draw(image)
+    for (x, y, bw, bh), _m in pairs:
+        if not labels:
+            break
+        text = labels.pop(0)
+        if not text or bw <= 0 or bh <= 0:
+            continue
+        font, size, lines = _fit_font(draw, text, int(bw * 0.9), int(bh * 0.5), font_path)
+        _draw_lines(draw, lines, font, size, x + bw / 2, y + bh / 2)
+
+
 # ---------------------------------------------------------------------------
 # Public entry
 # ---------------------------------------------------------------------------
@@ -704,6 +1085,13 @@ def apply_censor(
     caption: Optional[str] = None,
     invert: bool = False,
     font: Optional[str] = None,
+    masks: Optional[list] = None,
+    mask_shape: bool = False,
+    glow: bool = False,
+    glow_color="auto",
+    glow_thickness: float = 1.0,
+    labels: Optional[list] = None,
+    label_parts: bool = False,
 ) -> Image.Image:
     """Censor `image` and return a same-size RGBA image.
 
@@ -714,6 +1102,9 @@ def apply_censor(
     caption: optional text burned into the pixels.
     invert: reverse mode — censor the WHOLE image except `regions` (the selected
         parts stay sharp). Needs `regions`; with none it just censors everything.
+    masks: per-region box-local boolean masks (parallel to `regions`), or None.
+    mask_shape: censor/keep the exact mask shape instead of the bounding box.
+    glow: draw a soft bright outline around the regions (mask contour or box).
     """
     if image.mode != "RGBA":
         image = image.convert("RGBA")
@@ -722,29 +1113,46 @@ def apply_censor(
     if style not in STYLES:
         style = "blur"
     font_path = resolve_font(font)  # resolved once so 'random' is stable for this popup
+    # Derive the glow colour from the pristine image, before censoring alters it.
+    glow_rgb = _resolve_glow_color(glow_color, image) if glow else None
+
+    ms = masks or ([None] * len(regions) if regions else [])
+    lbls = labels or ([None] * len(regions) if regions else [])
+    triples = [(b, m, lb) for b, m, lb in zip(regions or [], ms, lbls) if b[2] > 0 and b[3] > 0]
+    pairs = [(b, m) for b, m, _ in triples]
+    pair_labels = [lb for _, _, lb in triples]
 
     if invert:
-        keep = [b for b in (regions or []) if b[2] > 0 and b[3] > 0]
         sharp = image.copy()
         _apply_one(image, (0, 0, w, h), style, intensity)  # censor everything
-        for x, y, bw, bh in keep:  # then restore the selected parts
-            image.paste(sharp.crop((x, y, x + bw, y + bh)), (x, y))
+        if pairs:  # restore the selected parts (mask shape or box)
+            image = _composite(image, sharp, _region_map(sharp, pairs, mask_shape))
+        if glow and pairs:
+            _draw_glow(image, pairs, mask_shape, glow_rgb, glow_thickness)
+        if label_parts and pairs:
+            _draw_part_labels(image, pairs, list(pair_labels), font_path)
         if caption:
-            _burn_caption(image, caption, keep, font_path)
+            _burn_caption(image, caption, [b for b, _ in pairs], font_path)
         return image
 
-    # Resolve the boxes to censor. `detected` (regions came from AI) restricts
-    # 'mixed' to pixelate/bars per box.
-    detected = regions is not None
+    detected = regions is not None  # AI regions restrict 'mixed' to pixelate/bars
     if regions is None:
-        boxes = _synth_bars(w, h) if style == "bars" else [(0, 0, w, h)]
+        for box in (_synth_bars(w, h) if style == "bars" else [(0, 0, w, h)]):
+            _apply_one(image, box, style, intensity, detected=detected)
+    elif mask_shape and any(m is not None for _, m in pairs):
+        work = image.copy()
+        for box, _ in pairs:
+            _apply_one(work, box, style, intensity, detected=detected)
+        image = _composite(image, work, _region_map(image, pairs, True))
     else:
-        boxes = [b for b in regions if b[2] > 0 and b[3] > 0]
+        for box, _ in pairs:
+            _apply_one(image, box, style, intensity, detected=detected)
 
-    for box in boxes:
-        _apply_one(image, box, style, intensity, detected=detected)
-
+    if glow and pairs:
+        _draw_glow(image, pairs, mask_shape, glow_rgb, glow_thickness)
+    if label_parts and pairs:
+        _draw_part_labels(image, pairs, list(pair_labels), font_path)
     if caption:
-        _burn_caption(image, caption, regions, font_path)
+        _burn_caption(image, caption, [b for b, _ in pairs] if regions is not None else None, font_path)
 
     return image
