@@ -46,6 +46,7 @@ _SIDEBAR_ICONS = {
     "Assets": "image-x-generic-symbolic",
     "Popup Types": "view-grid-symbolic",
     "Popup Tweaks": "preferences-other-symbolic",
+    "Censor": "view-conceal-symbolic",
     "Wallpaper": "preferences-desktop-wallpaper-symbolic",
     "Moods": "emblem-favorite-symbolic",
     "Booru": "folder-pictures-symbolic",
@@ -63,7 +64,7 @@ _SIDEBAR_ICONS = {
 # group (via ListBox header_func, so page rows stay index-aligned).
 _SIDEBAR_CATEGORIES = [
     ("Setup", ["General", "Packs", "Assets"]),
-    ("Annoyances", ["Popup Types", "Popup Tweaks", "Wallpaper", "Moods", "Booru"]),
+    ("Annoyances", ["Popup Types", "Popup Tweaks", "Censor", "Wallpaper", "Moods", "Booru"]),
     ("Integrations", ["Sex Toys", "Companion"]),
     ("Advanced", ["Modes", "Corruption", "Dangerous"]),
     ("Progress", ["Gamification"]),
@@ -343,6 +344,7 @@ class SettingsWindow(Adw.ApplicationWindow):
         # later clicks are instant. Tab modules are imported here (not at module
         # top) so opening only the Dashboard never loads the heavier tabs.
         from config.gtk_window.tabs.annoyance.booru import BooruTab
+        from config.gtk_window.tabs.annoyance.censor import CensorTab
         from config.gtk_window.tabs.annoyance.dangerous_settings import DangerousSettingsTab
         from config.gtk_window.tabs.annoyance.popup_tweaks import PopupTweaksTab
         from config.gtk_window.tabs.annoyance.popup_types import PopupTypesTab
@@ -368,6 +370,7 @@ class SettingsWindow(Adw.ApplicationWindow):
             "Troubleshooting": _pack_builder("Troubleshooting"),
             "Popup Types": lambda: PopupTypesTab(vars),
             "Popup Tweaks": lambda: PopupTweaksTab(vars),
+            "Censor": lambda: CensorTab(vars),
             "Booru": lambda: BooruTab(vars),
             "Sex Toys": lambda: SexToysTab(vars),
             "Companion": lambda: CompanionTab(vars),
@@ -382,7 +385,7 @@ class SettingsWindow(Adw.ApplicationWindow):
         # Full ordered page list
         all_page_names = [
             "General", "Packs", "Assets",
-            "Popup Types", "Popup Tweaks",
+            "Popup Types", "Popup Tweaks", "Censor",
             "Wallpaper", "Moods", "Booru", "Sex Toys", "Companion",
             "Modes", "Corruption", "Dangerous",
             "Gamification", "Troubleshooting", "Tutorial",
