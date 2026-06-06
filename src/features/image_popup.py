@@ -53,7 +53,12 @@ class ImagePopup(Popup):
         # fetch, decode and resize — runs on a worker thread so it never
         # hitches the main loop; the widget is built + presented back on main.
         self.monitor = utils.random_monitor(settings)
-        denial_filter = self.try_denial_filter()
+        # The censor path (features.censor) handles any non-blur style, ML region
+        # detection, or in-image captions. Plain blur with none of those keeps the
+        # original lightweight denial-filter path for backward compatibility.
+        style = settings.denial_style
+        self._use_censor = self.denial and (style != "blur" or settings.denial_detect or settings.denial_caption_in_image)
+        denial_filter = "" if self._use_censor else self.try_denial_filter()
         Thread(target=self._prepare, args=(denial_filter,), daemon=True).start()
 
     def _acquire_source(self):
@@ -134,6 +139,38 @@ class ImagePopup(Popup):
                 resized = resized.resize((self.width, self.height), Image.NEAREST)
                 denial_filter = ""
             final = resized.filter(denial_filter) if denial_filter else resized
+            if self._use_censor:
+                from features import censor
+
+                regions = None
+                eye_faces = []
+                if self.settings.denial_detect:
+                    detected = censor.detect_regions(final)
+                    # Optionally union an anime-tuned detector for stylised content.
+                    if self.settings.denial_detect_anime:
+                        anime = censor.detect_anime_regions(final)
+                        if anime is not None:
+                            detected = censor.union_detections(detected, anime)
+                    # None -> detector unavailable -> censor whole image. Otherwise
+                    # keep regions whose part rolls in, honouring the covered toggle.
+                    if detected is not None:
+                        regions = []
+                        for box, part, covered in detected:
+                            if covered and not getattr(self.settings, f"censor_part_{part}_covered", True):
+                                continue
+                            if roll(getattr(self.settings, f"censor_part_{part}", 100)):
+                                if part == "face" and self.settings.censor_face_eyes_only:
+                                    eye_faces.append(box)  # rotated bar, drawn post-censor
+                                else:
+                                    regions.append(box)
+                caption = self.denial_text if self.settings.denial_caption_in_image else None
+                final = censor.apply_censor(
+                    final, self.settings.denial_style, self.settings.denial_intensity,
+                    regions, caption, invert=self.settings.denial_reverse,
+                )
+                for fb in eye_faces:
+                    censor.draw_eye_bar(final, fb)
+                self._caption_burned = bool(caption)
             pixbuf = pil_to_pixbuf(final)
         except Exception as e:
             logging.warning(f"image popup prepare failed: {e}")
