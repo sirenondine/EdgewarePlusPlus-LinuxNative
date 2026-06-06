@@ -61,7 +61,11 @@ class Assets:
     # Unchangeable defaults
     DEFAULT_CONFIG = ROOT / "default_config.json"
     DEFAULT_IMAGE = ROOT / "default_image.png"
-    CENSOR_FONT = ROOT / "censor_font.ttf"  # bold TTF for burned-in censor captions
+    CENSOR_FONT = ROOT / "censor_font.ttf"  # bold TTF for burned-in censor captions (DejaVu Bold)
+    FONT_ANTON = ROOT / "font_anton.ttf"
+    FONT_BEBAS = ROOT / "font_bebasneue.ttf"
+    FONT_FREDOKA = ROOT / "font_fredoka.ttf"
+    FONT_PACIFICO = ROOT / "font_pacifico.ttf"
     FACE_LANDMARKS = ROOT / "landmarks_68_pfld.onnx"  # PFLD 68-pt model for precise eye bars
 
     # Changeable defaults

@@ -579,9 +579,27 @@ def _synth_bars(width: int, height: int) -> list[Region]:
     return bars
 
 
-def _load_font(size: int) -> ImageFont.FreeTypeFont:
+# Burned-caption fonts (all OFL / bundled). "random" picks one per popup.
+CAPTION_FONTS = {
+    "dejavu": Assets.CENSOR_FONT,
+    "anton": Assets.FONT_ANTON,
+    "bebas": Assets.FONT_BEBAS,
+    "fredoka": Assets.FONT_FREDOKA,
+    "pacifico": Assets.FONT_PACIFICO,
+}
+CAPTION_FONT_KEYS = ("dejavu", "anton", "bebas", "fredoka", "pacifico")
+
+
+def resolve_font(key: Optional[str]):
+    """Resolve a caption-font key to a file path. 'random' picks one per call."""
+    if key == "random":
+        key = random.choice(CAPTION_FONT_KEYS)
+    return CAPTION_FONTS.get(key or "dejavu", Assets.CENSOR_FONT)
+
+
+def _load_font(size: int, font_path=None) -> ImageFont.FreeTypeFont:
     try:
-        return ImageFont.truetype(str(Assets.CENSOR_FONT), size)
+        return ImageFont.truetype(str(font_path or Assets.CENSOR_FONT), size)
     except Exception:
         try:
             return ImageFont.truetype("DejaVuSans-Bold.ttf", size)
@@ -620,23 +638,38 @@ def _draw_lines(draw: ImageDraw.ImageDraw, lines: list[str], font: ImageFont.Fre
         y += line_h
 
 
-def _fit_font(draw: ImageDraw.ImageDraw, text: str, max_w: int, max_h: int) -> tuple[ImageFont.FreeTypeFont, int, list[str]]:
+def _fit_font(draw: ImageDraw.ImageDraw, text: str, max_w: int, max_h: int, font_path=None) -> tuple[ImageFont.FreeTypeFont, int, list[str]]:
     """Largest font (>=8px) whose word-wrapped text fits inside max_w × max_h.
     Returns (font, size, wrapped_lines)."""
     size = _clamp(max_h, 8, 64)
     while size >= 8:
-        font = _load_font(size)
+        font = _load_font(size, font_path)
         lines = _wrap(draw, text, font, max_w)
         line_h = size + max(2, size // 10) * 2 + 4
         widest = max((draw.textlength(ln, font=font) for ln in lines), default=0)
         if widest <= max_w and line_h * len(lines) <= max_h:
             return font, size, lines
         size -= 2
-    font = _load_font(8)
+    font = _load_font(8, font_path)
     return font, 8, _wrap(draw, text, font, max_w)
 
 
-def _burn_caption(image: Image.Image, caption: str, regions: Optional[list[Region]] = None) -> None:
+def choose_caption(captions: list[str], box: Optional[Region], image_size: tuple[int, int]) -> Optional[str]:
+    """Pick a caption sized to the censor area: smaller boxes prefer shorter
+    phrases so the burned text stays legible instead of shrinking to nothing.
+    `box` None (whole-image censor) allows any length."""
+    if not captions:
+        return None
+    if not box:
+        return random.choice(captions)
+    iw = max(1, image_size[0])
+    frac = box[2] / iw  # censor width as a fraction of the image
+    budget = max(6, int(frac * 60))  # ~60 chars at full width, scaling down with the box
+    pool = [c for c in captions if len(c) <= budget] or [min(captions, key=len)]
+    return random.choice(pool)
+
+
+def _burn_caption(image: Image.Image, caption: str, regions: Optional[list[Region]] = None, font_path=None) -> None:
     """Burn the caption into the pixels, white with a black outline (Beta-Caption
     look). With `regions`, draw it centred over each censored box; otherwise place
     it bottom-centre over the whole image."""
@@ -647,12 +680,12 @@ def _burn_caption(image: Image.Image, caption: str, regions: Optional[list[Regio
     if valid:
         # One caption, on the largest region — overlapping boxes would double it.
         x, y, bw, bh = max(valid, key=lambda r: r[2] * r[3])
-        font, size, lines = _fit_font(draw, caption, int(bw * 0.92), int(bh * 0.9))
+        font, size, lines = _fit_font(draw, caption, int(bw * 0.92), int(bh * 0.9), font_path)
         _draw_lines(draw, lines, font, size, x + bw / 2, y + bh / 2)
         return
 
     size = _clamp(int(w / 14), 14, 72)
-    font = _load_font(size)
+    font = _load_font(size, font_path)
     lines = _wrap(draw, caption, font, int(w * 0.92))
     stroke = max(2, size // 10)
     line_h = size + stroke * 2 + 4
@@ -670,6 +703,7 @@ def apply_censor(
     regions: Optional[list[Region]] = None,
     caption: Optional[str] = None,
     invert: bool = False,
+    font: Optional[str] = None,
 ) -> Image.Image:
     """Censor `image` and return a same-size RGBA image.
 
@@ -687,6 +721,7 @@ def apply_censor(
     w, h = image.size
     if style not in STYLES:
         style = "blur"
+    font_path = resolve_font(font)  # resolved once so 'random' is stable for this popup
 
     if invert:
         keep = [b for b in (regions or []) if b[2] > 0 and b[3] > 0]
@@ -695,7 +730,7 @@ def apply_censor(
         for x, y, bw, bh in keep:  # then restore the selected parts
             image.paste(sharp.crop((x, y, x + bw, y + bh)), (x, y))
         if caption:
-            _burn_caption(image, caption, keep)
+            _burn_caption(image, caption, keep, font_path)
         return image
 
     # Resolve the boxes to censor. `detected` (regions came from AI) restricts
@@ -710,6 +745,6 @@ def apply_censor(
         _apply_one(image, box, style, intensity, detected=detected)
 
     if caption:
-        _burn_caption(image, caption, regions)
+        _burn_caption(image, caption, regions, font_path)
 
     return image

@@ -63,6 +63,7 @@
   "denialDetectAnime": 0,
   "denialIntensity": 60,
   "denialCaptionInImage": 0,
+  "denialCaptionFont": "dejavu",
   "censorPartBreasts": 100,
   "censorPartFemaleGenitals": 100,
   "censorPartMaleGenitals": 100,

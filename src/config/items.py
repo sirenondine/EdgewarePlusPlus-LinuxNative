@@ -146,6 +146,7 @@ CONFIG_ITEMS = {
     "denial_detect_anime": Item("denialDetectAnime", BOOLEAN, VAR, bool),  # union an anime-tuned detector
     "denial_intensity": Item("denialIntensity", PERCENTAGE, VAR, int),
     "denial_caption_in_image": Item("denialCaptionInImage", BOOLEAN, VAR, bool),
+    "denial_caption_font": Item("denialCaptionFont", STRING, VAR, str),  # dejavu/anton/bebas/fredoka/pacifico/random
     # Per-body-part censor chance (rolled per detected region when denial_detect is on).
     "censor_part_breasts": Item("censorPartBreasts", PERCENTAGE, VAR, int),
     "censor_part_female_genitals": Item("censorPartFemaleGenitals", PERCENTAGE, VAR, int),

@@ -53,6 +53,57 @@ class RegionsTest(unittest.TestCase):
         self.assertEqual(out.getpixel((60, 60)), (12, 34, 56, 255))
 
 
+class ChooseCaptionTest(unittest.TestCase):
+    CAPS = ["no", "good beta~", "this is a much longer denial caption indeed"]
+
+    def test_small_box_picks_short(self):
+        # ~10% width -> budget 6 chars -> only "no" qualifies.
+        self.assertEqual(censor.choose_caption(self.CAPS, (0, 0, 100, 100), (1000, 1000)), "no")
+
+    def test_large_box_allows_long(self):
+        picks = {censor.choose_caption(self.CAPS, (0, 0, 1000, 800), (1000, 1000)) for _ in range(40)}
+        self.assertIn(self.CAPS[2], picks)  # long caption reachable on a big box
+
+    def test_no_box_any_length(self):
+        picks = {censor.choose_caption(self.CAPS, None, (1000, 1000)) for _ in range(40)}
+        self.assertEqual(picks, set(self.CAPS))
+
+    def test_empty_returns_none(self):
+        self.assertIsNone(censor.choose_caption([], (0, 0, 50, 50), (100, 100)))
+
+    def test_falls_back_to_shortest_when_none_fit(self):
+        self.assertEqual(censor.choose_caption(["abcdefghij", "abcdefgh"], (0, 0, 10, 10), (1000, 1000)), "abcdefgh")
+
+
+class CaptionFontTest(unittest.TestCase):
+    def test_resolve_known_keys(self):
+        from paths import Assets
+        self.assertEqual(censor.resolve_font("anton"), Assets.FONT_ANTON)
+        self.assertEqual(censor.resolve_font("pacifico"), Assets.FONT_PACIFICO)
+
+    def test_resolve_unknown_and_none_fall_back_to_dejavu(self):
+        from paths import Assets
+        self.assertEqual(censor.resolve_font("nope"), Assets.CENSOR_FONT)
+        self.assertEqual(censor.resolve_font(None), Assets.CENSOR_FONT)
+
+    def test_random_returns_a_bundled_font(self):
+        picks = {censor.resolve_font("random") for _ in range(40)}
+        valid = {censor.CAPTION_FONTS[k] for k in censor.CAPTION_FONT_KEYS}
+        self.assertTrue(picks.issubset(valid))
+
+    def test_every_bundled_font_loads(self):
+        for key in censor.CAPTION_FONT_KEYS:
+            font = censor._load_font(24, censor.CAPTION_FONTS[key])
+            self.assertIsNotNone(font)
+
+    def test_apply_censor_with_font_key_burns(self):
+        img = solid(size=(240, 240), color=(0, 0, 0, 255))
+        out = censor.apply_censor(img, "blur", 0, caption="GOOD BETA", font="anton")
+        changed = any(out.getpixel((x, y)) != (0, 0, 0, 255)
+                      for y in range(150, 240) for x in range(0, 240, 4))
+        self.assertTrue(changed)
+
+
 class CaptionTest(unittest.TestCase):
     def test_caption_changes_pixels(self):
         img = solid(size=(240, 240), color=(0, 0, 0, 255))

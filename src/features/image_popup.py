@@ -163,10 +163,18 @@ class ImagePopup(Popup):
                                     eye_faces.append(box)  # rotated bar, drawn post-censor
                                 else:
                                     regions.append(box)
-                caption = self.denial_text if self.settings.denial_caption_in_image else None
+                caption = None
+                if self.settings.denial_caption_in_image:
+                    # Size the caption to the censor area: small regions get shorter
+                    # phrases so burned text stays legible.
+                    candidates = self.pack.find_list("denial") or ([self.denial_text] if self.denial_text else [])
+                    target = max(regions, key=lambda b: b[2] * b[3]) if regions else None
+                    caption = censor.choose_caption(candidates, target, (final.width, final.height)) or self.denial_text
+                    self.denial_text = caption  # keep label/companion context in sync
                 final = censor.apply_censor(
                     final, self.settings.denial_style, self.settings.denial_intensity,
                     regions, caption, invert=self.settings.denial_reverse,
+                    font=self.settings.denial_caption_font,
                 )
                 for fb in eye_faces:
                     censor.draw_eye_bar(final, fb, self.settings.censor_eye_height / 100)

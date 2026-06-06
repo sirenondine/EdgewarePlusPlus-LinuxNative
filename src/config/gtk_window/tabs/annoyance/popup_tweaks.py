@@ -32,6 +32,10 @@ OVERLAY_TEXT = (
 )
 
 _DENIAL_STYLES = {"blur": "Blur", "pixelate": "Pixelate", "bars": "Bars", "mixed": "Mixed"}
+_CAPTION_FONTS = {
+    "dejavu": "DejaVu Bold", "anton": "Anton", "bebas": "Bebas Neue",
+    "fredoka": "Fredoka", "pacifico": "Pacifico", "random": "Random (per popup)",
+}
 PARTS_TEXT = "With AI Region Detection on, the chance to censor each detected body part."
 _PART_LABELS = {
     "breasts": "Breasts", "female_genitals": "Female Genitals", "male_genitals": "Male Genitals",
@@ -82,6 +86,7 @@ class PopupTweaksTab(Adw.PreferencesPage):
         overlays.add(AdwSwitchRow(
             "Caption In Image", vars.denial_caption_in_image,
             subtitle="Burn the denial caption into the image, Beta-Caption style."))
+        overlays.add(AdwComboRow("Caption Font", vars.denial_caption_font, _CAPTION_FONTS))
         overlays.add(AdwSwitchRow(
             "Reverse (Blur Background)", vars.denial_reverse,
             subtitle="Censor everything EXCEPT the selected parts (needs AI detection)."))
