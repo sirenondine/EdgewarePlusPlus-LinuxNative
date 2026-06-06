@@ -171,19 +171,28 @@ class PackEditorContent:
             description="Button labels and prompt settings for the default mood.",
         )
         page.add(group)
-        for key, title in (("popupClose",     "Popup Close Button"),
-                           ("promptCommand",  "Prompt Command Text"),
-                           ("promptSubmit",   "Prompt Submit Button")):
+        for key, title, subtitle in (
+            ("popupClose",    "Popup Close Button", "Label on the button that closes a popup."),
+            ("promptCommand", "Prompt Command Text", "Instruction shown above the box the user types into."),
+            ("promptSubmit",  "Prompt Submit Button", "Label on the button that submits a typed prompt."),
+        ):
             row = Adw.EntryRow(title=title)
             row.set_text(self.editor.get_string(key))
+            row.set_tooltip_text(subtitle)  # EntryRow has no subtitle; tooltip carries the description
             row.connect("changed", self._make_string_handler(key))
             group.add(row)
 
-        for key, title in (("promptMinLength", "Prompt Min Length"),
-                           ("promptMaxLength", "Prompt Max Length")):
+        # A prompt is built by stringing together several random phrases from the
+        # mood's "prompts" list; the count is random between min and max.
+        for key, title, subtitle in (
+            ("promptMinLength", "Prompt Min Length",
+             "Fewest prompt phrases strung together to form one typing prompt."),
+            ("promptMaxLength", "Prompt Max Length",
+             "Most prompt phrases strung together. A random count between min and max is used each time."),
+        ):
             adj = Gtk.Adjustment(
                 value=self.editor.get_int(key, 1), lower=1, upper=999, step_increment=1)
-            row = Adw.SpinRow(title=title, adjustment=adj)
+            row = Adw.SpinRow(title=title, subtitle=subtitle, adjustment=adj)
             row.connect("notify::value", self._make_spin_handler(key))
             group.add(row)
 
