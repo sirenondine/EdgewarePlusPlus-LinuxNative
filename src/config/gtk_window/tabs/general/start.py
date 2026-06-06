@@ -14,8 +14,9 @@
 
 import os
 import re
-import webbrowser
 from pathlib import Path
+
+import os_utils
 
 from gi import require_version
 
@@ -231,7 +232,7 @@ class StartTab(Adw.PreferencesPage):
         github_btn = Gtk.Button()
         github_btn.set_child(Adw.ButtonContent(label="Open GitHub", icon_name="web-browser-symbolic"))
         github_btn.set_valign(Gtk.Align.CENTER)
-        github_btn.connect("clicked", lambda _: webbrowser.open(
+        github_btn.connect("clicked", lambda _: os_utils.open_url(
             "https://github.com/sirenondine/EdgewarePlusPlus-LinuxNative"))
         github_row.add_suffix(github_btn)
         github_row.set_activatable_widget(github_btn)
@@ -244,7 +245,7 @@ class StartTab(Adw.PreferencesPage):
         download_btn = Gtk.Button()
         download_btn.set_child(Adw.ButtonContent(label="Download", icon_name="folder-download-symbolic"))
         download_btn.set_valign(Gtk.Align.CENTER)
-        download_btn.connect("clicked", lambda _: webbrowser.open(
+        download_btn.connect("clicked", lambda _: os_utils.open_url(
             "https://github.com/sirenondine/EdgewarePlusPlus-LinuxNative/archive/refs/heads/main.zip"))
         download_row.add_suffix(download_btn)
         download_row.set_activatable_widget(download_btn)

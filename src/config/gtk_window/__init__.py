@@ -248,8 +248,8 @@ def maybe_prompt_update(local_version: str, live_version: str) -> None:
             confirm_label="Visit Repository",
             cancel_label="Not Now",
         ):
-            import webbrowser
-            webbrowser.open("https://github.com/sirenondine/EdgewarePlusPlus-LinuxNative")
+            import os_utils
+            os_utils.open_url("https://github.com/sirenondine/EdgewarePlusPlus-LinuxNative")
 
 
 class SettingsWindow(Adw.ApplicationWindow):

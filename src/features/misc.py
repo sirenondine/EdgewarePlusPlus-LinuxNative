@@ -20,7 +20,6 @@ import multiprocessing
 import os
 import random
 import time
-import webbrowser
 from collections.abc import Callable
 from multiprocessing.connection import Connection
 from threading import Thread
@@ -59,8 +58,11 @@ def notify(title: str, message: str, icon=None, attachment=None) -> None:
 def open_web(pack: Pack, web: str | None = None) -> None:
     web = web or pack.random_web()
     if web:
-        # webbrowser.open can pause Edgeware if opening the browser takes a long time
-        Thread(target=lambda: webbrowser.open(web), daemon=True).start()
+        # Route through os_utils.open_url (portal + cleaned env): launching the
+        # browser as our child with our GTK/GDK env crashes it. Threaded so a slow
+        # portal/browser start doesn't pause Edgeware.
+        import os_utils
+        Thread(target=lambda: os_utils.open_url(web), daemon=True).start()
 
 
 def handle_sextoy(settings: Settings, pack: Pack, state: State) -> None:
