@@ -58,11 +58,15 @@ PART_CLASSES: dict[str, set[str]] = {
 PART_KEYS = ("breasts", "female_genitals", "male_genitals", "buttocks", "anus", "belly", "armpits", "feet", "face")
 
 
-def eye_strip(box: Region) -> Region:
+def eye_strip(box: Region, height_scale: float = 1.0) -> Region:
     """A coarse, axis-aligned eye-bar sub-region of a face box (upper-middle band).
-    Fallback for when the landmark model is unavailable."""
+    Fallback for when the landmark model is unavailable. `height_scale` grows/shrinks
+    the bar around the eye line."""
     x, y, w, h = box
-    return (x, y + int(h * 0.22), w, max(1, int(h * 0.30)))
+    base_h = h * 0.30 * max(0.05, height_scale)
+    center_y = y + h * 0.37  # ~eye line
+    top = max(y, int(center_y - base_h / 2))
+    return (x, top, w, max(1, int(base_h)))
 
 
 # iBUG-68 eye landmark indices.
@@ -113,15 +117,17 @@ def face_landmarks(image: Image.Image, box: Region):
         return None
 
 
-def draw_eye_bar(image: Image.Image, face_box: Region) -> None:
+def draw_eye_bar(image: Image.Image, face_box: Region, height_scale: float = 1.0) -> None:
     """Draw a black eye-censor bar over a face. Uses landmark eye corners (rotated
-    to the eye line, beta-protection style) when available, else a flat strip."""
+    to the eye line, beta-protection style) when available, else a flat strip.
+    `height_scale` scales the bar thickness."""
     import math
 
+    height_scale = max(0.05, height_scale)
     pts = face_landmarks(image, face_box)
     draw = ImageDraw.Draw(image)
     if not pts:
-        x, y, w, h = eye_strip(face_box)  # fallback: axis-aligned bar
+        x, y, w, h = eye_strip(face_box, height_scale)  # fallback: axis-aligned bar
         draw.rectangle((x, y, x + w, y + h), fill=(0, 0, 0, 255))
         return
 
@@ -138,7 +144,7 @@ def draw_eye_bar(image: Image.Image, face_box: Region) -> None:
     eye_ys = [pts[i][1] for i in list(_LEFT_EYE) + list(_RIGHT_EYE)]
     spread = max(eye_ys) - min(eye_ys)
     half_len = eye_dist * 0.95
-    half_thick = max(spread * 1.4, eye_dist * 0.32)
+    half_thick = max(spread * 1.4, eye_dist * 0.32) * height_scale
 
     ux, uy = math.cos(angle), math.sin(angle)        # along the eye line
     px, py = -math.sin(angle), math.cos(angle)        # perpendicular

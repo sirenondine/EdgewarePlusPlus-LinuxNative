@@ -73,6 +73,7 @@
   "censorPartFeet": 0,
   "censorPartFace": 0,
   "censorFaceEyesOnly": 0,
+  "censorEyeHeight": 100,
   "censorPartBreastsCovered": 1,
   "censorPartFemaleGenitalsCovered": 1,
   "censorPartMaleGenitalsCovered": 1,

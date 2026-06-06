@@ -169,7 +169,7 @@ class ImagePopup(Popup):
                     regions, caption, invert=self.settings.denial_reverse,
                 )
                 for fb in eye_faces:
-                    censor.draw_eye_bar(final, fb)
+                    censor.draw_eye_bar(final, fb, self.settings.censor_eye_height / 100)
                 self._caption_burned = bool(caption)
             pixbuf = pil_to_pixbuf(final)
         except Exception as e:

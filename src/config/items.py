@@ -158,6 +158,7 @@ CONFIG_ITEMS = {
     "censor_part_face": Item("censorPartFace", PERCENTAGE, VAR, int),
     # Face: censor only an eye bar instead of the whole face (anonymity look).
     "censor_face_eyes_only": Item("censorFaceEyesOnly", BOOLEAN, VAR, bool),
+    "censor_eye_height": Item("censorEyeHeight", Schema(All(int, Range(min=10, max=400))), VAR, int),  # eye-bar thickness %
     # Per-part: also censor when the part is clothed (else only exposed detections).
     "censor_part_breasts_covered": Item("censorPartBreastsCovered", BOOLEAN, VAR, bool),
     "censor_part_female_genitals_covered": Item("censorPartFemaleGenitalsCovered", BOOLEAN, VAR, bool),

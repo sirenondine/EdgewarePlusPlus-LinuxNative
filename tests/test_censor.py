@@ -224,6 +224,13 @@ class EyeBarTest(unittest.TestCase):
         finally:
             censor._landmarks, censor._landmarks_failed = saved_s, saved_f
 
+    def test_eye_strip_height_scales(self):
+        base = censor.eye_strip((0, 0, 100, 200))
+        tall = censor.eye_strip((0, 0, 100, 200), 2.0)
+        short = censor.eye_strip((0, 0, 100, 200), 0.5)
+        self.assertGreater(tall[3], base[3])
+        self.assertLess(short[3], base[3])
+
     def test_draw_eye_bar_fallback_strip_when_no_landmarks(self):
         saved_s, saved_f = censor._landmarks, censor._landmarks_failed
         censor._landmarks, censor._landmarks_failed = None, True

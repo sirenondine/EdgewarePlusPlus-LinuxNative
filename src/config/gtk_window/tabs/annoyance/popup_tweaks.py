@@ -103,6 +103,7 @@ class PopupTweaksTab(Adw.PreferencesPage):
         parts.add(AdwSwitchRow(
             "Face: Eyes Only", vars.censor_face_eyes_only,
             subtitle="Censor just a bar over the eyes instead of the whole face."))
+        parts.add(AdwSliderRow("Eye Bar Height (%)", vars.censor_eye_height, 10, 400))
 
         opacity = Adw.PreferencesGroup(title="Opacity")
         self.add(opacity)
