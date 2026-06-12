@@ -363,15 +363,14 @@ def union_detections(a, b):
 
 
 def prefer_masked(items):
-    """Drop box-only detections that overlap a masked detection of the same part.
-    Stops a segmentation mask and a plain bounding box (e.g. seg model + NudeNet)
-    from both censoring the same region — keep the precise mask, drop the box."""
-    masked = [it for it in items if len(it) > 3 and it[3] is not None]
+    """In mask mode, drop box-only detections for any part that has a mask
+    somewhere in the set — keep the precise shell, never render a plain square
+    alongside it (e.g. a NudeNet armpit box next to the armpit-seg shell)."""
+    masked_parts = {it[1] for it in items if len(it) > 3 and it[3] is not None}
     out = []
     for it in items:
-        box, part = it[0], it[1]
         has_mask = len(it) > 3 and it[3] is not None
-        if not has_mask and any(part == m[1] and _overlaps(box, m[0]) for m in masked):
+        if not has_mask and it[1] in masked_parts:
             continue
         out.append(it)
     return out
@@ -538,6 +537,10 @@ def _run_yolo_seg(session, image: Image.Image, size: int, idx_to_part: dict,
                         m = cv2.resize(m, (size, size))
                         m = m[pady:size - pady, padx:size - padx]
                         m = cv2.resize(m, (iw, ih))
+                        # Smooth the soft mask before thresholding so the shell
+                        # outline is rounded, not squiggly/pixel-stepped.
+                        k = (max(1, int(min(iw, ih) * 0.01)) | 1)  # odd kernel ~1% of short side
+                        m = cv2.GaussianBlur(m, (k, k), 0)
                         dx, dy, dw, dh = dbox
                         bmask = (m[dy:dy + dh, dx:dx + dw] > 0.5)
                     except Exception:
@@ -751,10 +754,11 @@ def _effect_pixelate(image: Image.Image, box: Region, intensity: int) -> None:
     if w <= 0 or h <= 0:
         return
     region = image.crop((x, y, x + w, y + h))
-    # Higher intensity -> blockier. Shrink factor 4..40 of the box's long edge.
+    # Higher intensity -> blockier. Keep at least ~8 blocks across so small
+    # regions don't collapse to one giant pixel.
     factor = 4 + (intensity / 100) * 36
-    sw = max(1, int(w / factor))
-    sh = max(1, int(h / factor))
+    sw = min(w, max(8, int(w / factor)))
+    sh = min(h, max(8, int(h / factor)))
     region = region.resize((sw, sh), Image.BILINEAR).resize((w, h), Image.NEAREST)
     image.paste(region, (x, y))
 
@@ -1017,8 +1021,12 @@ def part_label(part: str) -> str:
 
 
 def _draw_part_labels(image: Image.Image, pairs, labels, font_path) -> None:
-    """Burn each region's body-part name, centred and fit to the region box."""
+    """Burn each region's body-part name in small text in the box's upper-left
+    corner. Font size is image-relative so it's consistent across regions."""
     draw = ImageDraw.Draw(image)
+    size = _clamp(int(min(image.width, image.height) * 0.035), 11, 26)
+    font = _load_font(size, font_path)
+    stroke = max(1, size // 8)
     for (x, y, bw, bh), _m in pairs:
         if not labels:
             break
