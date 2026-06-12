@@ -31,7 +31,10 @@ DENIAL_TEXT = (
 PARTS_TEXT = "With AI detection on, the chance to censor each detected body part."
 DETECT_TEXT = (
     "Detectors find body parts to censor. They stack (union); without any, denial "
-    "censors the whole popup. Region shape needs a segmentation model."
+    "censors the whole popup. Region shape needs a segmentation model.\n\n"
+    "PERFORMANCE: each enabled detector runs once per censored popup. They run "
+    "on the CPU by default (inference is serialised so it won't freeze the UI, but "
+    "many detectors = slower popups). Enable only what you need."
 )
 
 _DENIAL_STYLES = {"blur": "Blur", "pixelate": "Pixelate", "bars": "Bars", "mixed": "Mixed"}
@@ -85,29 +88,30 @@ class CensorTab(Adw.PreferencesPage):
 
         detect = Adw.PreferencesGroup(title="AI Detection", description=DETECT_TEXT)
         self.add(detect)
+        detect.add(self._compute_row())
         detect.add(AdwSwitchRow(
             "AI Region Detection", vars.denial_detect,
-            subtitle="Censor only the detected explicit regions (bundled model; stills only)."))
+            subtitle="Censor only the detected explicit regions (bundled model; stills only). Cost: light."))
         detect.add(AdwSwitchRow(
             "Anime Detection (Union)", vars.denial_detect_anime,
-            subtitle="Add an anime-tuned detector — better on 2D/stylised art. Needs the model below."))
+            subtitle="Anime-tuned detector — better on 2D/stylised art. Cost: HEAVY (1280px). Needs the model below."))
         detect.add(self._build_anime_row())
         detect.add(AdwSwitchRow(
             "Full-Breast Detection", vars.denial_detect_breasts,
-            subtitle="Bundled breast segmentation — whole-breast shape (vs nipple-only)."))
+            subtitle="Bundled breast segmentation — whole-breast shape (vs nipple-only). Cost: medium."))
         detect.add(AdwSwitchRow(
             "Full-Face Detection", vars.denial_detect_face,
-            subtitle="Bundled face segmentation — whole-face masks (clean anonymity)."))
+            subtitle="Bundled face segmentation — whole-face masks (clean anonymity). Cost: medium."))
         detect.add(AdwSwitchRow(
             "Body Detection", vars.denial_detect_body,
-            subtitle="Whole-body segmentation — best with Reverse (sharp body, blurred background). Large model, not bundled."))
+            subtitle="Whole-body seg — best with Reverse. Cost: HEAVY (large model, not bundled — download separately)."))
         for label, var, sub in (
-            ("Armpit Detection", vars.denial_detect_armpits, "Bundled armpit segmentation → masks the armpits part."),
-            ("Belly Detection", vars.denial_detect_belly, "Bundled belly segmentation → masks the belly part."),
-            ("Mouth Detection", vars.denial_detect_mouth, "Bundled mouth segmentation — gag/mouth censor."),
-            ("Underwear Detection", vars.denial_detect_underwear, "Bundled panties/underwear segmentation."),
-            ("Socks Detection", vars.denial_detect_socks, "Bundled socks segmentation."),
-            ("Skin Detection", vars.denial_detect_skin, "Bundled skin segmentation — censors exposed skin (aggressive)."),
+            ("Armpit Detection", vars.denial_detect_armpits, "Bundled armpit segmentation → armpits part. Cost: medium."),
+            ("Belly Detection", vars.denial_detect_belly, "Bundled belly segmentation → belly part. Cost: medium."),
+            ("Mouth Detection", vars.denial_detect_mouth, "Bundled mouth segmentation — gag/mouth censor. Cost: medium."),
+            ("Underwear Detection", vars.denial_detect_underwear, "Bundled panties/underwear segmentation. Cost: medium."),
+            ("Socks Detection", vars.denial_detect_socks, "Bundled socks segmentation. Cost: medium."),
+            ("Skin Detection", vars.denial_detect_skin, "Bundled skin segmentation — exposed skin (aggressive). Cost: medium."),
         ):
             detect.add(AdwSwitchRow(label, var, subtitle=sub))
 
@@ -169,6 +173,20 @@ class CensorTab(Adw.PreferencesPage):
 
         button.connect("clicked", on_click)
         show_installed() if available_fn() else show_missing()
+        return row
+
+    def _compute_row(self) -> Adw.ActionRow:
+        """Show whether detectors run on CPU or a GPU execution provider."""
+        from features import censor
+
+        prov = censor.active_provider()
+        if prov == "CPU":
+            sub = "CPU — install a GPU-enabled onnxruntime (ROCm/CUDA) to offload and speed this up."
+        else:
+            sub = f"GPU via {prov} — detectors are hardware-accelerated."
+        row = Adw.ActionRow(title="Compute Backend", subtitle=sub)
+        row.add_prefix(Gtk.Image.new_from_icon_name(
+            "video-display-symbolic" if prov != "CPU" else "computer-symbolic"))
         return row
 
     def _build_anime_row(self) -> Adw.ActionRow:

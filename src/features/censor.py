@@ -39,6 +39,45 @@ Region = tuple[int, int, int, int]  # (x, y, w, h) in pixel coords
 
 STYLES = ("blur", "pixelate", "bars", "mixed")
 
+# Serialise ONNX inference and cap threads per session: each popup runs several
+# detectors on a worker thread, and onnxruntime defaults to ALL cores per session
+# — concurrent popups otherwise oversubscribe the CPU and freeze the GTK main loop.
+_infer_lock = threading.Lock()
+
+
+def active_provider() -> str:
+    """The compute backend detectors will use: a GPU EP name if available, else
+    'CPU'. For surfacing in the UI."""
+    try:
+        import onnxruntime as ort
+
+        avail = set(ort.get_available_providers())
+        for p in ("ROCMExecutionProvider", "MIGraphXExecutionProvider",
+                  "CUDAExecutionProvider", "DmlExecutionProvider"):
+            if p in avail:
+                return p.replace("ExecutionProvider", "")
+    except Exception:
+        pass
+    return "CPU"
+
+
+def _session(path):
+    """Build an ONNX session. Prefers a GPU execution provider when one is
+    available (ROCm/CUDA/MIGraphX/DirectML), else CPU with a bounded thread pool.
+    CPU inference is serialised (see _infer_lock) so it can't starve the GTK loop;
+    GPU just falls through that lock cheaply."""
+    import os
+
+    import onnxruntime as ort
+
+    avail = set(ort.get_available_providers())
+    gpu = [p for p in ("MIGraphXExecutionProvider", "ROCMExecutionProvider",
+                       "CUDAExecutionProvider", "DmlExecutionProvider") if p in avail]
+    opts = ort.SessionOptions()
+    opts.intra_op_num_threads = max(1, min(8, (os.cpu_count() or 4) // 4))
+    opts.inter_op_num_threads = 1
+    return ort.InferenceSession(str(path), sess_options=opts, providers=gpu + ["CPUExecutionProvider"])
+
 # User-facing body parts -> the NudeNet 3.x detector classes that map to them.
 # Covered variants are included so a part stays hidden even when clothed. Each
 # part has its own censor chance (see config censorPart*), rolled per detection.
@@ -86,7 +125,7 @@ def _get_landmarks():
         try:
             import onnxruntime as ort
 
-            _landmarks = ort.InferenceSession(str(Assets.FACE_LANDMARKS), providers=["CPUExecutionProvider"])
+            _landmarks = _session(Assets.FACE_LANDMARKS)
             logging.info("censor: face-landmark model loaded")
         except Exception as e:
             _landmarks_failed = True
@@ -109,7 +148,8 @@ def face_landmarks(image: Image.Image, box: Region):
         crop = image.convert("RGB").crop((x, y, x + w, y + h)).resize((112, 112))
         arr = np.asarray(crop, dtype=np.float32) / 255.0
         arr = np.transpose(arr, (2, 0, 1))[None]  # NCHW
-        out = session.run(None, {session.get_inputs()[0].name: arr})[0][0]
+        with _infer_lock:
+            out = session.run(None, {session.get_inputs()[0].name: arr})[0][0]
         pts = out.reshape(-1, 2)  # 68 x (x,y), normalised to the crop
         return [(x + float(px) * w, y + float(py) * h) for px, py in pts]
     except Exception as e:
@@ -271,7 +311,7 @@ def _get_detector():
         try:
             import onnxruntime as ort
 
-            _detector = ort.InferenceSession(str(Assets.NUDENET_MODEL), providers=["CPUExecutionProvider"])
+            _detector = _session(Assets.NUDENET_MODEL)
             logging.info("censor: NudeNet detect model loaded")
         except Exception as e:
             _detector_failed = True
@@ -431,7 +471,7 @@ def _get_anime():
                 raise FileNotFoundError("anime model not downloaded")
             import onnxruntime as ort
 
-            _anime = ort.InferenceSession(str(Data.ANIME_MODEL), providers=["CPUExecutionProvider"])
+            _anime = _session(Data.ANIME_MODEL)
             logging.info("censor: anime detector loaded")
         except Exception as e:
             _anime_failed = True
@@ -480,7 +520,8 @@ def _run_yolo_seg(session, image: Image.Image, size: int, idx_to_part: dict,
     canvas.paste(image.convert("RGB").resize((nw, nh)), (padx, pady))
     arr = np.transpose(np.asarray(canvas, dtype=np.float32) / 255.0, (2, 0, 1))[None]
 
-    out = session.run(None, {session.get_inputs()[0].name: arr})
+    with _infer_lock:
+        out = session.run(None, {session.get_inputs()[0].name: arr})
     p = out[0][0].T  # [N, 4 + ncls (+32 mask coeffs when seg)]
     ncls = p.shape[1] - (4 + 32 if seg else 4)  # derive class count from the tensor
     if ncls < 1:
@@ -576,7 +617,7 @@ def _get_breasts():
         try:
             import onnxruntime as ort
 
-            _breasts = ort.InferenceSession(str(Assets.BREASTS_MODEL), providers=["CPUExecutionProvider"])
+            _breasts = _session(Assets.BREASTS_MODEL)
             logging.info("censor: breast-seg model loaded")
         except Exception as e:
             _breasts_failed = True
@@ -613,7 +654,7 @@ def _get_face():
         try:
             import onnxruntime as ort
 
-            _face = ort.InferenceSession(str(Assets.FACE_SEG), providers=["CPUExecutionProvider"])
+            _face = _session(Assets.FACE_SEG)
             logging.info("censor: face-seg model loaded")
         except Exception as e:
             _face_failed = True
@@ -651,7 +692,7 @@ def _get_body():
                 raise FileNotFoundError("body model not present")
             import onnxruntime as ort
 
-            _body = ort.InferenceSession(str(Data.BODY_MODEL), providers=["CPUExecutionProvider"])
+            _body = _session(Data.BODY_MODEL)
             logging.info("censor: body-seg model loaded")
         except Exception as e:
             _body_failed = True
@@ -716,7 +757,7 @@ def _get_seg_model(key: str):
                 raise FileNotFoundError(key)
             import onnxruntime as ort
 
-            _seg_sessions[key] = ort.InferenceSession(str(path), providers=["CPUExecutionProvider"])
+            _seg_sessions[key] = _session(path)
             logging.info(f"censor: seg model '{key}' loaded")
         except Exception as e:
             _seg_failed.add(key)
@@ -1033,8 +1074,9 @@ def _draw_part_labels(image: Image.Image, pairs, labels, font_path) -> None:
         text = labels.pop(0)
         if not text or bw <= 0 or bh <= 0:
             continue
-        font, size, lines = _fit_font(draw, text, int(bw * 0.9), int(bh * 0.5), font_path)
-        _draw_lines(draw, lines, font, size, x + bw / 2, y + bh / 2)
+        pad = max(2, int(min(bw, bh) * 0.06))
+        draw.text((x + pad, y + pad), text, font=font, fill=(255, 255, 255, 255),
+                  stroke_width=stroke, stroke_fill=(0, 0, 0, 255))
 
 
 # ---------------------------------------------------------------------------
